@@ -1785,9 +1785,11 @@ function renderPlayers(){
 function hostStartGame(){
   if(!isHost) return;
   const players=(net.players||[]);
-  if(players.length<2) return;
-  const game=mpBuildGame(players, net.gameMode);   // costruisce UNA partita condivisa
-  patchRoom(s=>{ s.phase="playing"; s.game=game; });
+  if(players.length<2){ alert("Servono almeno 2 giocatori."); return; }
+  mpGuard("Creazione partita", ()=>{
+    const game=mpBuildGame(players, net.gameMode);   // costruisce UNA partita condivisa
+    patchRoom(s=>{ s.phase="playing"; s.game=game; });
+  });
 }
 
 // ---------- Chiusura stanza dalla LOBBY ----------
@@ -2050,21 +2052,28 @@ function mpRenderAll(){
   renderHUD(); drawPawn();
 }
 
+function mpGuard(label, fn){ try{ return fn(); }catch(e){ console.error("[MP] "+label, e); alert("⚠ "+label+":\n"+(e&&e.message?e.message:e)); } }
 function mpEnterGame(){
-  mpHydrate(mpDeserialize(net.game));
-  show("game"); mpRenderAll();
-  if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+  mpGuard("Avvio partita", ()=>{
+    mpHydrate(mpDeserialize(net.game));
+    show("game"); mpRenderAll();
+    if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+  });
 }
 function mpOnGameUpdate(){
   if(mpMyTurn) return;                    // sto giocando: gli aggiornamenti vengono da me
-  mpHydrate(mpDeserialize(net.game));
-  mpRenderAll();
-  if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+  mpGuard("Aggiornamento partita", ()=>{
+    mpHydrate(mpDeserialize(net.game));
+    mpRenderAll();
+    if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+  });
 }
 function mpStartMyTurn(){
-  mpMyTurn=true; mpHideWatch();
-  const to=document.getElementById('turnof'); if(to) to.textContent = state.you?state.you.name:"Tu";
-  beginYourTurn();
+  mpGuard("Inizio turno", ()=>{
+    mpMyTurn=true; mpHideWatch();
+    const to=document.getElementById('turnof'); if(to) to.textContent = state.you?state.you.name:"Tu";
+    beginYourTurn();
+  });
 }
 function mpWatch(){
   mpMyTurn=false; stopTurnTimer();
@@ -2088,7 +2097,7 @@ function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;
 function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!best||c.fama>best.fama) best=c; }); return best?best.id:null; }
 
 // Fine del MIO turno → scrivo, passo al prossimo (o nuovo giorno / fine), pubblico.
-function mpEndMyTurn(){
+function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
   mpMyTurn=false; stopTurnTimer(); mpWriteBack();
   let ended=false, winnerId=null;
   const active=mpActiveCharacters();
@@ -2104,7 +2113,7 @@ function mpEndMyTurn(){
   }
   const gameSer=mpSerialize(mpGame);
   patchRoom(s=>{ s.game=gameSer; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
-}
+}); }
 
 // Nuovo giorno condiviso: reset riciclaggio a nuova fase + pesca evento + effetti "per tutti".
 function mpAdvanceDay(){
