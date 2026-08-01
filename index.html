@@ -906,13 +906,9 @@
 
 <!-- ============ GAME ============ -->
 <section id="game" class="screen">
-  <!-- Attesa del proprio turno (Tappa 2.2): copre il gioco per chi non è di turno -->
-  <div id="mpwatch" style="position:fixed;inset:0;z-index:800;background:rgba(10,8,6,.62);align-items:center;justify-content:center;flex-direction:column;display:none">
-    <div style="background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:26px 32px;text-align:center;max-width:340px">
-      <div style="font-size:30px">⏳</div>
-      <div class="stencil" style="color:var(--gold);font-size:20px;margin:8px 0">È il turno di <span id="mpwatch-name">—</span></div>
-      <div class="dim small">Attendi il tuo turno. La mappa si aggiorna quando gli altri hanno giocato.</div>
-    </div>
+  <!-- Attesa del proprio turno (Tappa 2.2): targhetta NON bloccante (puoi navigare l'HUD) -->
+  <div id="mpwatch" style="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--gold);border-radius:22px;padding:7px 18px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55)">
+    <span class="stencil" style="color:var(--gold);font-size:14px;letter-spacing:.04em">⏳ È il turno di <span id="mpwatch-name">—</span> — puoi consultare l'HUD, non agire</span>
   </div>
   <!-- STEPPER FASI DI GIOCO -->
   <div id="phase-stepper">
@@ -1840,16 +1836,50 @@ function handleEnded(){
   if(endedShown) return;
   endedShown=true;
   clearSession();
-  stopTurnTimer && stopTurnTimer();
+  if(typeof stopTurnTimer==="function") stopTurnTimer();
+  mpHideWatch && mpHideWatch();
   if(roomChannel){ SB.removeChannel(roomChannel); roomChannel=null; }
+  if(net && net.game){ mpShowEndScreen(); return; }   // classifica finale condivisa
   const iWon = net && net.winnerId===myId;
-  const reason = (net && net.endReason==="abbandono") ? "Gli altri giocatori hanno abbandonato." : "La partita è terminata.";
   openModal(`<div style="text-align:center;padding:34px 26px">
       <div style="font-size:46px;margin-bottom:8px">${iWon?"🏆":"🏁"}</div>
       <h2 style="margin:0 0 8px;color:${iWon?'var(--gold)':'var(--muted)'}">${iWon?"Hai vinto!":"Partita terminata"}</h2>
-      <p class="muted small" style="margin:0 0 22px">${reason}</p>
       <button class="btn primary" onclick="closeModal();location.reload()">Torna alla home</button>
     </div>`);
+}
+
+// Classifica finale (Tappa 2.2): costruita da TUTTI i personaggi della partita condivisa.
+function mpShowEndScreen(){
+  let all=[];
+  try{ const g=mpDeserialize(net.game); all=(g.characters||[]).map(c=>({id:c.id,name:c.name,color:c.color||"#aaa",fama:c.fama||0,coins:c.coins||0,isYou:c.id===myId,abandoned:!!c.abandoned})); }catch(e){}
+  all.sort((a,b)=> (a.abandoned?1:0)-(b.abandoned?1:0) || (b.fama-a.fama) || (b.coins-a.coins));
+  const winId=net.winnerId, iWon=winId===myId;
+  const winner=all.find(p=>p.id===winId);
+  const reason = net.endReason==="abbandono" ? "Gli altri giocatori hanno abbandonato la partita." : "Partita conclusa.";
+  const winnerLabel = iWon ? "Hai vinto!" : (winner? `${escapeHtml(winner.name)} vince!` : "Partita terminata");
+  const winnerColor = winner? winner.color : "var(--gold)";
+  const MEDAL=["🥇","🥈","🥉"];
+  const rows=all.map((p,i)=>{
+    const isW=p.id===winId;
+    const pos=p.abandoned?"—":(i<3?MEDAL[i]:`${i+1}.`);
+    const stars="★".repeat(p.fama)+"☆".repeat(Math.max(0,5-p.fama));
+    return `<div class="end-rank-row${isW?" end-winner":""}"${p.abandoned?' style="opacity:.5"':''}>
+      <span class="end-pos">${pos}</span>
+      <span class="end-name" style="color:${p.color}">${escapeHtml(p.name)}${p.isYou?" (tu)":""}${p.abandoned?" — ritirato":""}</span>
+      <span class="end-fama">${stars} <span class="dim" style="font-size:10px">${p.fama}/5</span></span>
+      <span class="end-coins">🪙 ${p.coins}</span>
+    </div>`;
+  }).join("");
+  openModal(`
+    <div class="modal-h"><span class="stencil">Classifica finale</span></div>
+    <div class="modal-b">
+      <p class="dim small" style="text-align:center;margin:0 0 4px">${reason}</p>
+      <div class="end-winner-banner" style="color:${winnerColor}">${winnerLabel}</div>
+      <div class="end-rank-list">${rows}</div>
+      <div class="center" style="margin-top:20px">
+        <button class="btn primary" onclick="location.reload()">Torna alla home</button>
+      </div>
+    </div>`, true);
 }
 
 function leaveCleanup(){
@@ -1998,12 +2028,13 @@ function mpBuildGame(players, gameMode){
   const characters = players.map((p,i)=>{
     const pl=i+1, campKey=CAMP_OF[pl]||YOU_CAMP;
     const base=fresh().you;
-    return {...base, id:p.id, name:p.name, color:p.color, player:pl,
+    return {...base, id:p.id, name:p.name, color:COLORS[i%COLORS.length], player:pl,   // colore FISSO per numero giocatore
       tile: tileMap.get(campKey), campKey, extractKey: EXTRACTION_OF[pl]||YOU_EXTRACTION,
       missions:[ mpPickMission(MISSIONS_MEDICHE), mpPickMission(MISSIONS_MILITARI), mpPickMission(MISSIONS_URBANE) ],
       abandoned:false };
   });
-  const game={ gameMode, day:1, seat:0, starterIdx:0, turnsThisDay:0,
+  const startSeat = Math.floor(Math.random()*players.length);   // chi inizia è casuale
+  const game={ gameMode, day:1, seat:startSeat, starterIdx:startSeat, turnsThisDay:0,
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
@@ -2053,11 +2084,12 @@ function mpRenderAll(){
 }
 
 function mpGuard(label, fn){ try{ return fn(); }catch(e){ console.error("[MP] "+label, e); alert("⚠ "+label+":\n"+(e&&e.message?e.message:e)); } }
+let mpLastEventDay=-1, _mpEventCb=null;
 function mpEnterGame(){
   mpGuard("Avvio partita", ()=>{
     mpHydrate(mpDeserialize(net.game));
     show("game"); mpRenderAll();
-    if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+    mpAfterHydrateFlow();
   });
 }
 function mpOnGameUpdate(){
@@ -2065,9 +2097,43 @@ function mpOnGameUpdate(){
   mpGuard("Aggiornamento partita", ()=>{
     mpHydrate(mpDeserialize(net.game));
     mpRenderAll();
-    if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+    mpAfterHydrateFlow();
   });
 }
+// A inizio di ogni GIORNO mostra la carta evento (per tutti), poi turno o attesa.
+function mpAfterHydrateFlow(){
+  if(mpGame.day!==mpLastEventDay){
+    mpLastEventDay=mpGame.day;
+    mpShowEventCard(()=>mpProceedTurnOrWatch());
+  } else {
+    mpProceedTurnOrWatch();
+  }
+}
+function mpProceedTurnOrWatch(){
+  if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+}
+function mpShowEventCard(cb){
+  const e=state.event;
+  if(!e){ if(cb) cb(); return; }
+  _mpEventCb=cb;
+  const colorMap={verde:"var(--green)",marrone:"var(--ochre)",rosso:"var(--rust)"};
+  const bc=colorMap[e.color]||"var(--gold)";
+  const phaseLabel={verde:"L'inizio",marrone:"Il declino",rosso:"La resa dei conti"}[e.color]||periodOfDay(state.day);
+  const st=state.dayStarter;
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:${bc}">📋 Giorno ${state.day} — ${phaseLabel}</span></div>
+    <div class="modal-b center">
+      <div class="evt-card evt-card-anim" style="border-color:${bc}">
+        <div class="stencil en" style="color:${bc}">${e.t}</div>
+        ${e.eff?`<div class="evt-eff">${e.eff}</div>`:''}
+        ${e.d?`<p class="evt-flavor">${e.d}</p>`:''}
+      </div>
+      <p class="dim small" style="margin:6px 0">L'effetto è attivo per tutta la durata del giorno.</p>
+      ${st?`<p class="small" style="margin:6px 0 14px">Inizia <b style="color:${st.color||'var(--gold)'}">${escapeHtml(st.name)}</b>, poi in senso orario.</p>`:""}
+      <button class="btn primary" onclick="closeModal();mpAfterEventCard()">Continua ▸</button>
+    </div>`);
+}
+function mpAfterEventCard(){ const cb=_mpEventCb; _mpEventCb=null; if(cb) cb(); }
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
     mpMyTurn=true; mpHideWatch();
@@ -2077,12 +2143,17 @@ function mpStartMyTurn(){
 }
 function mpWatch(){
   mpMyTurn=false; stopTurnTimer();
+  state.phase="base"; state.actionsLeft=0;                  // niente azioni mentre si guarda
+  if(typeof updateActionUI==="function") updateActionUI();  // bottoni azione disattivati
   const active=mpGame.characters[mpGame.seat];
   const to=document.getElementById('turnof'); if(to) to.textContent = active?active.name:"—";
   mpShowWatch(active?active.name:"—");
 }
-function mpShowWatch(name){ const el=document.getElementById('mpwatch'); if(!el)return; const n=document.getElementById('mpwatch-name'); if(n)n.textContent=name; el.style.display='flex'; }
+function mpShowWatch(name){ const el=document.getElementById('mpwatch'); if(!el)return; const n=document.getElementById('mpwatch-name'); if(n)n.textContent=name; el.style.display='block'; }
 function mpHideWatch(){ const el=document.getElementById('mpwatch'); if(el) el.style.display='none'; }
+// Blocco azioni quando NON è il mio turno (l'HUD resta navigabile).
+function mpCanAct(){ return !mpGame || mpMyTurn; }
+function mpDeny(){ try{ log("⏳ Non è il tuo turno: puoi consultare l'HUD ma non agire.","bad"); }catch(e){} }
 
 function mpWriteBack(){
   if(mySeatIndex>=0) mpGame.characters[mySeatIndex]=state.you;
@@ -2524,7 +2595,7 @@ function drawPawn(){
   svg.querySelectorAll(".pawn").forEach(p=>p.remove());
   const pawns=[];
   (state.opponents||[]).forEach(o=>pawns.push({t:o.tile,color:o.color,label:initials(o.name),isYou:false,hidden:!!o.hidden}));
-  pawns.push({t:state.you.tile,color:"#c8a44e",label:"TU",isYou:true,hidden:!!state.you.hidden});
+  pawns.push({t:state.you.tile,color:state.you.color||"#c8a44e",label:"TU",isYou:true,hidden:!!state.you.hidden});
   // raggruppa per casella per sfalsare le pedine sovrapposte
   const byTile={};
   pawns.forEach(p=>{const k=key(p.t.col,p.t.v);(byTile[k]=byTile[k]||[]).push(p);});
@@ -3073,6 +3144,7 @@ function updateTimerUI(){
 
 // ----- Azioni -----
 function beginMove(){
+  if(!mpCanAct()){ mpDeny(); return; }
   if(state.stationTravelActive){ log(`🚉 Prima scegli una stazione (o annulla il viaggio rapido).`,"bad"); return; }
   // Arma un ulteriore spostamento (2ª/3ª azione). Il movimento obbligatorio è già armato a inizio turno.
   if(state.phase==="move"){ showReach(); return; }              // già in movimento obbligatorio
@@ -3343,6 +3415,7 @@ function openStationPrompt(){
 }
 // Sul "Sì": evidenzia le altre stazioni sulla mappa (vista dall'alto) e ci si può muovere solo lì
 function beginStationTravel(){
+  if(!mpCanAct()){ mpDeny(); return; }
   closeModal();
   state.stationTravelActive=true;
   const set=new Set();
@@ -3535,6 +3608,7 @@ function lockpickDone(){
   state.lockpickFoe=null; closeModal();
 }
 function canAct(){
+  if(!mpCanAct()){ mpDeny(); return false; }
   if(state.stationTravelActive){log(`🚉 Prima scegli una stazione (o annulla il viaggio rapido).`,"bad");return false;}
   if(state.phase==="base"){return false;}
   if(state.phase==="move"){log(`Prima devi effettuare il <b>movimento obbligatorio</b> (clicca una zona evidenziata in oro).`,"bad");return false;}
@@ -3645,6 +3719,7 @@ function endTurnMode(){
   return {label:"⏭ Termina turno", mode:"conclude"};
 }
 function endTurnCTA(){
+  if(!mpCanAct()){ mpDeny(); return; }
   if(state.stationTravelActive){ log(`🚉 Prima scegli una stazione (o annulla il viaggio rapido).`,"bad"); return; }
   if(state.phase==="move"){ log(`Devi prima spostarti (obbligatorio).`,"bad"); return; }
   const em=endTurnMode();
@@ -3726,6 +3801,7 @@ function enterPostEncounter(){
   log(`Scontro concluso. Puoi <b>curarti</b> e <b>gestire l'inventario</b>, poi premi <b>Termina turno</b>.`,"good");
 }
 function concludeTurn(){
+  if(!mpCanAct()) return;   // sicurezza: solo chi è di turno può concludere (e pubblicare)
   stopTurnTimer();
   // Emorragia: -1 vita a fine turno (dal turno successivo all'applicazione)
   if(state.you.states.emorragia){
@@ -5272,6 +5348,7 @@ function handleAfterComplete(m){
 function inOwnBase(){ return !!(state.you.tile && state.you.tile.type === "accampamento"); }
 // Il magazzino si può SEMPRE aprire per consultare le carte; il trasferimento è consentito solo nella propria Base.
 function openDeposito(){
+  if(!mpCanAct()){ mpDeny(); return; }
   const y=state.you;
   const canMove = inOwnBase();
   // --- colonna sinistra: zaino + equip + tasca sicura ---
@@ -5483,6 +5560,7 @@ function sellItem(sec,i){
 
 // =================== CRAFTING ===================
 function openCrafting(){
+  if(!mpCanAct()){ mpDeny(); return; }
   if(document.getElementById('overlay').classList.contains('active'))closeModal();
   const inSafe=SAFE.has(state.you.tile.type);   // si crea solo in base/avamposto
   const rows=CRAFTING.map((r,ri)=>{
