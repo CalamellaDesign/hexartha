@@ -2004,7 +2004,7 @@ function mpBuildGame(players, gameMode){
       abandoned:false };
   });
   const game={ gameMode, day:1, seat:0, starterIdx:0, turnsThisDay:0,
-    order: players.map((_,i)=>i), event:null,
+    order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
             discoSegretoInPlay:false, discoSegretoEliminated:false,
