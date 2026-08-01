@@ -833,6 +833,7 @@
   <div class="home-actions">
     <button class="btn primary" onclick="createRoom()">Crea stanza</button>
     <button class="btn" onclick="openJoin()">Entra con codice</button>
+    <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
   <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · non è il gioco finale</p>
@@ -950,6 +951,9 @@
       <div class="turnbox"><div class="flab">Turno di</div><div class="tn" id="turnof">—</div></div>
       <div class="timerbox"><div class="flab">Tempo</div>
         <div class="tt">⏱ <span id="turntimer" style="color:var(--gold)">3:00</span></div></div>
+    </div>
+    <div style="text-align:right;margin:2px 0 6px">
+      <button class="btn" style="padding:3px 10px;font-size:11px;border-color:var(--rust);color:var(--rust)" onclick="abandonGame()" title="Esci dalla partita">Abbandona</button>
     </div>
     <div class="event" id="eventbox" onclick="this.classList.toggle('open')" title="Tocca per leggere il testo di lore">
       <div class="t" id="eventtitle">EVENTO</div>
@@ -1643,7 +1647,13 @@ const SUPA_KEY="sb_publishable_P0nzm57pDAAD0a0FFkUDgQ_Zs6_1rgR";
 const SB = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 const COLORS=["#d9a441","#4d7fa8","#7ab85f","#b5482f"];
-let roomCode=null, myId=null, isHost=false, roomChannel=null, net=null, gameStarted=false;
+let roomCode=null, myId=null, myName=null, isHost=false, roomChannel=null, net=null, gameStarted=false, endedShown=false;
+
+// ---------- Persistenza sessione (per riconnettersi dopo un refresh) ----------
+// Salviamo SOLO l'identità (chi sei / quale stanza) nel browser; la partita vive su Supabase.
+function saveSession(){ try{ localStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem("hx_session"); }catch(e){} }
+function loadSession(){ try{ return JSON.parse(localStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
 
 function randId(){ return Math.random().toString(36).slice(2,10); }
 function makeCode(){ return Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join(""); }
@@ -1653,12 +1663,12 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 // ---------- Creazione stanza (host) ----------
 async function createRoom(){
   const name=(prompt("Come ti chiami?","Host")||"Host").trim().slice(0,20)||"Host";
-  myId=randId(); isHost=true; roomCode=makeCode(); gameStarted=false;
+  myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false;
   const st={hostId:myId, phase:"lobby", gameMode:"classica",
             players:[{id:myId,name,color:COLORS[0]}]};
   const {error}=await SB.from("rooms").insert({code:roomCode, state:st});
   if(error){ alert("Non riesco a creare la stanza:\n"+error.message); return; }
-  net=st; enterLobby();
+  net=st; saveSession(); enterLobby();
 }
 
 // ---------- Ingresso tramite codice ----------
@@ -1676,9 +1686,9 @@ async function doJoin(){
   if(!cur){ joinMsg("Stanza non trovata. Controlla il codice."); return; }
   if(cur.state.phase!=="lobby"){ joinMsg("La partita è già iniziata o la stanza è chiusa."); return; }
   if((cur.state.players||[]).length>=4){ joinMsg("Stanza piena (max 4 giocatori)."); return; }
-  myId=randId(); isHost=false; roomCode=code; gameStarted=false; net=cur.state;
+  myId=randId(); myName=name; isHost=false; roomCode=code; gameStarted=false; endedShown=false; net=cur.state;
   await patchRoom(s=>{ if(!s.players.some(p=>p.id===myId)) s.players.push({id:myId,name,color:COLORS[s.players.length%COLORS.length]}); });
-  enterLobby();
+  saveSession(); enterLobby();
 }
 
 // ---------- Accesso al database ----------
@@ -1719,14 +1729,15 @@ function enterLobby(){
   const url=joinLink(roomCode);
   document.getElementById("invlink").value=url;
   subscribeRoom();
-  applyRoomState();
-  show("lobby");
+  show("lobby");          // prima mostro la lobby…
+  applyRoomState();       // …poi applico lo stato (se la partita è già in corso, passa al gioco)
   refreshRoom();
 }
 
 // ---------- Applica lo stato ricevuto ----------
 function applyRoomState(){
   if(!net) return;
+  if(net.phase==="ended"){ handleEnded(); return; }
   document.getElementById("mode-classica").classList.toggle("active", net.gameMode==="classica");
   document.getElementById("mode-hardcore").classList.toggle("active", net.gameMode==="hardcore");
   const rc=document.querySelector('input[name=gamemode][value="'+net.gameMode+'"]'); if(rc) rc.checked=true;
@@ -1775,7 +1786,7 @@ function renderPlayers(){
 // ---------- Avvio (host) ----------
 function hostStartGame(){ if(!isHost) return; patchRoom(s=>{ s.phase="playing"; }); }
 
-// ---------- Chiusura / uscita ----------
+// ---------- Chiusura stanza dalla LOBBY ----------
 async function closeRoom(){
   if(isHost){
     if(!confirm("Chiudere la stanza per tutti i giocatori?")) return;
@@ -1783,17 +1794,85 @@ async function closeRoom(){
   } else {
     await patchRoom(s=>{ s.players=s.players.filter(p=>p.id!==myId); });
   }
-  leaveCleanup(); show("home");
+  clearSession(); leaveCleanup(); show("home");
 }
+
+// ---------- Abbandono DURANTE la partita ----------
+// Regole: se restano ≥2 giocatori la partita continua; se ne resta 1 solo, quello vince subito.
+async function abandonGame(){
+  if(!confirm("Vuoi abbandonare la partita? Non potrai rientrare.")) return;
+  const code=roomCode, id=myId;
+  clearSession();
+  try{
+    const cur=await fetchRoom(code);
+    if(cur){
+      const s=JSON.parse(JSON.stringify(cur.state));
+      s.players=(s.players||[]).filter(p=>p.id!==id);
+      if(s.phase==="playing" && s.players.length===1){
+        s.phase="ended"; s.winnerId=s.players[0].id; s.endReason="abbandono";
+      }
+      await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",code);
+    }
+  }catch(e){ console.warn(e); }
+  leaveCleanup();
+  location.reload();     // torno alla home pulita (senza sessione salvata → niente auto-rientro)
+}
+
+// ---------- Fine partita condivisa ----------
+function handleEnded(){
+  if(endedShown) return;
+  endedShown=true;
+  clearSession();
+  stopTurnTimer && stopTurnTimer();
+  if(roomChannel){ SB.removeChannel(roomChannel); roomChannel=null; }
+  const iWon = net && net.winnerId===myId;
+  const reason = (net && net.endReason==="abbandono") ? "Gli altri giocatori hanno abbandonato." : "La partita è terminata.";
+  openModal(`<div style="text-align:center;padding:34px 26px">
+      <div style="font-size:46px;margin-bottom:8px">${iWon?"🏆":"🏁"}</div>
+      <h2 style="margin:0 0 8px;color:${iWon?'var(--gold)':'var(--muted)'}">${iWon?"Hai vinto!":"Partita terminata"}</h2>
+      <p class="muted small" style="margin:0 0 22px">${reason}</p>
+      <button class="btn primary" onclick="closeModal();location.reload()">Torna alla home</button>
+    </div>`);
+}
+
 function leaveCleanup(){
   if(roomChannel){ SB.removeChannel(roomChannel); roomChannel=null; }
   roomCode=null; net=null; isHost=false; gameStarted=false;
 }
 function handleRoomGone(){
   if(!roomCode) return;
-  leaveCleanup();
+  clearSession(); leaveCleanup();
   alert("La stanza è stata chiusa dall'host.");
   show("home");
+}
+
+// ---------- Riprendi partita (dopo un refresh) ----------
+async function checkResume(){
+  const sess=loadSession();
+  const btn=document.getElementById("resumebtn");
+  if(!sess || !btn){ if(btn) btn.style.display="none"; return; }
+  const cur=await fetchRoom(sess.code);
+  if(!cur || cur.state.phase==="ended"){ clearSession(); btn.style.display="none"; return; }
+  const stillIn = (cur.state.players||[]).some(p=>p.id===sess.id) || cur.state.phase==="lobby";
+  if(!stillIn){ clearSession(); btn.style.display="none"; return; }
+  btn.style.display="";
+  btn.textContent="↩ Riprendi partita ("+sess.code+")";
+}
+async function resumeSession(){
+  const sess=loadSession();
+  if(!sess){ return; }
+  const cur=await fetchRoom(sess.code);
+  if(!cur || cur.state.phase==="ended"){ clearSession(); alert("La stanza non è più attiva."); location.reload(); return; }
+  myId=sess.id; myName=sess.name; isHost=!!sess.isHost; roomCode=sess.code; gameStarted=false; endedShown=false; net=cur.state;
+  if(!(net.players||[]).some(p=>p.id===myId)){
+    if(net.phase==="lobby"){
+      await patchRoom(s=>{ if(!s.players.some(p=>p.id===myId)) s.players.push({id:myId,name:myName||"Giocatore",color:COLORS[s.players.length%COLORS.length]}); });
+    } else {
+      clearSession(); alert("Non fai più parte di questa partita."); location.reload(); return;
+    }
+  }
+  saveSession();
+  enterLobby();   // se la stanza è "playing", applyRoomState porta direttamente in partita
 }
 
 function copyLink(){const i=document.getElementById('invlink');i.select();
@@ -1805,7 +1884,81 @@ function copyLink(){const i=document.getElementById('invlink');i.select();
 window.addEventListener("DOMContentLoaded",()=>{
   const p=new URLSearchParams(location.search).get("join");
   if(p){ openJoin(); const el=document.getElementById("joincode"); if(el) el.value=p.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4); }
+  else { checkResume(); }   // dopo un refresh, offri "Riprendi partita" se c'è una stanza aperta
 });
+
+/* =================== TAPPA 2 — FONDAMENTA (2.1) ===================
+   Rende lo stato di gioco "salvabile e ricaricabile" per la sincronizzazione.
+   Lo stato dell'engine non è direttamente convertibile in JSON per due motivi:
+     • usa Set (es. state.destroyedTiles, state.reach);
+     • usa RIFERIMENTI agli oggetti-casella (es. state.you.tile) presi da tileMap.
+   Qui li convertiamo: i Set diventano array, le caselle diventano la loro "chiave"
+   (col,v). In fase di ricarica ripristiniamo Set e riferimenti reali via tileMap.
+   NB: le caselle sono dati puri (col,v,name,type,img) senza riferimenti incrociati
+   e le carte non contengono funzioni → il resto dello stato è già JSON-safe.
+
+   MODELLO CONDIVISO (usato dalle tappe 2.2+): la stanza conterrà
+     game = { day, gameMode, event, seat (indice giocatore di turno), order[],
+              world:{ destroyedTiles, drops, decks..., storyMissions, michailSlots,
+                      discoSegretoInPlay, discoSegretoEliminated },
+              characters:[ <personaggio "you" per ogni giocatore> ] }
+   Ogni device, al proprio turno, carica il proprio personaggio in state.you e gioca
+   come adesso; a fine turno riscrive le modifiche e passa il turno (niente più IA).  */
+
+// Riconosce un oggetto-casella (per convertirlo nella sua chiave). Le caselle hanno
+// col/v numerici e name/type; NON hanno 'slot' (carte) né 'hp' (personaggi).
+function mpIsTile(v){
+  return v && typeof v==="object"
+      && typeof v.col==="number" && typeof v.v==="number"
+      && typeof v.name==="string" && typeof v.type==="string"
+      && !("slot" in v) && !("hp" in v);
+}
+
+// Stato engine → oggetto JSON-safe (pronto per il database).
+function mpSerialize(s){
+  return JSON.parse(JSON.stringify(s, function(k,v){
+    if(k==="reach") return undefined;               // Set temporaneo: si ricalcola
+    if(v instanceof Set) return {__set:[...v]};
+    if(mpIsTile(v)) return {__tk:key(v.col,v.v)};    // casella → chiave
+    return v;
+  }));
+}
+
+// Oggetto JSON-safe → stato engine vivo (Set e caselle ripristinati).
+function mpDeserialize(obj){
+  const s = JSON.parse(JSON.stringify(obj), function(k,v){
+    if(v && typeof v==="object"){
+      if(Array.isArray(v.__set)) return new Set(v.__set);
+      if(typeof v.__tk==="string") return tileMap.get(v.__tk);   // chiave → casella reale
+    }
+    return v;
+  });
+  if(!(s.reach instanceof Set)) s.reach = new Set();
+  return s;
+}
+
+// Autotest (da eseguire in console del browser): verifica il giro completo
+// serializza → deserializza senza perdere caselle, Set e dati. Non modifica nulla.
+function mpSelfTest(){
+  const src = (state && state.you) ? state : fresh();
+  const ser = mpSerialize(src);
+  const size = JSON.stringify(ser).length;
+  const back = mpDeserialize(ser);
+  const res = {
+    "casella you ripristinata": !!(back.you && back.you.tile && back.you.tile.name),
+    "destroyedTiles è un Set":  back.destroyedTiles instanceof Set,
+    "reach è un Set":           back.reach instanceof Set,
+    "monete coincidono":        back.you.coins===src.you.coins,
+    "reach esclusa dal salvato": ser.reach===undefined,
+    "nessuna casella grezza":   JSON.stringify(ser).indexOf('"neighbors"')===-1,
+  };
+  console.log("%c[HEXARTHA MP 2.1] stato serializzato: "+size+" byte", "color:#d9a441");
+  console.table(res);
+  const allOk = Object.values(res).every(Boolean);
+  console.log(allOk ? "%c✅ Serializzazione OK" : "%c❌ Serializzazione DA CONTROLLARE",
+              "color:"+(allOk?"#7ab85f":"#b5482f")+";font-weight:bold");
+  return res;
+}
 
 // =================== GAME ===================
 const SIZE=42; // hex radius px
