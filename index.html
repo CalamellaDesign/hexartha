@@ -966,6 +966,10 @@
       <div class="fstars" id="fama-stars"></div>
       <span class="dim small"><b id="fama">0</b>/5</span>
     </div>
+    <div class="famacard" id="turnorder-card" style="margin-top:6px;display:none">
+      <span class="flab">ORDINE DEL TURNO</span>
+      <div id="turnorder-hud" style="margin-top:6px;display:flex;flex-direction:column;gap:3px"></div>
+    </div>
     <div class="famacard" id="ranking-card" style="margin-top:6px;display:none">
       <span class="flab">CLASSIFICA</span>
       <div id="ranking-hud" style="margin-top:4px"></div>
@@ -2080,11 +2084,33 @@ function mpRenderAll(){
     const ed=document.getElementById('eventdesc'); if(ed) ed.textContent=state.event.d||"";
   }
   if(typeof updateStepper==="function") updateStepper();
-  renderHUD(); drawPawn();
+  renderHUD(); drawPawn(); mpRenderTurnOrder();
+}
+
+// Ordine del turno nel pannello sinistro: sequenza dallo starter, corrente evidenziato.
+function mpRenderTurnOrder(){
+  const card=document.getElementById('turnorder-card'), box=document.getElementById('turnorder-hud');
+  if(!card||!box) return;
+  if(!mpGame){ card.style.display='none'; return; }
+  card.style.display='';
+  const N=mpGame.order.length;
+  let html="";
+  for(let pos=0; pos<N; pos++){
+    const idx=(mpGame.starterIdx+pos)%N;
+    const c=mpGame.characters[idx]; if(!c) continue;
+    const isCur=(idx===mpGame.seat), isMe=(idx===mySeatIndex), ab=!!c.abandoned;
+    html+=`<div class="pl-row" style="${isCur?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}${ab?'opacity:.45;':''}">
+      <span class="dim" style="min-width:14px;font-size:11px">${pos+1}.</span>
+      <span class="pdot2" style="background:${c.color};color:${c.color}"></span>
+      <span style="${isCur?'color:var(--gold);font-weight:700':''}">${escapeHtml(c.name)}${isMe?' (tu)':''}${ab?' — ritirato':''}</span>
+      ${isCur?'<span style="margin-left:auto;color:var(--gold)">▶</span>':''}
+    </div>`;
+  }
+  box.innerHTML=html;
 }
 
 function mpGuard(label, fn){ try{ return fn(); }catch(e){ console.error("[MP] "+label, e); alert("⚠ "+label+":\n"+(e&&e.message?e.message:e)); } }
-let mpLastEventDay=-1, _mpEventCb=null;
+let mpLastEventDay=-1, _mpEventCb=null, mpStarterShown=false;
 function mpEnterGame(){
   mpGuard("Avvio partita", ()=>{
     mpHydrate(mpDeserialize(net.game));
@@ -2104,10 +2130,46 @@ function mpOnGameUpdate(){
 function mpAfterHydrateFlow(){
   if(mpGame.day!==mpLastEventDay){
     mpLastEventDay=mpGame.day;
-    mpShowEventCard(()=>mpProceedTurnOrWatch());
+    const goEvent=()=>mpShowEventCard(()=>mpProceedTurnOrWatch());
+    if(!mpStarterShown && mpGame.day===1){          // a inizio partita: estrazione del primo giocatore
+      mpStarterShown=true;
+      mpStarterReveal(goEvent);
+    } else {
+      goEvent();
+    }
   } else {
     mpProceedTurnOrWatch();
   }
+}
+
+// Animazione "roulette" che estrae e rivela il primo giocatore (solo a inizio partita).
+function mpStarterReveal(cb){
+  const chars=(mpGame.characters||[]).filter(c=>!c.abandoned);
+  if(!chars.length){ if(cb) cb(); return; }
+  const target=chars.findIndex(c=>c.id===mpGame.characters[mpGame.starterIdx].id);
+  const chips=chars.map((c,i)=>`<div id="mprev-${i}" style="border:1px solid ${c.color};border-radius:8px;padding:9px 14px;transition:all .12s;background:transparent;display:flex;align-items:center;gap:8px;justify-content:center">
+      <span class="pdot2" style="background:${c.color};color:${c.color}"></span><span>${escapeHtml(c.name)}</span></div>`).join("");
+  openModal(`
+    <div class="modal-b center">
+      <div class="dim small" style="letter-spacing:.15em;margin-bottom:12px">🎲 ESTRAZIONE DEL PRIMO GIOCATORE</div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-width:260px;margin:0 auto">${chips}</div>
+      <div id="mp-reveal-msg" class="stencil" style="color:var(--gold);font-size:20px;margin-top:18px;min-height:26px"></div>
+    </div>`);
+  const hl=(k)=>chars.forEach((c,i)=>{ const el=document.getElementById('mprev-'+i); if(!el)return; const on=(i===k);
+    el.style.background=on?c.color:'transparent'; el.style.color=on?'#12100e':'var(--text)';
+    el.style.transform=on?'scale(1.06)':'scale(1)'; el.style.fontWeight=on?'700':'400'; });
+  let idx=0, ticks=0; const totalTicks=chars.length*3+target;
+  (function step(){
+    hl(idx%chars.length); ticks++;
+    if(ticks>=totalTicks && (idx%chars.length)===target){
+      const w=chars[target]; const msg=document.getElementById('mp-reveal-msg'); if(msg) msg.textContent="Inizia "+w.name+"!";
+      setTimeout(()=>{ closeModal(); if(cb) cb(); }, 1500);
+      return;
+    }
+    idx++;
+    const delay=Math.min(80 + Math.max(0,ticks-(totalTicks-chars.length))*30, 360);   // decelera verso la fine
+    setTimeout(step, delay);
+  })();
 }
 function mpProceedTurnOrWatch(){
   if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
