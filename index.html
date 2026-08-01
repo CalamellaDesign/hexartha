@@ -865,16 +865,12 @@
     <div class="lobby-main">
       <div class="tag" style="border-color:var(--rust);color:var(--rust)">Lobby</div>
       <h2 style="margin:10px 0 0">Sala d'attesa</h2>
-      <p class="muted small">Condividi il codice o il link. I giocatori entrano prima dell'avvio (2–4).</p>
+      <p class="muted small">Comunica il codice agli altri giocatori. Entrano prima dell'avvio (2–4).</p>
 
       <div class="dim small" style="margin-top:14px">CODICE STANZA</div>
       <div class="code" id="roomcode">—</div>
-
-      <div class="dim small" style="margin-top:6px">LINK INVITO</div>
-      <div class="field">
-        <input id="invlink" readonly value="">
-        <button class="btn" onclick="copyLink()">Copia</button>
-      </div>
+      <button class="btn" onclick="copyCode()" style="margin-top:10px">📋 Copia codice</button>
+      <p class="dim small" style="margin-top:8px">Gli altri giocatori entrano da <b>“Entra con codice”</b> nella loro home.</p>
 
       <div class="dim small">GIOCATORI IN SALA</div>
       <ul class="players" id="playerlist"></ul>
@@ -1650,14 +1646,15 @@ const COLORS=["#d9a441","#4d7fa8","#7ab85f","#b5482f"];
 let roomCode=null, myId=null, myName=null, isHost=false, roomChannel=null, net=null, gameStarted=false, endedShown=false;
 
 // ---------- Persistenza sessione (per riconnettersi dopo un refresh) ----------
-// Salviamo SOLO l'identità (chi sei / quale stanza) nel browser; la partita vive su Supabase.
-function saveSession(){ try{ localStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
-function clearSession(){ try{ localStorage.removeItem("hx_session"); }catch(e){} }
-function loadSession(){ try{ return JSON.parse(localStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
+// Salviamo SOLO l'identità (chi sei / quale stanza); la partita vive su Supabase.
+// Usiamo sessionStorage (PER SCHEDA): sopravvive al refresh ma tiene separati
+// giocatori diversi anche sullo stesso browser (niente identità accavallate).
+function saveSession(){ try{ sessionStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
+function clearSession(){ try{ sessionStorage.removeItem("hx_session"); }catch(e){} }
+function loadSession(){ try{ return JSON.parse(sessionStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
 
 function randId(){ return Math.random().toString(36).slice(2,10); }
 function makeCode(){ return Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join(""); }
-function joinLink(code){ return location.origin+location.pathname+"?join="+code; }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 // ---------- Creazione stanza (host) ----------
@@ -1726,10 +1723,6 @@ function subscribeRoom(){
 // ---------- Ingresso in lobby ----------
 function enterLobby(){
   document.getElementById("roomcode").textContent=roomCode;
-  const url=joinLink(roomCode);
-  document.getElementById("invlink").value=url;
-  // Pulisco l'URL dal ?join=… così un refresh non riapre l'ingresso ma offre "Riprendi".
-  try{ history.replaceState({}, "", location.pathname); }catch(e){}
   subscribeRoom();
   show("lobby");          // prima mostro la lobby…
   applyRoomState();       // …poi applico lo stato (se la partita è già in corso, passa al gioco)
@@ -1877,24 +1870,15 @@ async function resumeSession(){
   enterLobby();   // se la stanza è "playing", applyRoomState porta direttamente in partita
 }
 
-function copyLink(){const i=document.getElementById('invlink');i.select();
-  try{navigator.clipboard.writeText(i.value);}catch(e){}
-  const b=event.target;b.textContent="Copiato!";setTimeout(()=>b.textContent="Copia",1200);}
+function copyCode(){
+  try{navigator.clipboard.writeText(roomCode||"");}catch(e){}
+  const b=event.target, t=b.textContent; b.textContent="Copiato!"; setTimeout(()=>b.textContent=t,1200);
+}
 
 
-// Ingresso automatico se si apre un link con ?join=CODICE
+// All'avvio: se in questa scheda c'è una sessione aperta, offri "Riprendi partita".
 window.addEventListener("DOMContentLoaded",()=>{
-  const p=new URLSearchParams(location.search).get("join");
-  const sess=loadSession();
-  // Priorità al rientro: se ho già una sessione salvata (host O giocatore entrato dal link),
-  // offro "Riprendi partita" invece di riaprire l'ingresso.
-  if(sess && (!p || sess.code===p.toUpperCase())){
-    checkResume();
-  } else if(p){
-    openJoin(); const el=document.getElementById("joincode"); if(el) el.value=p.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4);
-  } else {
-    checkResume();
-  }
+  checkResume();
 });
 
 /* =================== TAPPA 2 — FONDAMENTA (2.1) ===================
