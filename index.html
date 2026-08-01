@@ -1728,6 +1728,8 @@ function enterLobby(){
   document.getElementById("roomcode").textContent=roomCode;
   const url=joinLink(roomCode);
   document.getElementById("invlink").value=url;
+  // Pulisco l'URL dal ?join=… così un refresh non riapre l'ingresso ma offre "Riprendi".
+  try{ history.replaceState({}, "", location.pathname); }catch(e){}
   subscribeRoom();
   show("lobby");          // prima mostro la lobby…
   applyRoomState();       // …poi applico lo stato (se la partita è già in corso, passa al gioco)
@@ -1883,8 +1885,16 @@ function copyLink(){const i=document.getElementById('invlink');i.select();
 // Ingresso automatico se si apre un link con ?join=CODICE
 window.addEventListener("DOMContentLoaded",()=>{
   const p=new URLSearchParams(location.search).get("join");
-  if(p){ openJoin(); const el=document.getElementById("joincode"); if(el) el.value=p.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4); }
-  else { checkResume(); }   // dopo un refresh, offri "Riprendi partita" se c'è una stanza aperta
+  const sess=loadSession();
+  // Priorità al rientro: se ho già una sessione salvata (host O giocatore entrato dal link),
+  // offro "Riprendi partita" invece di riaprire l'ingresso.
+  if(sess && (!p || sess.code===p.toUpperCase())){
+    checkResume();
+  } else if(p){
+    openJoin(); const el=document.getElementById("joincode"); if(el) el.value=p.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4);
+  } else {
+    checkResume();
+  }
 });
 
 /* =================== TAPPA 2 — FONDAMENTA (2.1) ===================
