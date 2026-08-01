@@ -906,6 +906,14 @@
 
 <!-- ============ GAME ============ -->
 <section id="game" class="screen">
+  <!-- Attesa del proprio turno (Tappa 2.2): copre il gioco per chi non è di turno -->
+  <div id="mpwatch" style="position:fixed;inset:0;z-index:800;background:rgba(10,8,6,.62);align-items:center;justify-content:center;flex-direction:column;display:none">
+    <div style="background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:26px 32px;text-align:center;max-width:340px">
+      <div style="font-size:30px">⏳</div>
+      <div class="stencil" style="color:var(--gold);font-size:20px;margin:8px 0">È il turno di <span id="mpwatch-name">—</span></div>
+      <div class="dim small">Attendi il tuo turno. La mappa si aggiorna quando gli altri hanno giocato.</div>
+    </div>
+  </div>
   <!-- STEPPER FASI DI GIOCO -->
   <div id="phase-stepper">
     <div class="ps-seg ps-verde" id="ps-verde">
@@ -1733,22 +1741,17 @@ function enterLobby(){
 function applyRoomState(){
   if(!net) return;
   if(net.phase==="ended"){ handleEnded(); return; }
+  // Partita condivisa in corso (Tappa 2.2): entra/aggiorna e NON toccare la lobby.
+  if(net.phase==="playing" && net.game){
+    if(!gameStarted){ gameStarted=true; mpEnterGame(); }
+    else { mpOnGameUpdate(); }
+    return;
+  }
+  // --- Lobby ---
   document.getElementById("mode-classica").classList.toggle("active", net.gameMode==="classica");
   document.getElementById("mode-hardcore").classList.toggle("active", net.gameMode==="hardcore");
   const rc=document.querySelector('input[name=gamemode][value="'+net.gameMode+'"]'); if(rc) rc.checked=true;
   renderPlayers();
-  if(net.phase==="playing" && !gameStarted){
-    gameStarted=true;
-    state=fresh();
-    state.gameMode=net.gameMode;
-    // Ricostruisco la lista giocatori nel formato del motore: questo device è "tu",
-    // gli altri della lobby diventano avversari (nomi e colori reali).
-    state.players=(net.players||[]).map(p=>({name:p.name, color:p.color, you:p.id===myId}));
-    const mine=(net.players||[]).find(p=>p.id===myId);
-    if(mine){ state.you.name=mine.name; }
-    startGame();
-    const yn=document.getElementById("youname"); if(yn&&mine) yn.textContent=mine.name;
-  }
 }
 
 function setGameMode(mode){
@@ -1779,7 +1782,13 @@ function renderPlayers(){
 }
 
 // ---------- Avvio (host) ----------
-function hostStartGame(){ if(!isHost) return; patchRoom(s=>{ s.phase="playing"; }); }
+function hostStartGame(){
+  if(!isHost) return;
+  const players=(net.players||[]);
+  if(players.length<2) return;
+  const game=mpBuildGame(players, net.gameMode);   // costruisce UNA partita condivisa
+  patchRoom(s=>{ s.phase="playing"; s.game=game; });
+}
 
 // ---------- Chiusura stanza dalla LOBBY ----------
 async function closeRoom(){
@@ -1803,8 +1812,19 @@ async function abandonGame(){
     if(cur){
       const s=JSON.parse(JSON.stringify(cur.state));
       s.players=(s.players||[]).filter(p=>p.id!==id);
-      if(s.phase==="playing" && s.players.length===1){
-        s.phase="ended"; s.winnerId=s.players[0].id; s.endReason="abbandono";
+      if(s.phase==="lobby"){
+        // in lobby: basta togliersi dalla lista
+      } else if(s.game && s.game.characters){
+        const c=s.game.characters.find(x=>x.id===id); if(c) c.abandoned=true;
+        const activeCount=s.game.characters.filter(x=>!x.abandoned).length;
+        if(activeCount<=1){                 // resta 1 solo → vince lui, partita finita
+          const w=s.game.characters.find(x=>!x.abandoned);
+          s.phase="ended"; s.winnerId=w?w.id:null; s.endReason="abbandono";
+        } else if(s.game.characters[s.game.seat] && s.game.characters[s.game.seat].abandoned){
+          // ho abbandonato mentre era il mio turno → passa al prossimo giocatore attivo
+          const N=s.game.order.length; let seat=s.game.seat;
+          for(let k=0;k<N;k++){ seat=(seat+1)%N; if(s.game.characters[seat] && !s.game.characters[seat].abandoned){ s.game.seat=seat; break; } }
+        }
       }
       await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",code);
     }
@@ -1952,6 +1972,157 @@ function mpSelfTest(){
   console.log(allOk ? "%c✅ Serializzazione OK" : "%c❌ Serializzazione DA CONTROLLARE",
               "color:"+(allOk?"#7ab85f":"#b5482f")+";font-weight:bold");
   return res;
+}
+
+/* =================== TAPPA 2.2 — PARTITA CONDIVISA A TURNI ===================
+   Una sola partita vive nella stanza (net.game). Al proprio turno il device carica
+   il proprio personaggio in state.you e gioca con il motore esistente; a fine turno
+   riscrive le modifiche, passa il turno al giocatore successivo (o avanza il giorno)
+   e pubblica. Gli altri device vedono "È il turno di X" e la mappa aggiornata.      */
+let mpGame=null, mySeatIndex=-1, mpMyTurn=false;
+
+function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; return {...m, done:false}; }
+
+// L'host costruisce UNA partita: mazzi mischiati una volta, un personaggio per
+// giocatore al proprio accampamento, evento del Giorno 1. Ritorna oggetto JSON-safe.
+function mpBuildGame(players, gameMode){
+  const eventDeckVerde   = shuffle([...EVENT_DECK_VERDE]);
+  const eventDeckMarrone = shuffle([...EVENT_DECK_MARRONE]);
+  const rossoFull        = shuffle([...EVENT_DECK_ROSSO]);
+  const eventDeckRosso   = (gameMode==="hardcore") ? rossoFull : rossoFull.slice(0,5);
+  const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
+  const riciclaggioDeck=[]; for(let i=0;i<10;i++) riciclaggioDeck.push({...weightedPick(pool),deck:"comune"});
+  const storyMissions = STORY_MISSIONS.map(m=>({...m, done:false, claimedBy:null}));
+  const characters = players.map((p,i)=>{
+    const pl=i+1, campKey=CAMP_OF[pl]||YOU_CAMP;
+    const base=fresh().you;
+    return {...base, id:p.id, name:p.name, color:p.color, player:pl,
+      tile: tileMap.get(campKey), campKey, extractKey: EXTRACTION_OF[pl]||YOU_EXTRACTION,
+      missions:[ mpPickMission(MISSIONS_MEDICHE), mpPickMission(MISSIONS_MILITARI), mpPickMission(MISSIONS_URBANE) ],
+      abandoned:false };
+  });
+  const game={ gameMode, day:1, seat:0, starterIdx:0, turnsThisDay:0,
+    order: players.map((_,i)=>i), event:null,
+    world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
+            destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
+            discoSegretoInPlay:false, discoSegretoEliminated:false,
+            extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
+  game.event = game.world.eventDeckVerde.shift();
+  return mpSerialize(game);
+}
+
+// Ogni device costruisce la PROPRIA vista (state) dalla partita condivisa.
+function mpHydrate(game){
+  mpGame = game;
+  mySeatIndex = game.characters.findIndex(c=>c.id===myId);
+  const w=game.world;
+  state=fresh();
+  state.reach=new Set();
+  state.gameMode=game.gameMode; state.day=game.day; state.event=game.event;
+  state.starterIdx=game.starterIdx||0;
+  state.eventDeckVerde=w.eventDeckVerde; state.eventDeckMarrone=w.eventDeckMarrone; state.eventDeckRosso=w.eventDeckRosso;
+  state.riciclaggioDeck=w.riciclaggioDeck;
+  state.destroyedTiles=(w.destroyedTiles instanceof Set)?w.destroyedTiles:new Set(w.destroyedTiles||[]);
+  state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
+  state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
+  state.extraEncounterAfterTurn=!!w.extraEncounterAfterTurn; state.zonaEvacuataTargets=w.zonaEvacuataTargets||null;
+  if(mySeatIndex>=0) state.you = game.characters[mySeatIndex];   // stesso riferimento → le modifiche del turno restano nella partita
+  state.opponents = game.characters.map((c,i)=>({c,i}))
+    .filter(o=>o.i!==mySeatIndex && !o.c.abandoned)
+    .map(o=>{ const c=o.c; return {name:c.name,color:c.color,player:c.player,tile:c.tile,hidden:!!c.hidden,
+             hp:c.hp,maxhp:c.maxhp,equip:c.equip,equipScore:c.equipScore,pack:c.pack||[],deposito:c.deposito||[]}; });
+  state.players = game.characters.map(c=>({name:c.name,color:c.color,you:c.id===myId}));
+  const dsc=game.characters[game.starterIdx]; state.dayStarter=dsc?{name:dsc.name,color:dsc.color}:null;
+}
+
+function mpRenderAll(){
+  const yn=document.getElementById('youname'); if(yn&&state.you) yn.textContent=state.you.name;
+  const td=document.getElementById('total-days'); if(td) td.textContent='/'+(state.gameMode==="hardcore"?23:18);
+  buildMap(); recalcStats();
+  const dEl=document.getElementById('day'); if(dEl) dEl.textContent=state.day;
+  const pd=document.getElementById('dayperiod'); if(pd) pd.textContent=periodOfDay(state.day);
+  if(state.event){
+    const et=document.getElementById('eventtitle'); if(et) et.textContent="EVENTO · "+state.event.t;
+    const ef=document.getElementById('eventeff'); if(ef) ef.textContent=state.event.eff||"";
+    const ed=document.getElementById('eventdesc'); if(ed) ed.textContent=state.event.d||"";
+  }
+  if(typeof updateStepper==="function") updateStepper();
+  renderHUD(); drawPawn();
+}
+
+function mpEnterGame(){
+  mpHydrate(mpDeserialize(net.game));
+  show("game"); mpRenderAll();
+  if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+}
+function mpOnGameUpdate(){
+  if(mpMyTurn) return;                    // sto giocando: gli aggiornamenti vengono da me
+  mpHydrate(mpDeserialize(net.game));
+  mpRenderAll();
+  if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+}
+function mpStartMyTurn(){
+  mpMyTurn=true; mpHideWatch();
+  const to=document.getElementById('turnof'); if(to) to.textContent = state.you?state.you.name:"Tu";
+  beginYourTurn();
+}
+function mpWatch(){
+  mpMyTurn=false; stopTurnTimer();
+  const active=mpGame.characters[mpGame.seat];
+  const to=document.getElementById('turnof'); if(to) to.textContent = active?active.name:"—";
+  mpShowWatch(active?active.name:"—");
+}
+function mpShowWatch(name){ const el=document.getElementById('mpwatch'); if(!el)return; const n=document.getElementById('mpwatch-name'); if(n)n.textContent=name; el.style.display='flex'; }
+function mpHideWatch(){ const el=document.getElementById('mpwatch'); if(el) el.style.display='none'; }
+
+function mpWriteBack(){
+  if(mySeatIndex>=0) mpGame.characters[mySeatIndex]=state.you;
+  const w=mpGame.world;
+  w.destroyedTiles=state.destroyedTiles; w.drops=state.drops;
+  w.eventDeckVerde=state.eventDeckVerde; w.eventDeckMarrone=state.eventDeckMarrone; w.eventDeckRosso=state.eventDeckRosso;
+  w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
+  w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
+}
+function mpActiveCharacters(){ return mpGame.characters.filter(c=>!c.abandoned); }
+function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;k<N;k++){ s=(s+1)%N; if(mpGame.characters[s] && !mpGame.characters[s].abandoned) return s; } return from; }
+function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!best||c.fama>best.fama) best=c; }); return best?best.id:null; }
+
+// Fine del MIO turno → scrivo, passo al prossimo (o nuovo giorno / fine), pubblico.
+function mpEndMyTurn(){
+  mpMyTurn=false; stopTurnTimer(); mpWriteBack();
+  let ended=false, winnerId=null;
+  const active=mpActiveCharacters();
+  if(state.you && state.you.fama>=5){ ended=true; winnerId=myId; }
+  else if(active.length<=1){ ended=true; winnerId=active.length?active[0].id:null; }
+  else {
+    mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
+    if(mpGame.turnsThisDay>=active.length){
+      const totalDays=mpGame.gameMode==="hardcore"?23:18;
+      if(mpGame.day>=totalDays){ ended=true; winnerId=mpTopFamaId(); }
+      else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
+    } else { mpGame.seat=mpNextSeat(mpGame.seat); }
+  }
+  const gameSer=mpSerialize(mpGame);
+  patchRoom(s=>{ s.game=gameSer; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
+}
+
+// Nuovo giorno condiviso: reset riciclaggio a nuova fase + pesca evento + effetti "per tutti".
+function mpAdvanceDay(){
+  mpGame.day++;
+  const period=periodOfDay(mpGame.day), w=mpGame.world;
+  if(period!==periodOfDay(mpGame.day-1)){
+    const keep=(w.riciclaggioDeck||[]).filter(c=>c&&c.crafted);
+    const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
+    const rd=[]; for(let i=0;i<10;i++) rd.push({...weightedPick(pool),deck:"comune"}); keep.forEach(c=>rd.push(c)); w.riciclaggioDeck=rd;
+  }
+  let deck = period==="L'inizio"?w.eventDeckVerde : period==="Il declino"?w.eventDeckMarrone : w.eventDeckRosso;
+  if(!deck||!deck.length){
+    if(period==="L'inizio"){ w.eventDeckVerde=shuffle([...EVENT_DECK_VERDE]); deck=w.eventDeckVerde; }
+    else if(period==="Il declino"){ w.eventDeckMarrone=shuffle([...EVENT_DECK_MARRONE]); deck=w.eventDeckMarrone; }
+    else { const rf=shuffle([...EVENT_DECK_ROSSO]); w.eventDeckRosso=mpGame.gameMode==="hardcore"?rf:rf.slice(0,5); deck=w.eventDeckRosso; }
+  }
+  mpGame.event=deck.shift();
+  if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
 }
 
 // =================== GAME ===================
@@ -3581,7 +3752,9 @@ function forceEndOfTurn(){   // dal timer scaduto
   doEncounter();
 }
 function afterTurnResolved(){
-  // Turni degli avversari: posizioni e azioni PUBBLICHE, carte pescate PRIVATE (§5.5)
+  // Tappa 2.2: partita condivisa → passa il turno al giocatore successivo (niente IA finta).
+  if(mpGame){ mpEndMyTurn(); return; }
+  // (vecchio comportamento solitario, non più usato online)
   simulateOpponents(()=>{
     if(state.you.fama>=5){return victory();}
     const totalDays=(state.gameMode==="hardcore")?23:18;
