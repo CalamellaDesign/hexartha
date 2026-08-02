@@ -2091,7 +2091,8 @@ function mpHydrate(game){
 function mpRenderAll(){
   const yn=document.getElementById('youname'); if(yn&&state.you) yn.textContent=state.you.name;
   const td=document.getElementById('total-days'); if(td) td.textContent='/'+(state.gameMode==="hardcore"?23:18);
-  buildMap(); recalcStats();
+  if(!_mpMapBuilt){ buildMap(); _mpMapBuilt=true; }   // mappa costruita UNA volta; poi solo pedine/overlay via drawPawn
+  recalcStats();
   const dEl=document.getElementById('day'); if(dEl) dEl.textContent=state.day;
   const pd=document.getElementById('dayperiod'); if(pd) pd.textContent=periodOfDay(state.day);
   if(state.event){
@@ -2126,9 +2127,10 @@ function mpRenderTurnOrder(){
 }
 
 function mpGuard(label, fn){ try{ return fn(); }catch(e){ console.error("[MP] "+label, e); alert("⚠ "+label+":\n"+(e&&e.message?e.message:e)); } }
-let mpLastEventDay=-1, _mpEventCb=null, mpStarterShown=false;
+let mpLastEventDay=-1, _mpEventCb=null, mpStarterShown=false, _mpMapBuilt=false;
 function mpEnterGame(){
   mpGuard("Avvio partita", ()=>{
+    _mpMapBuilt=false;                 // nuova entrata in partita → mappa da (ri)costruire una volta
     mpHydrate(mpDeserialize(net.game));
     show("game"); mpRenderAll();
     mpAfterHydrateFlow();
