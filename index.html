@@ -1753,8 +1753,9 @@ function applyRoomState(){
   if(net.phase==="ended"){ handleEnded(); return; }
   // Partita condivisa in corso (Tappa 2.2): entra/aggiorna e NON toccare la lobby.
   if(net.phase==="playing" && net.game){
+    const pvpActive = mpHandlePvp();                 // gestisce voto/scontro se presente
     if(!gameStarted){ gameStarted=true; mpEnterGame(); }
-    else { mpOnGameUpdate(); }
+    else if(!pvpActive){ mpOnGameUpdate(); }         // niente re-idratazione durante un PvP
     return;
   }
   // --- Lobby ---
@@ -2076,8 +2077,9 @@ function mpHydrate(game){
   if(mySeatIndex>=0) state.you = game.characters[mySeatIndex];   // stesso riferimento → le modifiche del turno restano nella partita
   state.opponents = game.characters.map((c,i)=>({c,i}))
     .filter(o=>o.i!==mySeatIndex && !o.c.abandoned)
-    .map(o=>{ const c=o.c; return {name:c.name,color:c.color,player:c.player,tile:c.tile,hidden:!!c.hidden,
-             hp:c.hp,maxhp:c.maxhp,equip:c.equip,equipScore:c.equipScore,pack:c.pack||[],deposito:c.deposito||[]}; });
+    .map(o=>{ const c=o.c; return {id:c.id,name:c.name,color:c.color,player:c.player,tile:c.tile,hidden:!!c.hidden,
+             hp:c.hp,maxhp:c.maxhp,campKey:c.campKey,equip:c.equip,equipScore:c.equipScore,
+             pack:mpPackToArray(c.pack),deposito:c.deposito||[]}; });
   state.players = game.characters.map(c=>({name:c.name,color:c.color,you:c.id===myId}));
   const dsc=game.characters[game.starterIdx]; state.dayStarter=dsc?{name:dsc.name,color:dsc.color}:null;
 }
@@ -2206,6 +2208,103 @@ function mpShowEventCard(cb){
     </div>`);
 }
 function mpAfterEventCard(){ const cb=_mpEventCb; _mpEventCb=null; if(cb) cb(); }
+
+// ============ PvP in rete (Tappa 2.3) ============
+// Lo zaino del personaggio è a sezioni {sx,centro,dx}; il motore PvP lo tratta come array.
+function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p==="object") return [...(p.sx||[]),...(p.centro||[]),...(p.dx||[])]; return []; }
+
+let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
+function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
+
+// L'attaccante avvia la votazione scrivendola nella stanza (la vedono entrambi).
+function mpStartPvpVote(foe){
+  _pvpResolved=false; _pvpFightShown=false;
+  const showdown=isShowdown();
+  patchRoom(s=>{ s.pvp={attackerId:myId, defenderId:foe.id, defenderName:foe.name,
+      attackerName:(state.you&&state.you.name)||"Sfidante", tileName:foe.tile.name,
+      day:mpGame.day, showdown:!!showdown, votes:{}, status:"voting"}; });
+}
+
+// Gestione dello stato PvP condiviso (chiamata da applyRoomState). Ritorna true se c'è un PvP in corso.
+function mpHandlePvp(){
+  const pvp=net.pvp;
+  if(!pvp){
+    if(_pvpVoteKey){ _pvpVoteKey=null; _pvpFightShown=false; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    return false;
+  }
+  if(myId!==pvp.attackerId && myId!==pvp.defenderId) return true;   // non coinvolto: attende
+  if(pvp.status==="voting"){
+    const k=mpPvpKey(pvp)+"|"+JSON.stringify(pvp.votes||{});
+    if(_pvpVoteKey!==k){ _pvpVoteKey=k; if(!_pvpResolved) mpRenderPvpVote(pvp); }
+    if(myId===pvp.attackerId && !_pvpResolved){
+      const va=(pvp.votes||{})[pvp.attackerId], vd=(pvp.votes||{})[pvp.defenderId];
+      if(pvp.showdown && va){ _pvpResolved=true; mpResolvePvp("fight"); }
+      else if(va && vd){ _pvpResolved=true; mpResolvePvp((va==="fight"||vd==="fight")?"fight":"peace"); }
+    }
+  } else if(pvp.status==="fighting"){
+    if(myId===pvp.defenderId && !_pvpFightShown){ _pvpFightShown=true; mpDefenderWaitFight(pvp); }
+  }
+  return true;
+}
+
+function mpRenderPvpVote(pvp){
+  const iAmAtt=(myId===pvp.attackerId);
+  const other = iAmAtt? pvp.defenderName : pvp.attackerName;
+  const mine=(pvp.votes||{})[myId];
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Scontro tra giocatori</span>
+      <span class="dim small">${escapeHtml(pvp.tileName||"")}</span></div>
+    <div class="modal-b center">
+      <p>${iAmAtt?`Sei entrato nella casella di <b>${escapeHtml(other||"")}</b>.`:`<b>${escapeHtml(other||"")}</b> è entrato nella tua casella.`}
+        ${pvp.showdown?'<br><b style="color:var(--rust)">💀 La resa dei conti: si combatte, senza tregua.</b>':'<br>Votate se combattere.'}</p>
+      ${mine
+        ? `<p class="dim" style="margin-top:16px">Hai votato <b>${mine==='fight'?'⚔ Lotta':'☮ Pace'}</b>. In attesa dell'altro giocatore…</p>`
+        : (pvp.showdown
+            ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="mpPvpVote('fight')">⚔ Combatti</button></div>`
+            : `<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
+                 <button class="btn primary" onclick="mpPvpVote('fight')">⚔ Lotta</button>
+                 <button class="btn" onclick="mpPvpVote('peace')">☮ Pace</button></div>`)}
+      <p class="dim small" style="margin-top:10px">${pvp.showdown?'Nessuna tregua possibile.':'Entrambi Pace → niente lotta. Almeno un voto Lotta → si combatte.'}</p>
+    </div>`);
+}
+function mpPvpVote(choice){
+  patchRoom(s=>{ if(s.pvp && s.pvp.status==="voting"){ s.pvp.votes=s.pvp.votes||{}; s.pvp.votes[myId]=choice; } });
+}
+
+// Solo l'ATTACCANTE risolve l'esito del voto.
+function mpResolvePvp(outcome){
+  closeModal();
+  if(outcome==="peace"){
+    patchRoom(s=>{ s.pvp=null; });
+    log(`☮ Pace: vi lasciate passare, nessuno scontro.`,"good");
+    state.pvp=null; enterPostEncounter();
+    return;
+  }
+  patchRoom(s=>{ if(s.pvp) s.pvp.status="fighting"; });   // avvisa l'altro
+  pvpFight();   // combattimento col motore esistente (dadi, vittoria/sconfitta, loot)
+}
+
+function mpDefenderWaitFight(pvp){
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Scontro in corso</span></div>
+    <div class="modal-b center">
+      <div style="font-size:40px;margin:6px 0">⚔️</div>
+      <p><b>${escapeHtml(pvp.attackerName||'Un giocatore')}</b> ti sta affrontando.</p>
+      <p class="dim small">L'esito apparirà tra poco…</p>
+    </div>`);
+}
+
+// Applica la MORTE al personaggio avversario nella partita condivisa (perde zaino+equip tranne Tasca sicura, torna alla base).
+function mpApplyDefenderDeath(defId){
+  if(!mpGame) return;
+  const c=mpGame.characters.find(x=>x.id===defId); if(!c) return;
+  const tasca = c.equip? c.equip.tasca : null;
+  c.pack={sx:[],centro:[],dx:[]};
+  c.equip={arma:null,armatura:null,casco:null,tasca:tasca||null,gadget:[null,null]};
+  c.states={emorragia:false, ossa:false, avvelenato:false};
+  c.emorragiaArmed=false; c.hidden=false; c.tempHp=0;
+  c.hp=c.maxhp; c.tile=tileMap.get(c.campKey); c.equipScore=3;
+}
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
     mpMyTurn=true; mpHideWatch();
@@ -4980,7 +5079,11 @@ function equipChip(it, slotName){
   return it ? `<span class="chip">${SLOT_ICON[it.slot]||'⚔'} ${it.name} <b style="color:var(--gold)">+${itemEquip(it)}</b></span>`
             : `<span class="chip dim">${slotName} base (+1)</span>`;
 }
-function startPvP(foe){ state.pvp={foe}; renderPvPVote(); }
+function startPvP(foe){
+  state.pvp={foe};
+  if(mpGame && foe.id){ mpStartPvpVote(foe); return; }   // online: votazione tra i due giocatori veri
+  renderPvPVote();
+}
 // Nel periodo finale "La resa dei conti" non c'è tregua: gli scontri tra giocatori si combattono sempre.
 function isShowdown(){ return periodOfDay(state.day)==="La resa dei conti"; }
 function renderPvPVote(){
@@ -5186,6 +5289,7 @@ function pvpTake(idx){
 function pvpLootDone(){
   const foe=state.pvp.foe;
   foe.hp=foe.maxhp; foe.tile=tileMap.get(foe.campKey); foe.equipScore=oppEquipScore(foe);  // il morto torna alla sua base
+  if(mpGame && foe.id){ mpApplyDefenderDeath(foe.id); mpWriteBack(); patchRoom(s=>{ s.pvp=null; s.game=mpSerialize(mpGame); }); }
   drawPawn(); state.pvp=null; enterPostEncounter();
 }
 function pvpLose(){
@@ -5198,7 +5302,11 @@ function pvpLose(){
       <button class="btn primary" onclick="pvpLoseDone()">Torna alla base</button>
     </div>`);
 }
-function pvpLoseDone(){ state.you.weaponUsedThisTurn=false; deathCleanup(); closeModal(); state.pvp=null; afterTurnResolved(); }
+function pvpLoseDone(){
+  state.you.weaponUsedThisTurn=false; deathCleanup(); closeModal();
+  if(mpGame){ patchRoom(s=>{ s.pvp=null; }); }   // l'esito (mia morte) viene pubblicato a fine turno
+  state.pvp=null; afterTurnResolved();
+}
 
 // =================== FINE PARTITA ===================
 function buildEndRanking(){
