@@ -2214,6 +2214,7 @@ function mpAfterEventCard(){ const cb=_mpEventCb; _mpEventCb=null; if(cb) cb(); 
 function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p==="object") return [...(p.sx||[]),...(p.centro||[]),...(p.dx||[])]; return []; }
 
 let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
+let _combatRenderKey=null, _combatActed=null;
 function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
 
 // L'attaccante avvia la votazione scrivendola nella stanza (la vedono entrambi).
@@ -2229,7 +2230,7 @@ function mpStartPvpVote(foe){
 function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
-    if(_pvpVoteKey){ _pvpVoteKey=null; _pvpFightShown=false; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(myId!==pvp.attackerId && myId!==pvp.defenderId) return true;   // non coinvolto: attende
@@ -2242,7 +2243,7 @@ function mpHandlePvp(){
       else if(va && vd){ _pvpResolved=true; mpResolvePvp((va==="fight"||vd==="fight")?"fight":"peace"); }
     }
   } else if(pvp.status==="fighting"){
-    if(myId===pvp.defenderId && !_pvpFightShown){ _pvpFightShown=true; mpDefenderWaitFight(pvp); }
+    mpHandleCombat(pvp);
   }
   return true;
 }
@@ -2280,8 +2281,7 @@ function mpResolvePvp(outcome){
     state.pvp=null; enterPostEncounter();
     return;
   }
-  patchRoom(s=>{ if(s.pvp) s.pvp.status="fighting"; });   // avvisa l'altro
-  pvpFight();   // combattimento col motore esistente (dadi, vittoria/sconfitta, loot)
+  mpBeginCombat();   // combattimento sincronizzato: entrambi tirano i dadi
 }
 
 function mpDefenderWaitFight(pvp){
@@ -2298,12 +2298,183 @@ function mpDefenderWaitFight(pvp){
 function mpApplyDefenderDeath(defId){
   if(!mpGame) return;
   const c=mpGame.characters.find(x=>x.id===defId); if(!c) return;
-  const tasca = c.equip? c.equip.tasca : null;
-  c.pack={sx:[],centro:[],dx:[]};
-  c.equip={arma:null,armatura:null,casco:null,tasca:tasca||null,gadget:[null,null]};
-  c.states={emorragia:false, ossa:false, avvelenato:false};
-  c.emorragiaArmed=false; c.hidden=false; c.tempHp=0;
-  c.hp=c.maxhp; c.tile=tileMap.get(c.campKey); c.equipScore=3;
+  mpKillChar(c);
+}
+
+// ============ Combattimento PvP SINCRONIZZATO (entrambi tirano) ============
+function mpPutInPack(char,item){
+  if(!char) return;
+  if(!char.pack) char.pack={sx:[],centro:[],dx:[]};
+  const total=['sx','centro','dx'].reduce((n,s)=>n+((char.pack[s]||[]).length),0);
+  if(total>=6) return;
+  (char.pack.centro=char.pack.centro||[]).push(item);
+}
+function mpKillChar(char){
+  if(!char) return;
+  const tasca=char.equip?char.equip.tasca:null;
+  char.pack={sx:[],centro:[],dx:[]};
+  char.equip={arma:null,armatura:null,casco:null,tasca:tasca||null,gadget:[null,null]};
+  char.states={emorragia:false,ossa:false,avvelenato:false};
+  char.emorragiaArmed=false; char.hidden=false; char.tempHp=0;
+  char.hp=char.maxhp||3; char.tile=tileMap.get(char.campKey); char.equipScore=3;
+}
+
+// L'attaccante inizializza il combattimento nello stato condiviso.
+function mpBeginCombat(){
+  const you=state.you, foe=state.pvp.foe, aId=myId, dId=foe.id;
+  const combat={ aId, dId,
+    hp:{[aId]:you.hp,[dId]:foe.hp}, maxhp:{[aId]:you.maxhp,[dId]:foe.maxhp},
+    names:{[aId]:you.name,[dId]:foe.name}, colors:{[aId]:you.color||'#c8a44e',[dId]:foe.color||'#aaa'},
+    round:1, rolls:{}, ack:{}, result:null, phase:'rolling', winnerId:null, loserId:null, loot:null, taken:[] };
+  _combatRenderKey=null; _combatActed=null;
+  patchRoom(s=>{ if(s.pvp){ s.pvp.status='fighting'; s.pvp.combat=combat; } });
+}
+
+// Il mio tiro (2d6 + equip + effetti), calcolato sul MIO device dal MIO personaggio.
+function mpComputeMyRoll(){
+  const you=state.you;
+  if(you.equip.arma) state.you.weaponUsedThisTurn=true;
+  const ge=gearDieEffects();
+  const rp=rollPlayerDice();
+  let pd=rp.sum+you.equipScore-(you.states.ossa?2:0)-(you.dmgPenalty||0)+ge.delta;
+  const lg=lanciaGranateMod(you.equip.arma); if(lg){ pd+=lg.delta; ge.notes.push(lg.note); }
+  return { total:Math.max(0,pd), dice:rp.dice.map(d=>({v:d.v,kept:d.kept})),
+           notes:ge.notes||[], label:rp.label||"", dmgToOpp: ge.assassinate?2:1 };
+}
+
+// Gestione dello stato di combattimento (render + arbitraggio lato attaccante).
+function mpHandleCombat(pvp){
+  const c=pvp.combat; if(!c) return;
+  const rk=c.phase+"|"+c.round+"|"+Object.keys(c.rolls||{}).sort().join(",")+"|"+Object.keys(c.ack||{}).sort().join(",")+"|"+((c.taken||[]).join(","))+"|"+(c.winnerId||"");
+  if(_combatRenderKey!==rk){
+    _combatRenderKey=rk;
+    if(c.phase==='rolling'||c.phase==='reveal') mpRenderCombat(c);
+    else if(c.phase==='loot') mpRenderCombatLoot(c);
+  }
+  if(myId===c.aId){   // solo l'attaccante fa avanzare lo scontro
+    if(c.phase==='rolling' && c.rolls[c.aId] && c.rolls[c.dId]) mpOrch('resolve|'+c.round, mpCombatResolveRound);
+    else if(c.phase==='reveal' && c.ack[c.aId] && c.ack[c.dId]) mpOrch('next|'+c.round, mpCombatNextOrEnd);
+    else if(c.phase==='done') mpOrch('final', mpCombatFinalize);
+  }
+}
+function mpOrch(key,fn){ if(_combatActed===key) return; _combatActed=key; fn(); }
+
+function mpRenderCombat(c){
+  const me=myId, opp=(me===c.aId)?c.dId:c.aId;
+  const reveal=(c.phase==='reveal');
+  const myRoll=c.rolls&&c.rolls[me], oppRoll=c.rolls&&c.rolls[opp];
+  const hpL=id=>heartsHTML(c.hp[id],c.maxhp[id]);
+  const dice=(reveal&&myRoll&&oppRoll)?mpCombatDiceHTML(myRoll,oppRoll,c.names[opp]):'';
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Lotta PvP — round ${c.round}</span></div>
+    <div class="modal-b center">
+      <div class="pvp-fight">
+        <div class="fighter you"><div class="nm">TU</div><div style="margin-top:4px">${hpL(me)}</div></div>
+        <div class="vs">VS</div>
+        <div class="fighter"><div class="nm" style="color:${c.colors[opp]}">${escapeHtml(c.names[opp])}</div><div style="margin-top:4px">${hpL(opp)}</div></div>
+      </div>
+      <div class="roll-res">${reveal&&c.result?c.result.text:''}</div>
+      <div class="dice">${dice}</div>
+      ${reveal
+        ? ((c.ack&&c.ack[me]) ? `<p class="dim">In attesa dell'altro giocatore…</p>` : `<button class="btn primary" onclick="mpCombatAck()">Continua ▶</button>`)
+        : ((c.rolls&&c.rolls[me]) ? `<p class="dim">Hai tirato <b>${c.rolls[me].total}</b>. In attesa dell'altro giocatore…</p>` : `<button class="btn primary" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`)}
+      <p class="dim small" style="margin-top:8px">Ognuno tira 2 dadi + equipaggiamento. Il più basso perde 1 vita. Fino alla morte.</p>
+    </div>`);
+}
+function mpCombatDiceHTML(mine,opp,oppName){
+  const cell=v=>`<div class="die-cell">${die3dHTML(v,{})}</div>`;
+  const grp=(lab,dd,tot)=>`<div class="die-grp"><div class="die-grp-lab">${lab} = ${tot}</div><div class="die-row">${(dd||[]).map(d=>cell(d&&d.v!=null?d.v:d)).join("")}</div></div>`;
+  return grp("Tu",mine.dice,mine.total)+`<div class="vs" style="align-self:center">vs</div>`+grp(escapeHtml(oppName),opp.dice,opp.total);
+}
+function mpCombatRoll(){
+  const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling'||(c.rolls&&c.rolls[myId])) return;
+  const roll=mpComputeMyRoll(); recalcStats&&recalcStats(); renderHUD&&renderHUD();
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='rolling'){ cc.rolls=cc.rolls||{}; if(!cc.rolls[myId]) cc.rolls[myId]=roll; } });
+}
+function mpCombatAck(){
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='reveal'){ cc.ack=cc.ack||{}; cc.ack[myId]=true; } });
+}
+// Attaccante: entrambi hanno tirato → calcola l'esito del round e applica il danno.
+function mpCombatResolveRound(){
+  const c=net.pvp.combat, a=c.rolls[c.aId], d=c.rolls[c.dId]; if(!a||!d) return;
+  let out={}, text;
+  if(a.total>d.total){ out[c.dId]=a.dmgToOpp; text=`${escapeHtml(c.names[c.aId])} (${a.total}) batte ${escapeHtml(c.names[c.dId])} (${d.total}): −${a.dmgToOpp} vita.`; }
+  else if(d.total>a.total){ out[c.aId]=d.dmgToOpp; text=`${escapeHtml(c.names[c.dId])} (${d.total}) batte ${escapeHtml(c.names[c.aId])} (${a.total}): −${d.dmgToOpp} vita.`; }
+  else { out[c.aId]=1; out[c.dId]=1; text=`Parità (${a.total}): entrambi −1 vita.`; }
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='rolling') return;
+    Object.keys(out).forEach(id=>{ cc.hp[id]=Math.max(0,(cc.hp[id]||0)-out[id]); });
+    cc.result={text}; cc.phase='reveal'; cc.ack={};
+  });
+}
+// Attaccante: entrambi hanno premuto Continua → morte o round successivo.
+function mpCombatNextOrEnd(){
+  const c=net.pvp.combat;
+  const aDead=c.hp[c.aId]<=0, dDead=c.hp[c.dId]<=0;
+  if(aDead||dDead){
+    const loserId=aDead?c.aId:c.dId, winnerId=(loserId===c.aId)?c.dId:c.aId;
+    const loot=mpLootFromChar(loserId);
+    patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='reveal')return;
+      cc.winnerId=winnerId; cc.loserId=loserId; cc.loot=loot; cc.taken=[]; cc.phase='loot'; cc.result=null; });
+  } else {
+    patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='reveal')return;
+      cc.round=(cc.round||1)+1; cc.rolls={}; cc.ack={}; cc.result=null; cc.phase='rolling'; });
+  }
+}
+// Bottino saccheggiabile del perdente (equip + zaino, Tasca sicura esclusa).
+function mpLootFromChar(id){
+  const c=mpGame.characters.find(x=>x.id===id); if(!c) return [];
+  const out=[];
+  ['arma','armatura','casco'].forEach(k=>{ if(c.equip&&c.equip[k]) out.push({...c.equip[k]}); });
+  (c.equip&&c.equip.gadget||[]).forEach(g=>{ if(g) out.push({...g}); });
+  ['sx','centro','dx'].forEach(se=>{ ((c.pack&&c.pack[se])||[]).forEach(it=>out.push({...it})); });
+  return out;
+}
+function mpRenderCombatLoot(c){
+  if(myId!==c.winnerId){
+    openModal(`<div class="modal-h"><span class="stencil" style="color:var(--rust)">☠ Sconfitto</span></div>
+      <div class="modal-b center"><div style="font-size:42px;margin:6px 0">☠</div>
+        <p><b>${escapeHtml(c.names[c.winnerId])}</b> ti ha battuto e ti sta saccheggiando.</p>
+        <p class="dim small">Perderai zaino ed equipaggiamento (tranne la Tasca sicura) e tornerai alla base.</p></div>`);
+    return;
+  }
+  const loot=c.loot||[], taken=c.taken||[];
+  const wc=mpGame.characters.find(x=>x.id===myId);
+  const packCount=wc?['sx','centro','dx'].reduce((n,s)=>n+((wc.pack&&wc.pack[s]||[]).length),0):0;
+  const free=6-(packCount+taken.length);
+  const rows=loot.length? loot.map((it,i)=> taken.includes(i)
+      ? `<div class="dep-row" style="opacity:.4"><span>${escapeHtml(it.name)}</span><span class="dim">✓ preso</span></div>`
+      : `<div class="dep-row"><span>${escapeHtml(it.name)}</span><button class="btn" ${free>0?'':'disabled'} onclick="mpCombatTake(${i})">◂ Prendi</button></div>`).join("")
+    : `<div class="inv-empty">niente da saccheggiare</div>`;
+  openModal(`<div class="modal-h"><span class="stencil" style="color:var(--green)">💀 ${escapeHtml(c.names[c.loserId])} eliminato — saccheggio</span>
+      <span class="dim small">Zaino ${packCount+taken.length}/6</span></div>
+    <div class="modal-b">
+      <p class="muted small">Prendi le carte dall'avversario sconfitto (zaino max 6). La Tasca sicura è protetta.</p>
+      <div>${rows}</div>
+      <div class="center" style="margin-top:14px"><button class="btn primary" onclick="mpCombatLootDone()">FINE SACCHEGGIO ▸</button></div>
+    </div>`);
+}
+function mpCombatTake(i){
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='loot'||cc.winnerId!==myId) return;
+    cc.taken=cc.taken||[]; if(cc.taken.includes(i)) return;
+    const wc=s.game&&s.game.characters&&s.game.characters.find(x=>x.id===myId);
+    const packCount=wc?['sx','centro','dx'].reduce((n,se)=>n+((wc.pack&&wc.pack[se]||[]).length),0):0;
+    if(packCount+cc.taken.length>=6) return;
+    cc.taken.push(i);
+  });
+}
+function mpCombatLootDone(){
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.winnerId===myId) cc.phase='done'; });
+}
+// Attaccante: applica loot + morte del perdente, poi termina il turno di chi aveva mosso.
+function mpCombatFinalize(){
+  const c=net.pvp.combat; if(!c) return;
+  closeModal();
+  const winner=mpGame.characters.find(x=>x.id===c.winnerId);
+  const loser=mpGame.characters.find(x=>x.id===c.loserId);
+  if(winner){ winner.hp=c.hp[c.winnerId]||winner.hp; (c.taken||[]).forEach(i=>{ const it=(c.loot||[])[i]; if(it) mpPutInPack(winner,it); }); }
+  if(loser) mpKillChar(loser);
+  state.pvp=null;
+  mpEndMyTurn();   // scrive partita (loot+morte), azzera pvp, passa il turno (fine turno di chi ha mosso)
 }
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
@@ -2354,7 +2525,7 @@ function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
     } else { mpGame.seat=mpNextSeat(mpGame.seat); }
   }
   const gameSer=mpSerialize(mpGame);
-  patchRoom(s=>{ s.game=gameSer; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
+  patchRoom(s=>{ s.game=gameSer; s.pvp=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
 }); }
 
 // Nuovo giorno condiviso: reset riciclaggio a nuova fase + pesca evento + effetti "per tutti".
