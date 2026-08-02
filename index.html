@@ -2220,6 +2220,7 @@ function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p
 
 let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
 let _combatRenderKey=null, _combatActed=null;
+let _lootInit=false, _lootRemaining=[], _dragKind=null, _dragSec=null, _dragIdx=-1;
 function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
 
 // L'attaccante avvia la votazione scrivendola nella stanza (la vedono entrambi).
@@ -2244,7 +2245,7 @@ function mpStartPvpVote(foe){
 function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
-    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _lootInit=false; _lootRemaining=[]; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(myId!==pvp.attackerId && myId!==pvp.defenderId) return true;   // non coinvolto: attende
@@ -2356,7 +2357,7 @@ function mpBeginCombat(){
     hp:{[aId]:you.hp,[dId]:foe.hp}, maxhp:{[aId]:you.maxhp,[dId]:foe.maxhp},
     names:{[aId]:you.name,[dId]:foe.name}, colors:{[aId]:you.color||'#c8a44e',[dId]:foe.color||'#aaa'},
     round:1, rolls:{}, ack:{}, result:null, phase:'rolling', winnerId:null, loserId:null, loot:null, taken:[] };
-  _combatRenderKey=null; _combatActed=null;
+  _combatRenderKey=null; _combatActed=null; _lootInit=false; _lootRemaining=[];
   patchRoom(s=>{ if(s.pvp){ s.pvp.status='fighting'; s.pvp.combat=combat; } });
 }
 
@@ -2397,8 +2398,9 @@ function mpRenderCombat(c){
   const reveal=(c.phase==='reveal');
   const myRoll=c.rolls&&c.rolls[me], oppRoll=c.rolls&&c.rolls[opp];
   const hpL=id=>heartsHTML(c.hp[id],c.maxhp[id]);
-  const myDice = myRoll ? mpDieRow(myRoll) : '<span class="dim small">tocca «Tira»</span>';
-  const oppDice = (reveal&&oppRoll) ? mpDieRow(oppRoll) : (oppRoll?'<span class="dim small">🎲 …</span>':'<span class="dim small">in attesa…</span>');
+  // I dadi appaiono SOLO quando hanno tirato entrambi (fase reveal); prima si vede solo lo stato.
+  const myDice = (reveal&&myRoll) ? mpDieRow(myRoll) : (myRoll?'<span class="dim small">✓ pronto</span>':'<span class="dim small">tocca «Tira»</span>');
+  const oppDice = (reveal&&oppRoll) ? mpDieRow(oppRoll) : (oppRoll?'<span class="dim small">✓ pronto</span>':'<span class="dim small">in attesa…</span>');
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Lotta PvP — round ${c.round}</span></div>
     <div class="modal-b center">
@@ -2422,12 +2424,10 @@ function mpRenderCombat(c){
 }
 function mpCombatRoll(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling'||(c.rolls&&c.rolls[myId])) return;
+  if(c.hp[c.aId]<=0 || c.hp[c.dId]<=0) return;    // nessun tiro se qualcuno è già a 0 vita
   const roll=mpComputeMyRoll(); if(typeof recalcStats==='function') recalcStats(); if(typeof renderHUD==='function') renderHUD();
-  // feedback IMMEDIATO: i miei dadi rotolano subito, senza aspettare la rete
-  const box=document.getElementById('pvp-you-dice');
-  if(box){ box.innerHTML=mpDieRow(roll); animateReveal('#pvp-you-dice',[]); }
   const btn=document.getElementById('pvp-roll-btn');
-  if(btn){ btn.disabled=true; btn.textContent='Hai tirato — in attesa…'; }
+  if(btn){ btn.disabled=true; btn.textContent='Hai tirato — in attesa dell\'avversario…'; }   // niente dadi finché non tirano ENTRAMBI
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='rolling'){ cc.rolls=cc.rolls||{}; if(!cc.rolls[myId]) cc.rolls[myId]=roll; } });
 }
 function mpCombatAck(){
@@ -2476,44 +2476,78 @@ function mpRenderCombatLoot(c){
         <p class="dim small">Perderai zaino ed equipaggiamento (tranne la Tasca sicura) e tornerai alla base.</p></div>`);
     return;
   }
-  const loot=c.loot||[], taken=c.taken||[];
-  const wc=mpGame.characters.find(x=>x.id===myId);
-  const packCount=wc?['sx','centro','dx'].reduce((n,s)=>n+((wc.pack&&wc.pack[s]||[]).length),0):0;
-  const free=6-(packCount+taken.length);
-  const rows=loot.length? loot.map((it,i)=> taken.includes(i)
-      ? `<div class="dep-row" style="opacity:.4"><span>${escapeHtml(it.name)}</span><span class="dim">✓ preso</span></div>`
-      : `<div class="dep-row"><span>${escapeHtml(it.name)}</span><button class="btn" ${free>0?'':'disabled'} onclick="mpCombatTake(${i})">◂ Prendi</button></div>`).join("")
-    : `<div class="inv-empty">niente da saccheggiare</div>`;
+  if(!_lootInit){ _lootRemaining=(c.loot||[]).map(it=>({...it})); _lootInit=true; }
+  const you=state.you;
+  const eqSlot=(k,ico,lab)=>{ const it=you.equip[k]; return `<div class="dep-row"><span>${ico} ${it?escapeHtml(it.name):('<span class="dim">'+lab+' base</span>')}</span></div>`; };
+  const mineRows=[];
+  packSections().forEach(sec=>{ if(sidePocketsBlocked()&&sec!=='centro') return;
+    (you.pack[sec]||[]).forEach((it,i)=>{
+      const canEq=['arma','armatura','casco','gadget'].includes(it.slot);
+      mineRows.push(`<div class="dep-row" draggable="true" ondragstart="mpDragStart('pack','${sec}',${i})">
+        <span>${escapeHtml(it.name)}</span>
+        <span style="display:flex;gap:4px">
+          ${canEq?`<button class="btn" onclick="mpLootEquip('${sec}',${i})">Equip</button>`:''}
+          <button class="btn" onclick="mpLootDiscard('${sec}',${i})" title="Scarta per liberare spazio">🗑</button>
+        </span></div>`);
+    });
+  });
+  const mineHTML=mineRows.length?mineRows.join(''):'<div class="inv-empty">zaino vuoto</div>';
+  const lootHTML=_lootRemaining.length? _lootRemaining.map((it,i)=>`<div class="dep-row" draggable="true" ondragstart="mpDragStart('loot',null,${i})">
+      <span>${escapeHtml(it.name)}</span>
+      <button class="btn" ${packTotalFree()>0?'':'disabled'} onclick="mpLootTake(${i})">◂ Prendi</button></div>`).join('')
+    : '<div class="inv-empty">niente da saccheggiare</div>';
   openModal(`<div class="modal-h"><span class="stencil" style="color:var(--green)">💀 ${escapeHtml(c.names[c.loserId])} eliminato — saccheggio</span>
-      <span class="dim small">Zaino ${packCount+taken.length}/6</span></div>
+      <span class="dim small">Zaino ${packTotal()}/6</span></div>
     <div class="modal-b">
-      <p class="muted small">Prendi le carte dall'avversario sconfitto (zaino max 6). La Tasca sicura è protetta.</p>
-      <div>${rows}</div>
+      <p class="muted small">Libera spazio nel tuo zaino (<b>Equip</b>/🗑) e prendi le carte del giocatore sconfitto. Puoi <b>trascinare</b> le carte tra le due colonne oppure usare i pulsanti. La <b>Tasca sicura</b> è protetta.</p>
+      <div class="dep-grid">
+        <div ondragover="event.preventDefault()" ondrop="mpDropToMine(event)">
+          <div class="inv-colh">Il tuo zaino (${packTotal()}/6) + equip</div>
+          <div style="margin:4px 0 8px">${eqSlot('arma','🗡','arma')}${eqSlot('armatura','🛡','armatura')}${eqSlot('casco','⛑','casco')}</div>
+          ${mineHTML}
+        </div>
+        <div ondragover="event.preventDefault()" ondrop="mpDropToLoot(event)">
+          <div class="inv-colh">Bottino di ${escapeHtml(c.names[c.loserId])}</div>
+          ${lootHTML}
+        </div>
+      </div>
       <div class="center" style="margin-top:14px"><button class="btn primary" onclick="mpCombatLootDone()">FINE SACCHEGGIO ▸</button></div>
     </div>`);
 }
-function mpCombatTake(i){
-  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='loot'||cc.winnerId!==myId) return;
-    cc.taken=cc.taken||[]; if(cc.taken.includes(i)) return;
-    const wc=s.game&&s.game.characters&&s.game.characters.find(x=>x.id===myId);
-    const packCount=wc?['sx','centro','dx'].reduce((n,se)=>n+((wc.pack&&wc.pack[se]||[]).length),0):0;
-    if(packCount+cc.taken.length>=6) return;
-    cc.taken.push(i);
-  });
+function mpLootTake(i){
+  const it=_lootRemaining[i]; if(!it) return;
+  if(packTotalFree()<=0){ log('🎒 Zaino pieno: libera spazio (Equip/🗑) prima di raccogliere.','bad'); return; }
+  packAdd(it); _lootRemaining.splice(i,1); renderHUD(); mpRenderCombatLoot(net.pvp.combat);
 }
+function mpLootDiscard(sec,i){ const c=(state.you.pack[sec]||[]).splice(i,1)[0]; if(c) log(`🗑 Scarti <b>${c.name}</b> per liberare spazio.`,'bad'); renderHUD(); mpRenderCombatLoot(net.pvp.combat); }
+function mpLootEquip(sec,i){
+  const it=state.you.pack[sec][i]; if(!it) return;
+  if(it.slot==='gadget'){ const gi=state.you.equip.gadget.findIndex(g=>!g); if(gi<0){ log('🎒 Slot gadget pieni.','bad'); return; } state.you.pack[sec].splice(i,1); state.you.equip.gadget[gi]=it; }
+  else { const cur=state.you.equip[it.slot]; state.you.pack[sec].splice(i,1); state.you.equip[it.slot]=it; if(cur) packAdd(cur); }
+  recalcStats(); renderHUD(); mpRenderCombatLoot(net.pvp.combat);
+}
+function mpDragStart(kind,sec,i){ _dragKind=kind; _dragSec=sec; _dragIdx=i; }
+function mpDropToMine(e){ e.preventDefault(); if(_dragKind==='loot') mpLootTake(_dragIdx); _dragKind=null; }
+function mpDropToLoot(e){ e.preventDefault(); if(_dragKind==='pack') mpLootDiscard(_dragSec,_dragIdx); _dragKind=null; }
 function mpCombatLootDone(){
-  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.winnerId===myId) cc.phase='done'; });
+  const c=net.pvp&&net.pvp.combat; if(!c||c.winnerId!==myId) return;
+  const wf={ pack:state.you.pack, equip:state.you.equip, hp:c.hp[myId], equipScore:state.you.equipScore };
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.winnerId===myId){ cc.winnerFinal=JSON.parse(JSON.stringify(wf)); cc.phase='done'; } });
 }
-// Attaccante: applica loot + morte del perdente, poi termina il turno di chi aveva mosso.
+// Attaccante: applica l'esito del vincitore + morte del perdente, poi termina il turno di chi aveva mosso.
 function mpCombatFinalize(){
   const c=net.pvp.combat; if(!c) return;
   closeModal();
   const winner=mpGame.characters.find(x=>x.id===c.winnerId);
   const loser=mpGame.characters.find(x=>x.id===c.loserId);
-  if(winner){ winner.hp=c.hp[c.winnerId]||winner.hp; (c.taken||[]).forEach(i=>{ const it=(c.loot||[])[i]; if(it) mpPutInPack(winner,it); }); }
+  const wf=c.winnerFinal;
+  if(winner){
+    if(wf){ winner.pack=wf.pack; winner.equip=wf.equip; winner.hp=wf.hp; if(wf.equipScore!=null) winner.equipScore=wf.equipScore; }
+    else { winner.hp=c.hp[c.winnerId]||winner.hp; }
+  }
   if(loser) mpKillChar(loser);
-  state.pvp=null;
-  mpEndMyTurn();   // scrive partita (loot+morte), azzera pvp, passa il turno (fine turno di chi ha mosso)
+  state.pvp=null; _lootInit=false;
+  mpEndMyTurn();   // scrive la partita (loot+morte), azzera pvp, passa il turno (fine turno di chi ha mosso)
 }
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
