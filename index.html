@@ -404,6 +404,10 @@
     background:repeating-linear-gradient(45deg,#3a1a12,#3a1a12 5px,#2a130d 5px,#2a130d 10px)}
   .pvp-chat{background:#0a0a0c;border:1px solid var(--border);border-radius:5px;padding:10px;font-size:12px;line-height:1.7}
   .pvp-fight{display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:12px}
+  .pvp-dice-2col{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:start;margin:8px 0}
+  .pvp-dice-col{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 8px;min-height:78px;text-align:center}
+  .pvp-dice-col .die-row{display:flex;gap:8px;justify-content:center;margin-top:6px;min-height:44px;align-items:center}
+  .pvp-dice-col.win{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
   .craft-row{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--bg2)}
   .craft-res{font-size:13px;margin-bottom:6px}
   .craft-variant{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;font-size:11px}
@@ -2218,12 +2222,21 @@ let _combatRenderKey=null, _combatActed=null;
 function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
 
 // L'attaccante avvia la votazione scrivendola nella stanza (la vedono entrambi).
+function mpCharInfo(ch){
+  const g=(ch.equip&&ch.equip.gadget)||[];
+  return { name:ch.name, color:ch.color||'#aaa', hp:ch.hp, maxhp:ch.maxhp,
+    arma:(ch.equip&&ch.equip.arma)?ch.equip.arma.name:null,
+    armatura:(ch.equip&&ch.equip.armatura)?ch.equip.armatura.name:null,
+    casco:(ch.equip&&ch.equip.casco)?ch.equip.casco.name:null,
+    gadgetCount:g.filter(Boolean).length };
+}
 function mpStartPvpVote(foe){
   _pvpResolved=false; _pvpFightShown=false;
   const showdown=isShowdown();
+  const info={ [myId]:mpCharInfo(state.you), [foe.id]:mpCharInfo(foe) };
   patchRoom(s=>{ s.pvp={attackerId:myId, defenderId:foe.id, defenderName:foe.name,
       attackerName:(state.you&&state.you.name)||"Sfidante", tileName:foe.tile.name,
-      day:mpGame.day, showdown:!!showdown, votes:{}, status:"voting"}; });
+      day:mpGame.day, showdown:!!showdown, votes:{}, status:"voting", info }; });
 }
 
 // Gestione dello stato PvP condiviso (chiamata da applyRoomState). Ritorna true se c'è un PvP in corso.
@@ -2248,24 +2261,40 @@ function mpHandlePvp(){
   return true;
 }
 
+function mpVoteCard(info, label){
+  if(!info) return '';
+  const eq=(nm,ico,base)=> nm?`<span class="chip">${ico} ${escapeHtml(nm)}</span>`:`<span class="chip dim">${ico} ${base}</span>`;
+  const gad = info.gadgetCount ? '🂠 '.repeat(info.gadgetCount) : '<span class="dim">nessuno</span>';
+  return `<div class="pvp-side">
+    <div class="inv-colh">${label}: <b style="color:${info.color}">${escapeHtml(info.name)}</b></div>
+    <div style="margin:6px 0">Vita: ${heartsHTML(info.hp,info.maxhp)}</div>
+    <div style="margin:6px 0;line-height:2.1">${eq(info.arma,'🗡','arma base')} ${eq(info.armatura,'🛡','armatura base')} ${eq(info.casco,'⛑','casco base')}</div>
+    <div class="inv-colh">Gadget equipaggiati (coperti)</div>
+    <div style="margin:4px 0;font-size:18px">${gad}</div>
+  </div>`;
+}
 function mpRenderPvpVote(pvp){
   const iAmAtt=(myId===pvp.attackerId);
+  const otherId = iAmAtt? pvp.defenderId : pvp.attackerId;
   const other = iAmAtt? pvp.defenderName : pvp.attackerName;
+  const info=pvp.info||{};
   const mine=(pvp.votes||{})[myId];
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Scontro tra giocatori</span>
       <span class="dim small">${escapeHtml(pvp.tileName||"")}</span></div>
-    <div class="modal-b center">
-      <p>${iAmAtt?`Sei entrato nella casella di <b>${escapeHtml(other||"")}</b>.`:`<b>${escapeHtml(other||"")}</b> è entrato nella tua casella.`}
-        ${pvp.showdown?'<br><b style="color:var(--rust)">💀 La resa dei conti: si combatte, senza tregua.</b>':'<br>Votate se combattere.'}</p>
+    <div class="modal-b">
+      <p class="center">${iAmAtt?`Sei entrato nella casella di <b>${escapeHtml(other||"")}</b>.`:`<b>${escapeHtml(other||"")}</b> è entrato nella tua casella.`}
+        ${pvp.showdown?'<br><b style="color:var(--rust)">💀 La resa dei conti: si combatte, senza tregua.</b>':'<br>Valutate l\'avversario e votate.'}</p>
+      ${mpVoteCard(info[otherId], "Avversario")}
+      ${mpVoteCard(info[myId], "Tu")}
       ${mine
-        ? `<p class="dim" style="margin-top:16px">Hai votato <b>${mine==='fight'?'⚔ Lotta':'☮ Pace'}</b>. In attesa dell'altro giocatore…</p>`
+        ? `<p class="dim center" style="margin-top:14px">Hai votato <b>${mine==='fight'?'⚔ Lotta':'☮ Pace'}</b>. In attesa dell'altro giocatore…</p>`
         : (pvp.showdown
             ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="mpPvpVote('fight')">⚔ Combatti</button></div>`
             : `<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
                  <button class="btn primary" onclick="mpPvpVote('fight')">⚔ Lotta</button>
                  <button class="btn" onclick="mpPvpVote('peace')">☮ Pace</button></div>`)}
-      <p class="dim small" style="margin-top:10px">${pvp.showdown?'Nessuna tregua possibile.':'Entrambi Pace → niente lotta. Almeno un voto Lotta → si combatte.'}</p>
+      <p class="dim small center" style="margin-top:10px">${pvp.showdown?'Nessuna tregua possibile.':'Entrambi Pace → niente lotta. Almeno un voto Lotta → si combatte.'}</p>
     </div>`);
 }
 function mpPvpVote(choice){
@@ -2359,12 +2388,16 @@ function mpHandleCombat(pvp){
 }
 function mpOrch(key,fn){ if(_combatActed===key) return; _combatActed=key; fn(); }
 
+function mpDieRow(roll){
+  return (roll&&roll.dice||[]).map(d=>die3dHTML(d.v,{stage:'roll-atk',wrap:(roll.multi&&!d.kept)?'drop':''})).join('');
+}
 function mpRenderCombat(c){
   const me=myId, opp=(me===c.aId)?c.dId:c.aId;
   const reveal=(c.phase==='reveal');
   const myRoll=c.rolls&&c.rolls[me], oppRoll=c.rolls&&c.rolls[opp];
   const hpL=id=>heartsHTML(c.hp[id],c.maxhp[id]);
-  const dice=(reveal&&myRoll&&oppRoll)?mpCombatDiceHTML(myRoll,oppRoll,c.names[opp]):'';
+  const myDice = myRoll ? mpDieRow(myRoll) : '<span class="dim small">tocca «Tira»</span>';
+  const oppDice = (reveal&&oppRoll) ? mpDieRow(oppRoll) : (oppRoll?'<span class="dim small">🎲 …</span>':'<span class="dim small">in attesa…</span>');
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Lotta PvP — round ${c.round}</span></div>
     <div class="modal-b center">
@@ -2373,22 +2406,27 @@ function mpRenderCombat(c){
         <div class="vs">VS</div>
         <div class="fighter"><div class="nm" style="color:${c.colors[opp]}">${escapeHtml(c.names[opp])}</div><div style="margin-top:4px">${hpL(opp)}</div></div>
       </div>
-      <div class="roll-res">${reveal&&c.result?c.result.text:''}</div>
-      <div class="dice">${dice}</div>
+      <div class="pvp-dice-2col">
+        <div class="pvp-dice-col" id="pvp-you-col"><div class="die-grp-lab">Tu${reveal&&myRoll?` = <b>${myRoll.total}</b>`:''}</div><div class="die-row" id="pvp-you-dice">${myDice}</div></div>
+        <div class="vs" style="align-self:center">vs</div>
+        <div class="pvp-dice-col" id="pvp-opp-col"><div class="die-grp-lab">${escapeHtml(c.names[opp])}${reveal&&oppRoll?` = <b>${oppRoll.total}</b>`:''}</div><div class="die-row" id="pvp-opp-dice">${oppDice}</div></div>
+      </div>
+      <div class="roll-res" style="min-height:26px;font-weight:700;color:var(--gold)">${reveal&&c.result?c.result.text:''}</div>
       ${reveal
         ? ((c.ack&&c.ack[me]) ? `<p class="dim">In attesa dell'altro giocatore…</p>` : `<button class="btn primary" onclick="mpCombatAck()">Continua ▶</button>`)
-        : ((c.rolls&&c.rolls[me]) ? `<p class="dim">Hai tirato <b>${c.rolls[me].total}</b>. In attesa dell'altro giocatore…</p>` : `<button class="btn primary" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`)}
-      <p class="dim small" style="margin-top:8px">Ognuno tira 2 dadi + equipaggiamento. Il più basso perde 1 vita. Fino alla morte.</p>
+        : ((c.rolls&&c.rolls[me]) ? `<p class="dim">Hai tirato. In attesa dell'altro giocatore…</p>` : `<button class="btn primary" id="pvp-roll-btn" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`)}
+      <p class="dim small" style="margin-top:8px">Ognuno tira 2 dadi + equipaggiamento. Il più basso perde 1 vita.</p>
     </div>`);
-}
-function mpCombatDiceHTML(mine,opp,oppName){
-  const cell=v=>`<div class="die-cell">${die3dHTML(v,{})}</div>`;
-  const grp=(lab,dd,tot)=>`<div class="die-grp"><div class="die-grp-lab">${lab} = ${tot}</div><div class="die-row">${(dd||[]).map(d=>cell(d&&d.v!=null?d.v:d)).join("")}</div></div>`;
-  return grp("Tu",mine.dice,mine.total)+`<div class="vs" style="align-self:center">vs</div>`+grp(escapeHtml(oppName),opp.dice,opp.total);
+  if(reveal){ animateReveal('#pvp-you-dice',[]); animateReveal('#pvp-opp-dice',[]); }   // rivelazione: entrambi i dadi rotolano
 }
 function mpCombatRoll(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling'||(c.rolls&&c.rolls[myId])) return;
-  const roll=mpComputeMyRoll(); recalcStats&&recalcStats(); renderHUD&&renderHUD();
+  const roll=mpComputeMyRoll(); if(typeof recalcStats==='function') recalcStats(); if(typeof renderHUD==='function') renderHUD();
+  // feedback IMMEDIATO: i miei dadi rotolano subito, senza aspettare la rete
+  const box=document.getElementById('pvp-you-dice');
+  if(box){ box.innerHTML=mpDieRow(roll); animateReveal('#pvp-you-dice',[]); }
+  const btn=document.getElementById('pvp-roll-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Hai tirato — in attesa…'; }
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='rolling'){ cc.rolls=cc.rolls||{}; if(!cc.rolls[myId]) cc.rolls[myId]=roll; } });
 }
 function mpCombatAck(){
