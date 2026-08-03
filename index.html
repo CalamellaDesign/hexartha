@@ -5061,7 +5061,7 @@ function useGadget(gi, ctx){
     state.you.equip.gadget[gi]=null; toRiciclaggio(it); renderHUD();
     log(`💨 Usi <b>${it.name}</b>: fuggi dalla ${isPvp?'lotta':'battaglia'}!`,"good");
     closeModal();
-    if(isPvp){ state.pvp=null; enterPostEncounter(); } else { enterPostEncounter(); }
+    if(isPvp){ state.pvp=null; enterPostEncounter(); } else { combat=null; postPvE(); }   // fuga con gadget dal PvE → controlla comunque il PvP
     return;
   }
   let resMsg="";
@@ -5230,7 +5230,7 @@ function continueCombat(){
     if(o.you) hurtYou(o.you);
     renderHUD();
     if(state.you.hp<=0) return dieEncounter();
-    if(o.flee){ log(`🏃 Fuga riuscita: lasci lo scontro.`); return enterPostEncounter(); }
+    if(o.flee){ log(`🏃 Fuga riuscita: lasci lo scontro.`); combat=null; return postPvE(); }   // dopo la fuga dal PvE: controlla comunque il PvP
     log(`🏃 Fuga fallita: resti nello scontro.`,"bad");
     return renderCombat();                            // resta in combattimento
   }
