@@ -4178,6 +4178,7 @@ function endTurnCTA(){
 function _confirmEndTurn(){
   const mode=(state._pendingEndMode||(endTurnMode().mode));
   state._pendingEndMode=null;
+  if(mpGame) log(`🔎 [diag] Fine turno: modalità <b>${mode}</b> (fase ${state.phase} · tile ${state.you.tile.type} · nascosto ${state.you.hidden}).`,"evt");
   (mode==="encounter") ? doEncounter() : concludeTurn();
 }
 function doEncounter(){
@@ -4207,6 +4208,11 @@ function pvpTargetsOnTile(){
 }
 function postPvE(){
   const foes=pvpTargetsOnTile();
+  if(mpGame){
+    const mine=key(state.you.tile.col,state.you.tile.v);
+    const opp=(state.opponents||[]).map(o=>`${o.name}@${o.tile?key(o.tile.col,o.tile.v):'?'}${o.hidden?'(nasc)':''}${o.hp<=0?'(morto)':''}`).join(', ')||'nessuno';
+    log(`🔎 [diag] Io su <b>${mine}</b> (${state.you.tile.type})${state.you.hidden?' — sono nascosto':''}. Avversari trovati sulla casella: <b>${foes.length}</b>. Posizioni: ${opp}.`,"evt");
+  }
   if(foes.length && !state.you.hidden){ startPvP(foes); return; }
   enterPostEncounter();
 }
