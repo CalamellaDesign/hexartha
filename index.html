@@ -1316,12 +1316,13 @@ const STORY_MISSIONS=[
 ];
 // Alias per compatibilità con codice esistente (grantSecondaryMission, buildMissions vecchio stile)
 const MISSIONS=[...MISSIONS_MEDICHE,...MISSIONS_MILITARI,...MISSIONS_URBANE];
-// Categoria oggetto (slot): "arma"|"armatura"|"casco"|"gadget"|"consumabile"|"valore"|"materiale"|"trappola"
+// Categoria oggetto (slot): "arma"|"armatura"|"casco"|"gadget"|"consumabile"|"cibo"|"valore"|"materiale"|"trappola"
+// "cibo" (Acqua potabile, Energy drink, Cibo in scatola): NON equipaggiabile come gadget; usabile solo FUORI battaglia dallo zaino o dalla Tasca sicura.
 // atk=bonus danno · red=riduzione danno · heal=cura vita · val=valore monete · lockpick=può scassinare · img=illustrazione
 // --- MAZZO COMUNE (zone urbane/grigie · stazioni · riciclaggio) ---
 const DECK_COMUNE=[
   {name:"Accendino",            slot:"valore",     val:3, copies:4,  effect:"Oggetto di valore",                      img:IMG_C+"accendino.png"},
-  {name:"Acqua potabile",       slot:"consumabile",val:2, copies:6, extraActions:1, effect:"Scartala: +1 azione in questo turno", img:IMG_C+"acqua potabile.png"},
+  {name:"Acqua potabile",       slot:"cibo",       val:2, copies:6, extraActions:1, noEquip:true, noBattle:true, effect:"Scartala fuori dalla battaglia: +1 azione in questo turno", img:IMG_C+"acqua potabile.png"},
   {name:"Armatura arrugginita", slot:"armatura",   val:5, copies:6, red:3, effect:"Danno subito -3",                 img:IMG_C+"armatura rovinata.png"},
   {name:"Batterie",             slot:"materiale",  val:3, copies:8, rechargeTool:true, effect:"Usala per ricaricare Torcia o Sensore di movimento", img:IMG_C+"batterie.png"},
   {name:"Bracciale d'oro",      slot:"valore",     val:6, copies:3,  effect:"Oggetto di valore",                      img:IMG_C+"bracciale d'oro.png"},
@@ -1335,9 +1336,9 @@ const DECK_COMUNE=[
   {name:"Cassetta attrezzi",    slot:"materiale",  val:3, copies:9, repairTool:true, effect:"Usala per riparare l'usura di un'arma (ripristina a 6)", img:IMG_C+"cassetta degli attrezzi.png"},
   {name:"Chiave cassaforte",    slot:"materiale",  val:2, copies:5,  noEquip:true, effect:"Apre la Cassaforte (poi va fuori gioco) — non equipaggiabile", img:IMG_C+"chiave cassaforte.png"},
   {name:"Chiave Fortezza Rossa", slot:"materiale", val:3, copies:4, fortressKey:true, noEquip:true, effect:"Apre la Fortezza Rossa — non equipaggiabile", img:IMG_C+"chiave red zone.png"},
-  {name:"Cibo in scatola",      slot:"consumabile",val:2, copies:6, heal:1, noEquip:true, noBattle:true, effect:"Recupera 1 vita — si mangia solo fuori dalla battaglia; non equipaggiabile", img:IMG_C+"cibo in scatola.png"},
+  {name:"Cibo in scatola",      slot:"cibo",       val:2, copies:6, heal:1, noEquip:true, noBattle:true, effect:"Recupera 1 vita — si mangia solo fuori dalla battaglia; non equipaggiabile", img:IMG_C+"cibo in scatola.png"},
   {name:"Disco segreto",        slot:"valore",     val:0, copies:1, special:true, discoSegreto:true, effect:"Disco dati criptato — non va in Tasca sicura; −1 azione per turno finché lo tieni", img:IMG_C+"disco segreto.png"},
-  {name:"Energy drink",         slot:"consumabile",val:2, copies:5, extraActions:2, effect:"Scartala: +2 azioni in questo turno", img:IMG_C+"energy drink.png"},
+  {name:"Energy drink",         slot:"cibo",       val:2, copies:5, extraActions:2, noEquip:true, noBattle:true, effect:"Scartala fuori dalla battaglia: +2 azioni in questo turno", img:IMG_C+"energy drink.png"},
   {name:"Erba",                 slot:"materiale",  val:3, copies:4,  effect:"Materiale di crafting (spinello)",       img:IMG_C+"erba.png"},
   {name:"Grimaldello",          slot:"gadget",     val:4, copies:6, lockpick:true, effect:"Scassina i depositi avversari", img:IMG_C+"Grimardello.png"},
   {name:"Kit medico usato",     slot:"consumabile",val:2, copies:6, heal:1, cureOneState:true, effect:"Cura 1 vita e rimuove 1 stato negativo", img:IMG_C+"kit medico usato.png"},
@@ -1493,6 +1494,8 @@ const CRAFTING=[
   {result:"Batterie",            variants:[ [["Scarti di ferro",1],["Componenti elettrici",1]] ]},
 ];
 function findCard(name){ const all=[...DECK_COMUNE,...DECK_MEDICO,...DECK_MILITARE,...DECK_SPECIALE]; const c=all.find(x=>x.name===name); return c?{...c}:null; }
+// Zaino di partenza: ogni giocatore inizia con 1 Cibo in scatola (setup manuale §regolamento).
+function startingPackCentro(){ const c=findCard("Cibo in scatola"); return c?[c]:[]; }
 function ownedCount(name){ let n=0; packSections().forEach(s=>state.you.pack[s].forEach(it=>{if(it.name===name)n++;})); state.you.deposito.forEach(it=>{if(it.name===name)n++;}); if(state.you?.equip?.tasca?.name===name) n++; return n; }
 function recipeSatisfied(rec){ return rec.every(([name,qty])=>ownedCount(name)>=qty); }
 function removeOneByName(name){
@@ -1503,7 +1506,11 @@ function removeOneByName(name){
 // Carta loot: colore-accento per categoria e icone (spec: CARTE/CARD-LAYOUT-LOOT.md)
 const DECK_ACCENT={comune:"#A14A2A", medico:"#4A5D3A", militare:"#6b6636", speciale:"#B08D3E", riciclaggio:"#5a4b5e"};
 const DECK_ICON  ={comune:"◆", medico:"✚", militare:"🎖️", speciale:"★", riciclaggio:"♻"};
-const SLOT_ICON  ={arma:"🔫", armatura:"🛡️", casco:"⛑️", gadget:"🔧", valore:"💰", consumabile:"🧪", materiale:"🔩", trappola:"🪤"};
+const SLOT_ICON  ={arma:"🔫", armatura:"🛡️", casco:"⛑️", gadget:"🔧", valore:"💰", consumabile:"🧪", cibo:"🥫", materiale:"🔩", trappola:"🪤"};
+// Categoria "cibo": non equipaggiabile (nemmeno come gadget), usabile solo fuori battaglia.
+// Riconosciuta anche per NOME così da coprire carte salvate prima dell'introduzione dello slot "cibo".
+const FOOD_NAMES = new Set(["Acqua potabile","Energy drink","Cibo in scatola"]);
+function isFood(it){ return !!it && (it.slot==="cibo" || FOOD_NAMES.has(it.name)); }
 // Punteggio Equipaggiamento (§6.2): armi/armature/caschi danno +X · base per slot vuoti
 const BASE_EQUIP={arma:1, armatura:1, casco:1};
 function itemEquip(it){ if(!it) return 0; if(it.maxWear!=null && (it.wear||0)<=0) return BASE_EQUIP.arma; return (it.equip ?? it.atk ?? it.red ?? 0); }   // arma scarica (usura 0) = vale come arma base (+1)
@@ -1604,7 +1611,7 @@ function fresh(){
          hp:3, maxhp:3, tempHp:0, dmgPenalty:0, coins:3, fama:0,   // tempHp: vite extra temporanee (fino a fine turno); dmgPenalty: malus al danno (es. Spinello)
          armaName:"Arma base", equipScore:3, hidden:false,
          safeTurnPending:false,
-         pack:{sx:[],centro:[],dx:[]},                              // zaino a sezioni
+         pack:{sx:[],centro:startingPackCentro(),dx:[]},            // zaino a sezioni — parte con 1 Cibo in scatola
          deposito:[],                                               // magazzino (max 15), gestibile in safe zone
          missions:[],                                               // missioni principali
          states:{emorragia:false, ossa:false, avvelenato:false},    // stati negativi
@@ -2040,6 +2047,14 @@ function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; 
 
 // L'host costruisce UNA partita: mazzi mischiati una volta, un personaggio per
 // giocatore al proprio accampamento, evento del Giorno 1. Ritorna oggetto JSON-safe.
+// Piazza un drop (aiuti/missioni) nel MONDO condiviso — usato dall'host a inizio partita
+// e da chi fa avanzare il giorno. Non tocca DOM/state: la resa avviene all'hydrate (drawDrops).
+function mpPlaceDropWorld(w, kind, day){
+  const cand=TILES.filter(t=> !SAFE.has(t.type) && t.type!=="fortezza" && t.type!=="estrazione");
+  if(!cand.length) return;
+  const t=cand[Math.floor(Math.random()*cand.length)];
+  (w.drops||(w.drops=[])).push({key:key(t.col,t.v), kind, day});
+}
 function mpBuildGame(players, gameMode){
   const eventDeckVerde   = shuffle([...EVENT_DECK_VERDE]);
   const eventDeckMarrone = shuffle([...EVENT_DECK_MARRONE]);
@@ -2064,6 +2079,8 @@ function mpBuildGame(players, gameMode){
             discoSegretoInPlay:false, discoSegretoEliminated:false,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
+  if(game.event && game.event.drop) mpPlaceDropWorld(game.world, game.event.drop, game.day);
+  if(game.event && game.event.coinsForAll) game.characters.forEach(c=>{ if(!c.abandoned) c.coins=(c.coins||0)+game.event.coinsForAll; });   // es. "Giorno di paga" pescato al Giorno 1
   return mpSerialize(game);
 }
 
@@ -2105,7 +2122,7 @@ function mpRenderAll(){
     const ed=document.getElementById('eventdesc'); if(ed) ed.textContent=state.event.d||"";
   }
   if(typeof updateStepper==="function") updateStepper();
-  renderHUD(); drawPawn(); mpRenderTurnOrder();
+  renderHUD(); drawPawn(); if(typeof drawDrops==="function") drawDrops(); mpRenderTurnOrder();
 }
 
 // Ordine del turno nel pannello sinistro: sequenza dallo starter, corrente evidenziato.
@@ -2635,6 +2652,7 @@ function mpAdvanceDay(){
     else { const rf=shuffle([...EVENT_DECK_ROSSO]); w.eventDeckRosso=mpGame.gameMode==="hardcore"?rf:rf.slice(0,5); deck=w.eventDeckRosso; }
   }
   mpGame.event=deck.shift();
+  if(mpGame.event && mpGame.event.drop) mpPlaceDropWorld(w, mpGame.event.drop, mpGame.day);
   if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
 }
 
@@ -3167,7 +3185,7 @@ function claimDropForYou(done){
     let cards;
     if(state.event?.dropContent==="armeriamediacibo"){
       // Contenuto specifico: 1 carta Armeria + 1 carta Medica + 1 Cibo in scatola
-      const cibo=findCard("Cibo in scatola")||{name:"Cibo in scatola",slot:"consumabile",val:2,heal:1,noEquip:true,noBattle:true,deck:"comune"};
+      const cibo=findCard("Cibo in scatola")||{name:"Cibo in scatola",slot:"cibo",val:2,heal:1,noEquip:true,noBattle:true,deck:"comune"};
       cards=[drawLootForDrop("militare"), drawLootForDrop("medico"), {...cibo}];
       log(`📦 Raggiungi per primo il <b>Drop aiuti</b> in <b>${t?t.name:'—'}</b>: 1 carta Armeria + 1 carta Medica + Cibo in scatola!`,"good");
     } else {
@@ -3528,6 +3546,7 @@ function showEventCard(){
 }
 function beginYourTurn(){
   document.getElementById('turnof').textContent="Tu";
+  combat=null;   // sicurezza: a inizio turno nessuno scontro è in corso (sblocca cibo ecc.)
   state.you.hidden=false; state.milSearchCount=0; state.movedFirst=false;
   drawPawn();   // all'inizio del tuo turno la pedina torna normale (fine visualizzazione "nascosto")
   state.you.weaponUsedThisTurn=false;   // reset flag di turno (arma usata → usura)
@@ -3618,9 +3637,11 @@ function doMove(t, first){
   // Estrazione propria → il turno termina subito e torni al tuo accampamento
   if(t.type==="estrazione" && k_isMyExtraction(t)){
     stopTurnTimer(); state.you.safeTurnPending=true;
-    log(`🚪 Raggiungi la <b>${t.name}</b>: ti estrai, torni alla base e ti curi (3 vita, stati rimossi). Il turno termina.`,"good");
     const camp=tileMap.get(state.you.campKey);
-    setTimeout(()=>{state.you.tile=camp;healAtBase();drawPawn();renderHUD();concludeTurn();},700);
+    state.you.tile=camp;                        // rientro IMMEDIATO in base: stato coerente da subito (il prossimo turno sarà di gestione)
+    state.phase="base"; state.actionsLeft=0; updateActionUI();   // niente altre azioni durante l'estrazione (700ms)
+    log(`🚪 Raggiungi la <b>${t.name}</b>: ti estrai, torni alla base e ti curi (3 vita, stati rimossi). Il turno termina.`,"good");
+    setTimeout(()=>{healAtBase();drawPawn();renderHUD();concludeTurn();},700);
     return;
   }
   // Avamposto: entrarci termina il turno (resti sull'avamposto); il turno dopo è di gestione safe zone
@@ -3733,8 +3754,9 @@ function _executeSearch(useTorch){
   spend();
   // le trappole scattano subito (infliggono il malus) ma poi si tengono, tranne quelle "non si raccoglie" (Buca trappola)
   const keepable=[];
+  const sprungNoKeep=[];   // trappole "non si raccoglie" (Buca): si RIVELANO prima, poi scatta il malus
   drawn.forEach(it=>{
-    if(it.slot==="trappola"){ if(springTrap(it, true)) keepable.push(it); }   // true = via Cerca (la Buca scatta solo qui)
+    if(it.slot==="trappola"){ if(springTrap(it, true)) keepable.push(it); else sprungNoKeep.push(it); }   // true = via Cerca (la Buca scatta solo qui)
     else if(it.name==="Cassaforte"){ handleCassaforte(); }   // risolta subito, non tenuta
     else keepable.push(it);
   });
@@ -3760,9 +3782,14 @@ function _executeSearch(useTorch){
     });
   };
   // se peschi più di quante ne tieni → prima la scelta a carte scoperte (flip), poi malus e inventario
-  if(keepable.length > keep)      openChooseLoot(keepable, keep, t.name, null, afterReveal);
-  else if(keepable.length)        showLootDraw(keepable, `Bottino — ${t.name}`, ()=>afterReveal(keepable, []));
-  else                            afterReveal([], []);   // niente da tenere (es. Buca/Cassaforte): mostra comunque l'eventuale malus
+  const revealKeepable=()=>{
+    if(keepable.length > keep)      openChooseLoot(keepable, keep, t.name, null, afterReveal);
+    else if(keepable.length)        showLootDraw(keepable, `Bottino — ${t.name}`, ()=>afterReveal(keepable, []));
+    else                            afterReveal([], []);   // niente da tenere (es. Buca/Cassaforte): mostra comunque l'eventuale malus
+  };
+  // 1) se è scattata una trappola "non si raccoglie" (Buca): RIVELA prima la carta (flip), POI il resto (malus incluso)
+  if(sprungNoKeep.length) showLootDraw(sprungNoKeep, `⚠ Trappola! — ${t.name}`, revealKeepable);
+  else                    revealKeepable();
 }
 function finalizeLoot(kept, discarded, zoneName, done){
   discarded.forEach(it=>toRiciclaggio(it));                 // scartati → mazzo Riciclaggio
@@ -4024,7 +4051,7 @@ function lockpickMineDiscard(sec,i){
 }
 function lockpickMineEquip(sec,i){
   const it=state.you.pack[sec][i]; if(!it)return;
-  if(it.noEquip){ log(`🎒 <b>${it.name}</b> non si può equipaggiare.`,"bad"); return; }
+  if(it.noEquip||isFood(it)){ log(`🎒 <b>${it.name}</b> non si può equipaggiare.`,"bad"); return; }
   if(it.slot==="gadget"||it.slot==="consumabile"){
     const gi=state.you.equip.gadget.findIndex(g=>!g);
     if(gi<0){log(`🎒 Spazi gadget pieni.`,"bad");return;}
@@ -4227,27 +4254,31 @@ function applyWeaponWear(){
   w.wear--;
   recalcStats(); renderHUD();
   log(`🛠️ <b>${w.name}</b>: usura ${w.wear}/${w.maxWear}${w.wear<=0?' — <b>arma scarica!</b>':''}.`, w.wear<=0?"bad":"");
-  if(w.wear <= 0){
-    const wName = w.name;
-    setTimeout(()=>{
-      openModal(`
-        <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚠ Arma scarica</span></div>
-        <div class="modal-b center">
-          <div style="font-size:40px;margin-bottom:10px">🛠️</div>
-          <p style="font-size:14px;margin:0 0 8px"><b>${wName}</b> ha raggiunto <b>0 punti usura</b>.</p>
-          <p class="muted small" style="margin:0 0 16px;line-height:1.5">In combattimento vale come <b>arma base (+1)</b> finché non la ripari.<br>Usa la <b>Cassetta attrezzi</b> per ripristinarla a ${w.maxWear} usura.</p>
-          <button class="btn primary" onclick="closeModal()">OK, capito</button>
-        </div>`);
-    }, 350);
-  }
+  if(w.wear <= 0){ state._weaponBroke={name:w.name, maxWear:w.maxWear}; }   // popup DIFFERITO: mostrato a fine incontro (dopo il loot), per non coprire le carte
+}
+// Popup "arma scarica" mostrato SOLO a fine incontro, dopo la pesca del bottino.
+function showWeaponBrokeModal(){
+  const b=state._weaponBroke; if(!b) return; state._weaponBroke=null;
+  setTimeout(()=>{
+    openModal(`
+      <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚠ Arma scarica</span></div>
+      <div class="modal-b center">
+        <div style="font-size:40px;margin-bottom:10px">🛠️</div>
+        <p style="font-size:14px;margin:0 0 8px"><b>${b.name}</b> ha raggiunto <b>0 punti usura</b>.</p>
+        <p class="muted small" style="margin:0 0 16px;line-height:1.5">In combattimento vale come <b>arma base (+1)</b> finché non la ripari.<br>Usa la <b>Cassetta attrezzi</b> per ripristinarla a ${b.maxWear} usura.</p>
+        <button class="btn primary" onclick="closeModal()">OK, capito</button>
+      </div>`);
+  }, 350);
 }
 // Fase post-incontro: stessa schermata del turno, ci si può curare/gestire inventario, poi Termina turno
 function enterPostEncounter(){
   applyWeaponWear();   // applica usura se l'arma è stata usata (fuga, PvP, PvE non-chain)
+  combat=null;         // lo scontro è concluso: sblocca le carte usabili "solo fuori dalla battaglia" (es. Cibo)
   closeModal();
   state.phase="postEncounter"; state.you.hidden=false;
   clearReach(); renderHUD(); updateActionUI(); startTurnTimer();
   log(`Scontro concluso. Puoi <b>curarti</b> e <b>gestire l'inventario</b>, poi premi <b>Termina turno</b>.`,"good");
+  showWeaponBrokeModal();   // eventuale popup "arma scarica" ORA, dopo il loot (non copre più le carte)
 }
 function concludeTurn(){
   if(!mpCanAct()) return;   // sicurezza: solo chi è di turno può concludere (e pubblicare)
@@ -4687,7 +4718,7 @@ function briefEffect(text){
 }
 function cardMainEffect(it){
   if(it.slot==="arma"||it.slot==="armatura"||it.slot==="casco") return "+"+itemEquip(it)+" EQUIPAGGIAMENTO";
-  if(it.slot==="consumabile"&&it.heal) return it.heal>=99 ? "RIPRISTINA LA VITA" : "CURA +"+it.heal+" VITA";
+  if((it.slot==="consumabile"||it.slot==="cibo")&&it.heal) return it.heal>=99 ? "RIPRISTINA LA VITA" : "CURA +"+it.heal+" VITA";
   if(it.slot==="trappola") return "⚠ TRAPPOLA";
   return briefEffect(it.effect||"").toUpperCase();
 }
@@ -4698,7 +4729,7 @@ function missionRequiredBy(itemName){
 function lootCardFaceHTML(it){
   const deckCls = it.discoSegreto ? 'hb-speciale' : ('hb-'+(it.deck||'comune'));
   const slotLbl = {arma:'ARMA',armatura:'ARMATURA',casco:'CASCO',gadget:'GADGET',
-    consumabile:'CONSUMABILE',valore:'VALORE',trappola:'TRAPPOLA',materiale:'MATERIALE'}[it.slot]
+    consumabile:'CONSUMABILE',cibo:'CIBO',valore:'VALORE',trappola:'TRAPPOLA',materiale:'MATERIALE'}[it.slot]
     || (it.slot?.toUpperCase()||'—');
   const deckLbl = it.discoSegreto ? 'SPECIALE' : (it.deck?.toUpperCase()||'—');
   const img = it.img
@@ -4712,7 +4743,7 @@ function lootCardFaceHTML(it){
   const footLeft = (()=>{
     if(it.slot==='arma')               return `<span>ATK</span><span class="hb-atk">+${eq}</span>`;
     if(it.slot==='armatura'||it.slot==='casco') return `<span>EQ</span><span class="hb-atk">+${eq}</span>`;
-    if(it.slot==='consumabile'&&it.heal)
+    if((it.slot==='consumabile'||it.slot==='cibo')&&it.heal)
       return it.heal>=99 ? `<span class="hb-heal">★ VITA</span>` : `<span>PV</span><span class="hb-heal">+${it.heal}</span>`;
     if(it.discoSegreto)                return `<span class="hb-star">★</span>`;
     const ik = SLOT_ICON[it.slot]||DECK_ICON[it.deck]||'';
@@ -4808,7 +4839,7 @@ function lootRoomStep(){
 }
 function lootEquip(i){
   const it=(state.pendingLoot||[])[i]; if(!it) return;
-  if(it.noEquip){ return invMsg(`<b>${it.name}</b> non si può equipaggiare.`); }
+  if(it.noEquip||isFood(it)){ return invMsg(`<b>${it.name}</b> non si può equipaggiare.`); }
   if(it.slot==='gadget'||it.slot==='consumabile'){
     const gi=state.you.equip.gadget.findIndex(g=>!g);
     if(gi<0) return invMsg("Spazi gadget pieni: rimuovi prima un gadget.");
@@ -5290,6 +5321,7 @@ function winEncounter(){
   // Usura: ogni incontro PvE concluso (vinto) consuma 1 punto usura arma
   applyWeaponWear();
   renderHUD();
+  combat=null;   // scontro vinto: sblocca subito l'inventario (es. usare il Cibo per fare spazio al bottino)
   const afterCombat = e.chainEncounter ? ()=>{ log(`🔗 L'incontro continua — appare un altro avversario!`,"bad"); closeModal(); startEncounter(); } : afterWin;
   if(e.lootChoice && e.lootChoice>1 && gotItems.length>0){
     // Malik Johnson: rivela lootChoice carte (flip 3D) e il giocatore sceglie quali tenere (come la Cerca nel riciclaggio)
@@ -5876,7 +5908,9 @@ function sellPrice(it){
 }
 const IMG_TRADER="CARTE/Immagini Contrabbandieri/";
 function openCommerce(){
-  _tradeViewOnly = !(state.phase==="base" || !!(state.event?.shopAnywhere));
+  // Solo visione se NON è il mio turno (attesa multiplayer) o se non sono in una situazione valida
+  // (fase "base" = safe zone, oppure evento shopAnywhere). Le azioni di commercio valgono solo nel proprio turno.
+  _tradeViewOnly = !mpCanAct() || !(state.phase==="base" || !!(state.event?.shopAnywhere));
   if(!shop) shop={derrick:Array.from({length:3},()=>drawFrom('militare')), elvira:Array.from({length:3},()=>drawFrom('medico'))};
   currentVendorTab = currentVendorTab || 'derrick';
   const tabs=['derrick','elvira','michail'];
@@ -5945,6 +5979,7 @@ function showVendorTab(tab){
   });
 }
 function buyItem(vendor,i){
+  if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
   const it=shop[vendor][i]; if(!it) return; const price=(it.val||0)+1;
   if(state.you.coins<price || packTotalFree()<=0) return;
   state.you.coins-=price;
@@ -5954,6 +5989,7 @@ function buyItem(vendor,i){
   renderHUD(); openCommerce();
 }
 function buyFromMichail(i){
+  if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
   const slots=state.michailSlots||[]; const it=slots[i]; if(!it) return;
   const price=(it.val||0)+1;
   if(state.you.coins<price || packTotalFree()<=0) return;
@@ -5964,6 +6000,7 @@ function buyFromMichail(i){
   renderHUD(); openCommerce();
 }
 function openSellModal(){
+  if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
   _sellItems=[];
   // zaino
   packSections().forEach(sec=>state.you.pack[sec].forEach((it,i)=>{ if(!it.discoSegreto) _sellItems.push({src:'pack',sec,i,it}); }));
@@ -5996,6 +6033,7 @@ function openSellModal(){
     </div>`, true);
 }
 function doSell(idx){
+  if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
   if(soldThisTurn>=3){ log(`⛔ Hai già venduto 3 oggetti questo turno.`,"bad"); return; }
   const e=_sellItems[idx]; if(!e) return;
   const it=e.it;
@@ -6379,13 +6417,11 @@ function canGoTo(item, dstKey){
   if(!item || !dstKey) return false;
   const dp = dstKey.split('.');
   if(dp[0]==='pack'){
-    const sec = dp[1];
-    if(sec==='sx'||sec==='dx') return item.slot!=='arma'&&item.slot!=='armatura'&&item.slot!=='casco';
-    return true; // centro accetta tutto
+    return true; // ogni sezione dello zaino accetta qualsiasi carta (coerente col percorso a click)
   }
   if(dp[0]==='equip'){
     const s = dp[1];
-    if(s==='gadget')   return item.slot==='gadget'||item.slot==='consumabile'||item.slot==='trappola';
+    if(s==='gadget')   return (item.slot==='gadget'||item.slot==='consumabile'||item.slot==='trappola') && !isFood(item) && !item.noEquip;
     if(s==='arma')     return item.slot==='arma';
     if(s==='armatura') return item.slot==='armatura';
     if(s==='casco')    return item.slot==='casco';
@@ -6500,6 +6536,10 @@ function doDragDrop(srcLoc, dstKey){
     const sec = dp[1];
     if(y.pack[sec] && y.pack[sec].length >= PACK_CAP[sec] && PACK_CAP[sec]===1) dstItem = y.pack[sec][0];
   }
+  // Capacità: una sezione multi-slot piena (centrale, 4) non accetta nuove carte né scambi
+  if(dp[0]==='pack' && !dstItem && packFree(dp[1])<=0){
+    log(`⚠ ${PACK_LABEL[dp[1]]} è piena.`,'bad'); renderInventory(); return;
+  }
   // Verifica che lo swap sia valido (se c'è dstItem, deve poter andare nella src)
   if(dstItem){
     const srcAccepts = canGoTo(dstItem, srcKey);
@@ -6607,7 +6647,7 @@ function invActionPanel(loc){
     // Equipaggia direttamente se slot compatibile libero
     if(['arma','armatura','casco'].includes(it.slot) && !state.you.equip[it.slot])
       btns.push(`<button class="btn primary" onclick="lootEquip(${i})">⚔ Equipaggia</button>`);
-    if((it.slot==='gadget'||it.slot==='consumabile') && !it.noEquip && state.you.equip.gadget.some(g=>!g))
+    if((it.slot==='gadget'||it.slot==='consumabile') && !it.noEquip && !isFood(it) && state.you.equip.gadget.some(g=>!g))
       btns.push(`<button class="btn primary" onclick="lootEquip(${i})">🔧 Equipaggia gadget</button>`);
     if(!canStow && btns.length===0)
       btns.push(`<span class="dim small">Inventario e slot equip pieni: libera spazio o rinuncia.</span>`);
@@ -6621,11 +6661,11 @@ function invActionPanel(loc){
   const btns=[];
   btns.push(`<button class="btn" onclick="invDetail('${loc}')">🔍 Dettaglio</button>`);
   if(inPack){
-    if(item.slot==="consumabile")
+    if(item.slot==="consumabile"||item.slot==="cibo")
       btns.push(`<button class="btn primary" onclick="invUse('${loc}')">Usa</button>`);
     if(item.rechargeTool) btns.push(`<button class="btn primary" onclick="useBattery('${loc}')">🔋 Usa (ricarica)</button>`);
     if(item.repairTool)   btns.push(`<button class="btn primary" onclick="useRepair('${loc}')">🛠 Usa (ripara)</button>`);
-    if(["arma","armatura","casco","gadget","consumabile"].includes(item.slot) && !item.noEquip)
+    if(["arma","armatura","casco","gadget","consumabile"].includes(item.slot) && !item.noEquip && !isFood(item))
       btns.push(`<button class="btn primary" onclick="invEquip('${loc}')">${item.slot==="consumabile"?"Equip. gadget":"Equipaggia"}</button>`);
     // Sposta tra sezioni: se la destinazione è piena ma a 1 slot → scambio (⇄)
     packSections().forEach(sec=>{
@@ -6641,6 +6681,9 @@ function invActionPanel(loc){
     // gadget equipaggiati: i consumabili/medici si possono USARE anche fuori dalla battaglia, senza rimetterli nello zaino
     if(loc.startsWith("equip.gadget") && item.slot==="consumabile")
       btns.push(`<button class="btn primary" onclick="invUse('${loc}')">Usa</button>`);
+    // Cibo nella Tasca sicura: si può mangiare direttamente (fuori dalla battaglia)
+    if(loc==="equip.tasca" && isFood(item))
+      btns.push(`<button class="btn primary" onclick="invUse('${loc}')">Usa</button>`);
     // Torcia e Sensore di movimento si attivano via modale durante Cerca / Effettua Incontro (non dall'inventario)
     btns.push(`<button class="btn" onclick="invUnequip('${loc}')">Rimetti nello zaino</button>`);
   }
@@ -6651,7 +6694,7 @@ function invActionPanel(loc){
 function y_tascaFull(){ return !!state.you.equip.tasca; }
 function invEquip(loc){
   const item=locGet(loc), slot=item.slot;
-  if(item.noEquip){ return invMsg(`<b>${item.name}</b> non si può equipaggiare.`); }
+  if(item.noEquip||isFood(item)){ return invMsg(`<b>${item.name}</b> non si può equipaggiare.`); }
   if(slot==="gadget"||slot==="consumabile"){   // gadget e consumabili/medici → 2 slot gadget (usabili in battaglia)
     const gi=state.you.equip.gadget.findIndex(g=>!g);
     if(gi<0){ return invMsg("Spazi gadget pieni: rimuovi prima un gadget."); }
@@ -6708,8 +6751,8 @@ function invDiscard(loc){
 }
 // Usa un consumabile (in qualsiasi momento del proprio turno, in qualsiasi zona)
 function invUse(loc){
-  const it=locGet(loc); if(!it||it.slot!=="consumabile") return;
-  if(it.noBattle && combat){ return invMsg(`<b>${it.name}</b> si può mangiare solo <b>fuori dalla battaglia</b>.`); }
+  const it=locGet(loc); if(!it||(it.slot!=="consumabile"&&it.slot!=="cibo")) return;
+  if(it.noBattle && combat){ return invMsg(`<b>${it.name}</b> si può usare solo <b>fuori dalla battaglia</b>.`); }
   const s=state.you.states; const cured=[];
   if(it.tempLife && !it.heal && (state.you.tempHp||0)>=2){ return invMsg("Vite extra già al massimo (5)."); }
   if((it.name==="Antidoto"||it.name==="Kit medico") && s.avvelenato){ s.avvelenato=false; cured.push("Avvelenato"); }
@@ -6806,7 +6849,7 @@ function handleCassaforte(){
 // ===== Catalogo carte + Dettaglio carta =====
 function slotLabel(it){
   if(it.special || it.discoSegreto || it.name==="Cassaforte") return "Speciale";
-  return {arma:"Arma",armatura:"Armatura",casco:"Casco",gadget:"Gadget",consumabile:"Consumabile",valore:"Oggetto di valore",materiale:"Oggetto per crafting",trappola:"Trappola"}[it.slot]||"—";
+  return {arma:"Arma",armatura:"Armatura",casco:"Casco",gadget:"Gadget",consumabile:"Consumabile",cibo:"Cibo",valore:"Oggetto di valore",materiale:"Oggetto per crafting",trappola:"Trappola"}[it.slot]||"—";
 }
 // Dettaglio = carta aperta (faccia grande) + descrizione
 function cardDetailHTML(it){
