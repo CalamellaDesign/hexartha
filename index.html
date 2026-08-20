@@ -2274,6 +2274,7 @@ function mpStartPvpVote(foes){
 function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
+    stopPvpIdle();
     if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
@@ -2472,7 +2473,9 @@ function mpRenderCombat(pvp,c){
         ? (((c.ack&&c.ack[myId])||!iAlive) ? `<p class="dim">In attesa degli altri…</p>` : `<button class="btn primary" onclick="mpCombatAck()">Continua ▶</button>`)
         : (!iAlive ? `<p class="dim">Sei stato eliminato — attendi la fine dello scontro.</p>` : (iRolled?`<p class="dim">Hai tirato — in attesa degli altri…</p>`:`<button class="btn primary" id="pvp-roll-btn" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`))}
       <p class="dim small" style="margin-top:8px">Tutti tirano insieme: <b>perdi 1 vita per ogni avversario con punteggio uguale o superiore</b> al tuo. Solo un massimo unico resta salvo.</p>
+      <div class="small" id="pvp-idle" style="margin-top:4px;font-weight:600"></div>
     </div>`);
+  mpPvpIdleSync(c);   // (ri)avvia/ferma il timer di inattività secondo quel che devo fare io
   if(reveal){
     if(!_pvpRevealAnimated){
       _pvpRevealAnimated=true;   // i dadi rotolano UNA sola volta, all'apparire della rivelazione
@@ -2487,12 +2490,14 @@ function mpCombatRoll(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling') return;
   if(c.hp[myId]<=0) return;                         // eliminato: non tira
   if(c.rolls&&c.rolls[myId]) return;                // ho già tirato
+  stopPvpIdle();                                    // ho agito: il timer si riarma al prossimo render
   const roll=mpComputeMyRoll(); if(typeof recalcStats==='function') recalcStats(); if(typeof renderHUD==='function') renderHUD();
   const btn=document.getElementById('pvp-roll-btn');
   if(btn){ btn.disabled=true; btn.textContent='Hai tirato — in attesa degli altri…'; }   // dadi mostrati solo quando hanno tirato TUTTI
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='rolling'){ cc.rolls=cc.rolls||{}; if(!cc.rolls[myId]) cc.rolls[myId]=roll; } });
 }
 function mpCombatAck(){
+  stopPvpIdle();                                    // ho confermato: il timer si riarma al prossimo render se serve
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='reveal'){ cc.ack=cc.ack||{}; cc.ack[myId]=true; } });
 }
 // Attaccante: tutti hanno tirato → calcola l'esito del round e applica il danno.
@@ -2545,6 +2550,7 @@ function mpLootFromChar(id){
   return out;
 }
 function mpRenderCombatLoot(pvp,c){
+  stopPvpIdle();
   const nm=id=>escapeHtml((pvp.names||{})[id]||'?');
   if(myId!==c.winnerId){
     openModal(`<div class="modal-h"><span class="stencil" style="color:var(--rust)">☠ Sconfitto</span></div>
@@ -2573,6 +2579,7 @@ function mpCombatLootDone(){
 }
 // Attaccante: applica l'esito del vincitore + morte del perdente, poi termina il turno di chi aveva mosso.
 function mpCombatFinalize(){
+  stopPvpIdle();
   const c=net.pvp.combat; if(!c) return;
   closeModal();
   const winner=c.winnerId?mpGame.characters.find(x=>x.id===c.winnerId):null;
@@ -4915,6 +4922,48 @@ function onCombatIdleTimeout(){
   }
   log(`⏱ Inattivo troppo a lungo nell'incontro: perdi <b>1 vita</b> automaticamente.`,"bad");
   renderCombat(`⏱ Hai perso 1 vita per inattività. <b>Agisci!</b>`);   // re-render riarma il timer
+}
+// --- Timer di inattività nello scontro PvP online (net.pvp): 60s senza tirare/confermare ---
+// Nel PvP il round si risolve solo quando TUTTI i vivi hanno tirato; un inattivo blocca lo scontro.
+// Allo scadere: se devo tirare → RINUNCIO al tiro (tiro forfait 0 → perdo il confronto e quindi 1 vita
+// per ogni avversario, come da regola del round) e lo scontro prosegue; se devo confermare → auto-Continua.
+let pvpIdle=null, pvpIdleLeft=0, pvpIdleKind=null;
+function startPvpIdle(kind){
+  stopPvpIdle();
+  pvpIdleKind=kind; pvpIdleLeft=COMBAT_IDLE_SECONDS; updatePvpIdleUI();
+  pvpIdle=setInterval(()=>{
+    pvpIdleLeft--; updatePvpIdleUI();
+    if(pvpIdleLeft<=0){ stopPvpIdle(); onPvpIdleTimeout(kind); }
+  },1000);
+}
+function stopPvpIdle(){ if(pvpIdle){ clearInterval(pvpIdle); pvpIdle=null; } pvpIdleKind=null; }
+function updatePvpIdleUI(){
+  const el=document.getElementById('pvp-idle'); if(!el) return;
+  el.textContent = pvpIdleKind==='roll'
+    ? `⏱ Tira entro ${pvpIdleLeft}s o rinunci al round (perdi la vita)`
+    : `⏱ Continua entro ${pvpIdleLeft}s o si prosegue in automatico`;
+  el.style.color = pvpIdleLeft<=10 ? 'var(--rust)' : 'var(--muted)';
+}
+// (Ri)avvia o ferma il timer in base a cosa deve fare QUESTO giocatore nello stato corrente.
+function mpPvpIdleSync(c){
+  if(!c || c.hp[myId]<=0){ return stopPvpIdle(); }                 // niente timer se eliminato o senza combat
+  const needRoll = (c.phase==='rolling' && !(c.rolls&&c.rolls[myId]));
+  const needAck  = (c.phase==='reveal'  && !(c.ack&&c.ack[myId]));
+  if(needRoll) startPvpIdle('roll');
+  else if(needAck) startPvpIdle('ack');
+  else stopPvpIdle();                                              // ho già agito: aspetto gli altri senza penalità
+}
+function onPvpIdleTimeout(kind){
+  const c=net.pvp&&net.pvp.combat; if(!c) return;
+  if(c.hp[myId]<=0) return;
+  if(kind==='roll' && c.phase==='rolling' && !(c.rolls&&c.rolls[myId])){
+    log(`⏱ Inattivo nello scontro: <b>rinunci al tiro</b> — perdi il round (e la vita).`,"bad");
+    const forfeit={ total:0, dice:[], notes:['inattività'], label:'RINUNCIA', dmgToOpp:1, forfeit:true };
+    patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='rolling'){ cc.rolls=cc.rolls||{}; if(!cc.rolls[myId]) cc.rolls[myId]=forfeit; } });
+  } else if(kind==='ack' && c.phase==='reveal' && !(c.ack&&c.ack[myId])){
+    log(`⏱ Inattivo: <b>prosegui</b> automaticamente.`,"bad");
+    mpCombatAck();
+  }
 }
 function drawEnemy(pool){
   const e=JSON.parse(JSON.stringify(pool[Math.floor(Math.random()*pool.length)]));
