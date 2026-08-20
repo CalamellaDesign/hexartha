@@ -2622,6 +2622,7 @@ function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!bes
 // Fine del MIO turno → scrivo, passo al prossimo (o nuovo giorno / fine), pubblico.
 function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
   mpMyTurn=false; stopTurnTimer(); mpWriteBack();
+  log(`🔎 [diag] Pubblico fine turno: casella <b>${state.you.tile.type}</b> · gestione in sospeso <b>${!!state.you.safeTurnPending}</b>.`,"evt");
   let ended=false, winnerId=null;
   const active=mpActiveCharacters();
   if(state.you && state.you.fama>=5){ ended=true; winnerId=myId; }
