@@ -2623,7 +2623,6 @@ function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!bes
 // Fine del MIO turno → scrivo, passo al prossimo (o nuovo giorno / fine), pubblico.
 function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
   mpMyTurn=false; stopTurnTimer(); mpWriteBack();
-  log(`🔎 [diag] Pubblico fine turno: casella <b>${state.you.tile.type}</b> · gestione in sospeso <b>${!!state.you.safeTurnPending}</b>.`,"evt");
   let ended=false, winnerId=null;
   const active=mpActiveCharacters();
   if(state.you && state.you.fama>=5){ ended=true; winnerId=myId; }
@@ -3561,7 +3560,6 @@ function beginYourTurn(){
     return;
   }
   const inSafe = SAFE.has(state.you.tile.type);   // accampamento o avamposto
-  if(mpGame) log(`🔎 [diag] Inizio turno: casella <b>${state.you.tile.type}</b> · zona sicura ${inSafe} · gestione in sospeso ${!!state.you.safeTurnPending}.`,"evt");
   if(inSafe && state.you.safeTurnPending){
     // Turno di GESTIONE safe zone: sicuro, azioni illimitate, si esce il turno successivo
     state.you.safeTurnPending=false;   // consumato: il prossimo turno sarà un turno esterno (uscita)
@@ -4249,6 +4247,7 @@ function pvpTargetsOnTile(){
   return res;
 }
 function postPvE(){
+  stopCombatIdle();
   const foes=pvpTargetsOnTile();
   if(mpGame){
     const mine=key(state.you.tile.col,state.you.tile.v);
@@ -4287,6 +4286,7 @@ function showWeaponBrokeModal(){
 }
 // Fase post-incontro: stessa schermata del turno, ci si può curare/gestire inventario, poi Termina turno
 function enterPostEncounter(){
+  stopCombatIdle();
   applyWeaponWear();   // applica usura se l'arma è stata usata (fuga, PvP, PvE non-chain)
   combat=null;         // lo scontro è concluso: sblocca le carte usabili "solo fuori dalla battaglia" (es. Cibo)
   closeModal();
@@ -4329,6 +4329,18 @@ function concludeTurn(){
 function forceEndOfTurn(){   // dal timer scaduto
   if(state.phase==="postEncounter"||state.phase==="base"){ return concludeTurn(); }
   if(state.you.hidden || SAFE.has(state.you.tile.type)){ return concludeTurn(); }
+  // Timer scaduto senza aver fatto il movimento obbligatorio: il gioco trascina la pedina
+  // in una zona vicina (a caso, escluse zone sicure/fortezza), poi va all'incontro.
+  if(!state.movedFirst){
+    const cand=[...computeReach()].map(k=>tileMap.get(k))
+      .filter(t=> t && !SAFE.has(t.type) && t.type!=="fortezza");
+    if(cand.length){
+      const t=cand[Math.floor(Math.random()*cand.length)];
+      state.you.tile=t; state.movedFirst=true; state.phase="actions";
+      drawPawn(); clearReach(); updateActionUI();
+      log(`⏱ Tempo scaduto e sei rimasto fermo: vieni trascinato in <b>${t.name}</b> <span class="dim">(${TYPE_LABEL[t.type]})</span>.`,"bad");
+    }
+  }
   doEncounter();
 }
 function afterTurnResolved(){
@@ -4873,6 +4885,37 @@ function discardPendingLoot(){   // usato allo scadere del timer
 }
 
 let combat=null;
+// --- Timer di inattività nell'incontro PvE: se per 60s non tiri i dadi (o non premi Continua) perdi 1 vita ---
+let combatIdle=null, combatIdleLeft=0;
+const COMBAT_IDLE_SECONDS=60;
+function startCombatIdle(){
+  stopCombatIdle();
+  if(!combat) return;                                  // niente timer se non c'è un incontro attivo
+  if(!mpCanAct()) return;                               // solo nel proprio turno
+  combatIdleLeft=COMBAT_IDLE_SECONDS; updateCombatIdleUI();
+  combatIdle=setInterval(()=>{
+    combatIdleLeft--; updateCombatIdleUI();
+    if(combatIdleLeft<=0){ stopCombatIdle(); onCombatIdleTimeout(); }
+  },1000);
+}
+function stopCombatIdle(){ if(combatIdle){ clearInterval(combatIdle); combatIdle=null; } }
+function updateCombatIdleUI(){
+  const el=document.getElementById('combat-idle'); if(!el) return;
+  el.textContent=`⏱ Agisci entro ${combatIdleLeft}s o perdi 1 vita`;
+  el.style.color = combatIdleLeft<=10 ? 'var(--rust)' : 'var(--muted)';
+}
+function onCombatIdleTimeout(){
+  if(!combat) return;                                  // incontro già concluso
+  combat.pending=null;                                 // eventuale tiro in sospeso decade
+  hurtYou(1); renderHUD();
+  if(state.you.hp<=0){                                 // morto per inattività: torna in base senza bloccare il turno
+    stopCombatIdle(); combat=null; closeModal();
+    log(`☠ Sei caduto per inattività nell'incontro: torni alla base e il turno passa.`,"bad");
+    return respawn();
+  }
+  log(`⏱ Inattivo troppo a lungo nell'incontro: perdi <b>1 vita</b> automaticamente.`,"bad");
+  renderCombat(`⏱ Hai perso 1 vita per inattività. <b>Agisci!</b>`);   // re-render riarma il timer
+}
 function drawEnemy(pool){
   const e=JSON.parse(JSON.stringify(pool[Math.floor(Math.random()*pool.length)]));
   if(state.event?.dmgMod) e.dmg += state.event.dmgMod;
@@ -4915,6 +4958,7 @@ function startEncounter(){
   renderCombat(inFortress ? `<b>${e.name}</b> ti sbarra la strada nella Fortezza!` : `Un incontro! Appare <b>${e.name}</b> — <em>${e.epithet||''}</em>.`);
 }
 function peacefulAccept(){
+  stopCombatIdle();
   state.you.coins+=1; log(`☮ Accetti la pace con <b>${combat.e.name}</b>: ricevi 1 moneta.`,"good");
   closeModal(); combat=null; postPvE();
 }
@@ -5072,8 +5116,10 @@ function renderCombat(msg){
       ${combat.roundFoeDebuff?`<div class="center small" style="color:var(--rust)">Nemico stordito per il prossimo tiro: −${combat.roundFoeDebuff} al DANNO</div>`:''}
       ${battleGadgetBar('pve')}`}
       <p class="dim small center" style="margin-top:10px">${rev?'Premi <b>Continua ▶</b> per applicare l\'esito del tiro.':'2 dadi + <b>equipaggiamento</b> vs <b>DANNO nemico</b>. Il totale più basso perde 1 vita. <span class="crit">6+6 Crit</span> · <span class="fumble">1+1 Fumble</span>.'}</p>
+      <div class="small center" id="combat-idle" style="margin-top:4px;font-weight:600"></div>
     </div>`);
   if(firstReveal) scheduleEncFlip();
+  startCombatIdle();   // (ri)avvia il timer di inattività: 60s senza agire → −1 vita
 }
 // Barra gadget in battaglia (usa/scarta gli equipaggiati) — ctx: 'pve' | 'pvp'
 function battleGadgetBar(ctx){
@@ -5235,6 +5281,7 @@ function lanciaGranateMod(w){
 // Fase 1: tira e RIVELA i dadi (dado effetto per primo), calcola l'esito ma NON lo applica finché non premi "Continua".
 function rollCombat(){
   if(combat.pending) return;                          // già tirato: aspetta "Continua"
+  stopCombatIdle();                                   // hai agito: il timer si riarma al prossimo render
   const you=state.you;
   if(you.equip.arma) state.you.weaponUsedThisTurn=true;   // usura: arma usata in combattimento questo turno
   combat.rollN=(combat.rollN||0)+1;                   // contatore tiri (Lanciagranate a tiri alterni)
@@ -5270,6 +5317,7 @@ function rollCombat(){
 // Fase 2: applica l'esito del tiro rivelato e prosegue (prossimo tiro / vittoria / morte).
 function continueCombat(){
   const p=combat.pending; if(!p) return;
+  stopCombatIdle();                                   // hai agito: il timer si riarma al prossimo render
   combat.pending=null;
   const o=p.outcome;
   if(p.kind==='flee'){                                // esito della fuga
@@ -5308,6 +5356,7 @@ function tryFlee(){
   if(combat.pending) return;
   if(combat.fortress){ log(`🏰 Nella Fortezza non puoi fuggire!`,"bad"); return; }
   if(state.event?.noFlee){ log(`🚫 Evento <b>${state.event.t}</b>: la fuga è vietata oggi.`,"bad"); return; }
+  stopCombatIdle();                                   // hai agito: il timer si riarma al prossimo render
   const r=d6();
   let res, outcome;
   if(r===1){ outcome={you:1, flee:false}; res=`<span class="fumble">Fuga fallita! (dado ${r})</span> Perdi 1 vita e resti in combattimento.`; }
@@ -5318,6 +5367,7 @@ function tryFlee(){
   animateReveal('#dice', [document.getElementById('rollres'), document.getElementById('combat-actions')]);
 }
 function winEncounter(){
+  stopCombatIdle();
   const e=combat.e; let bonus="";
   if(e.extraCoins){ state.you.coins+=e.extraCoins; bonus=` (+${e.extraCoins} monete)`; }
   // Determina mazzo loot: priorità lootDeck del nemico, poi evento, poi zona
@@ -5370,6 +5420,7 @@ function startExtraEncounter(){
   renderCombat(`Incontro aggiuntivo! Appare <b>${e.name}</b> — <em>${e.epithet||''}</em>.`);
 }
 function dieEncounter(){
+  stopCombatIdle();
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">☠ Sei caduto</span></div>
     <div class="modal-b center">
@@ -5406,6 +5457,7 @@ function equipChip(it, slotName){
             : `<span class="chip dim">${slotName} base (+1)</span>`;
 }
 function startPvP(foes){
+  stopCombatIdle();
   const list=Array.isArray(foes)?foes:[foes];
   state.pvp={foes:list, foe:list[0]};
   if(mpGame && list.length && list[0].id){ mpStartPvpVote(list); return; }   // online: votazione fra tutti i giocatori sulla casella
