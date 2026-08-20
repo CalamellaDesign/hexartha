@@ -2588,6 +2588,7 @@ function mpCombatFinalize(){
 }
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
+    if(mpMyTurn) return;   // turno già avviato: evita il DOPPIO beginYourTurn (update duplicato Supabase + callback carta-evento) che saltava il turno di gestione safe-zone
     mpMyTurn=true; mpHideWatch();
     const to=document.getElementById('turnof'); if(to) to.textContent = state.you?state.you.name:"Tu";
     beginYourTurn();
