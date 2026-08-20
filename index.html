@@ -410,6 +410,8 @@
   .pvp-combat-list{display:flex;flex-direction:column;gap:6px;margin:8px 0;text-align:left}
   .pvp-combat-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
   .pvp-combat-row.me{border-color:var(--gold)}
+  .pvp-combat-row.win{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 0 14px rgba(212,175,55,.25);background:linear-gradient(90deg,rgba(212,175,55,.12),var(--bg2))}
+  .pvp-win-badge{font-size:14px}
   .pvp-combat-row .nm{font-weight:700}
   .pvp-combat-row .dc{min-width:96px;text-align:right;display:flex;gap:6px;align-items:center;justify-content:flex-end}
   .craft-row{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--bg2)}
@@ -568,6 +570,9 @@
   kbd{background:#000;border:1px solid var(--border2);border-radius:3px;padding:1px 6px;font-size:11px;color:var(--muted)}
   /* ---------- INVENTARIO ---------- */
   .inv-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .revive-grid{display:grid;grid-template-columns:minmax(160px,.8fr) 2.2fr;gap:16px;align-items:start}
+  .revive-grid .inv-card{width:100%}
+  @media(max-width:680px){ .revive-grid{grid-template-columns:1fr} }
   .inv-colh{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px;font-weight:bold}
   .inv-slot{background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:6px;margin-bottom:8px;min-height:44px}
   .inv-slot .sl{font-size:9px;color:var(--dim);letter-spacing:.05em;text-transform:uppercase;display:flex;justify-content:space-between;margin-bottom:2px}
@@ -1611,6 +1616,7 @@ function fresh(){
          hp:3, maxhp:3, tempHp:0, dmgPenalty:0, coins:3, fama:0,   // tempHp: vite extra temporanee (fino a fine turno); dmgPenalty: malus al danno (es. Spinello)
          armaName:"Arma base", equipScore:3, hidden:false,
          safeTurnPending:false,
+         reviveEquipPending:false,                                  // dopo la morte: fase di RIARMO prima del turno di movimento (niente turno di gestione perso)
          pack:{sx:[],centro:startingPackCentro(),dx:[]},            // zaino a sezioni — parte con 1 Cibo in scatola
          deposito:[],                                               // magazzino (max 15), gestibile in safe zone
          missions:[],                                               // missioni principali
@@ -2241,8 +2247,8 @@ function mpAfterEventCard(){ const cb=_mpEventCb; _mpEventCb=null; if(cb) cb(); 
 function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p==="object") return [...(p.sx||[]),...(p.centro||[]),...(p.dx||[])]; return []; }
 
 let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
-let _combatRenderKey=null, _combatActed=null;
-let _lootInit=false, _lootRemaining=[], _dragKind=null, _dragSec=null, _dragIdx=-1;
+let _combatRenderKey=null, _combatActed=null, _pvpRevealAnimated=false;
+let _lootInit=false, _lootRemaining=[];
 function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
 
 // L'attaccante avvia la votazione scrivendola nella stanza (la vedono entrambi).
@@ -2268,7 +2274,7 @@ function mpStartPvpVote(foes){
 function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
-    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _lootInit=false; _lootRemaining=[]; const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(!(pvp.participants||[]).includes(myId)) return true;   // non coinvolto: attende
@@ -2369,6 +2375,8 @@ function mpKillChar(char){
   char.states={emorragia:false,ossa:false,avvelenato:false};
   char.emorragiaArmed=false; char.hidden=false; char.tempHp=0;
   char.hp=char.maxhp||3; char.tile=tileMap.get(char.campKey); char.equipScore=3;
+  char.safeTurnPending=false;        // niente turno di gestione sprecato
+  char.reviveEquipPending=true;      // al prossimo turno rientra con la fase di RIARMO, poi si muove
 }
 
 // L'attaccante inizializza il combattimento nello stato condiviso.
@@ -2381,7 +2389,8 @@ function mpBeginCombat(){
   });
   const combat={ participants:parts, hp, maxhp, round:1, rolls:{}, ack:{}, result:null,
     phase:'rolling', winnerId:null, loserIds:[], loot:null };
-  _combatRenderKey=null; _combatActed=null; _lootInit=false; _lootRemaining=[];
+  _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _lootInit=false; _lootRemaining=[];
+  if(state){ state.spoilMode=false; state.spoilCtx=null; }
   patchRoom(s=>{ if(s.pvp){ s.pvp.status='fighting'; s.pvp.combat=combat; } });
 }
 
@@ -2420,16 +2429,36 @@ function mpAllAliveAcked(c){ return mpAliveIds(c).every(id=>c.ack&&c.ack[id]); }
 function mpDieRow(roll){
   return (roll&&roll.dice||[]).map(d=>die3dHTML(d.v,{stage:'roll-atk',wrap:(roll.multi&&!d.kept)?'drop':''})).join('');
 }
+// Porta i dadi direttamente sulla faccia finale, senza animazione: usato quando la
+// rivelazione viene ri-renderizzata (es. l'altro giocatore ha premuto Continua) per
+// evitare che i dadi rigirino durante il calcolo delle vite.
+function mpSettleDice(scope){
+  document.querySelectorAll(scope+' .die3d').forEach(cube=>{
+    const v=Math.max(1,Math.min(6,+cube.dataset.val||1)), o=DIE_ORIENT[v];
+    cube.style.transition='none';
+    cube.style.transform=`rotateX(${o[0]}deg) rotateY(${o[1]}deg)`;
+  });
+}
 function mpRenderCombat(pvp,c){
   const reveal=(c.phase==='reveal');
+  if(!reveal) _pvpRevealAnimated=false;              // fuori dalla rivelazione: la prossima animerà da capo
+  // Vincitore del round = tiro più alto (evidenziato solo alla rivelazione; niente evidenza in caso di parità in testa)
+  let winId=null;
+  if(reveal){
+    const totals=(c.participants||[]).filter(id=>c.rolls&&c.rolls[id]).map(id=>({id,total:c.rolls[id].total}));
+    if(totals.length){
+      const max=Math.max(...totals.map(t=>t.total)), tops=totals.filter(t=>t.total===max);
+      if(tops.length===1) winId=tops[0].id;
+    }
+  }
   const rows=(c.participants||[]).map(id=>{
-    const dead=c.hp[id]<=0, isMe=(id===myId), roll=c.rolls&&c.rolls[id];
+    const dead=c.hp[id]<=0, isMe=(id===myId), roll=c.rolls&&c.rolls[id], isWin=(reveal&&id===winId);
     let dc;
-    if(dead) dc='<span class="dim small">☠ eliminato</span>';
-    else if(reveal&&roll) dc=`<span id="pvp-dice-${id}">${mpDieRow(roll)}</span> <b>= ${roll.total}</b>`;
+    if(reveal&&roll) dc=`<span id="pvp-dice-${id}">${mpDieRow(roll)}</span> <b>= ${roll.total}</b>${isWin?' <span class="pvp-win-badge">🏆</span>':''}`;
+    else if(dead) dc='<span class="dim small">☠ eliminato</span>';
     else dc = roll ? '<span class="dim small">✓ pronto</span>' : (isMe?'<span class="dim small">tocca «Tira»</span>':'<span class="dim small">in attesa…</span>');
-    return `<div class="pvp-combat-row${isMe?' me':''}" style="${dead?'opacity:.5':''}">
-      <span class="nm" style="color:${(pvp.colors||{})[id]||'#aaa'}">${escapeHtml((pvp.names||{})[id]||'?')}${isMe?' (tu)':''}</span>
+    return `<div class="pvp-combat-row${isMe?' me':''}${isWin?' win':''}" style="${dead?'opacity:.65':''}">
+      <span class="nm" style="color:${(pvp.colors||{})[id]||'#aaa'}">${isWin?'👑 ':''}${escapeHtml((pvp.names||{})[id]||'?')}${isMe?' (tu)':''}</span>
       <span class="hp">${heartsHTML(c.hp[id],c.maxhp[id])}</span>
       <span class="dc">${dc}</span></div>`;
   }).join("");
@@ -2442,9 +2471,17 @@ function mpRenderCombat(pvp,c){
       ${reveal
         ? (((c.ack&&c.ack[myId])||!iAlive) ? `<p class="dim">In attesa degli altri…</p>` : `<button class="btn primary" onclick="mpCombatAck()">Continua ▶</button>`)
         : (!iAlive ? `<p class="dim">Sei stato eliminato — attendi la fine dello scontro.</p>` : (iRolled?`<p class="dim">Hai tirato — in attesa degli altri…</p>`:`<button class="btn primary" id="pvp-roll-btn" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`))}
-      <p class="dim small" style="margin-top:8px">Tutti tirano: solo il più alto non perde vita (parità in testa: salvi · parità totale: tutti −1).</p>
+      <p class="dim small" style="margin-top:8px">Tutti tirano insieme: <b>perdi 1 vita per ogni avversario con punteggio uguale o superiore</b> al tuo. Solo un massimo unico resta salvo.</p>
     </div>`);
-  if(reveal){ (c.participants||[]).forEach(id=>{ if(c.rolls&&c.rolls[id]) animateReveal('#pvp-dice-'+id,[]); }); }
+  if(reveal){
+    if(!_pvpRevealAnimated){
+      _pvpRevealAnimated=true;   // i dadi rotolano UNA sola volta, all'apparire della rivelazione
+      (c.participants||[]).forEach(id=>{ if(c.rolls&&c.rolls[id]) animateReveal('#pvp-dice-'+id,[]); });
+    } else {
+      // ri-render della stessa rivelazione (es. l'altro ha premuto Continua): dadi fermi sul risultato
+      (c.participants||[]).forEach(id=>{ if(c.rolls&&c.rolls[id]) mpSettleDice('#pvp-dice-'+id); });
+    }
+  }
 }
 function mpCombatRoll(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling') return;
@@ -2458,21 +2495,26 @@ function mpCombatRoll(){
 function mpCombatAck(){
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='reveal'){ cc.ack=cc.ack||{}; cc.ack[myId]=true; } });
 }
-// Attaccante: entrambi hanno tirato → calcola l'esito del round e applica il danno.
+// Attaccante: tutti hanno tirato → calcola l'esito del round e applica il danno.
+// Regola (2+ giocatori): ogni giocatore perde 1 vita per OGNI altro giocatore vivo
+// con punteggio UGUALE O MAGGIORE al proprio. Es. 8 · 8 · 5 → −1 · −1 · −2.
+// Solo un massimo UNICO resta salvo (0 danni). In parità in testa nessuno è salvo.
 function mpCombatResolveRound(){
   const c=net.pvp.combat;
   const alive=mpAliveIds(c);
   if(!alive.every(id=>c.rolls&&c.rolls[id])) return;
   const names=(net.pvp.names)||{};
   const totals=alive.map(id=>({id,total:c.rolls[id].total}));
-  const max=Math.max(...totals.map(t=>t.total));
-  const top=totals.filter(t=>t.total===max);
-  let losers, text;
-  if(top.length===alive.length){ losers=alive.slice(); text=`Parità (${max}): tutti −1 vita.`; }
-  else { losers=totals.filter(t=>t.total<max).map(t=>t.id);
-    text=`Più alto: <b>${escapeHtml(top.map(t=>names[t.id]||'?').join(', '))}</b> (${max}) — salvo. Gli altri −1 vita.`; }
+  const dmg={};
+  totals.forEach(me=>{ dmg[me.id]=totals.filter(o=>o.id!==me.id && o.total>=me.total).length; });
+  const ordered=[...totals].sort((a,b)=>b.total-a.total);
+  const text=ordered.map(t=>{ const nm=escapeHtml(names[t.id]||'?');
+    return dmg[t.id]>0
+      ? `<b>${nm}</b> ${t.total} <span style="color:var(--rust)">−${dmg[t.id]}</span>`
+      : `<b style="color:var(--gold)">${nm}</b> ${t.total} <span class="dim">salvo</span>`;
+  }).join(' · ');
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='rolling') return;
-    losers.forEach(id=>{ cc.hp[id]=Math.max(0,(cc.hp[id]||0)-1); });
+    Object.keys(dmg).forEach(id=>{ cc.hp[id]=Math.max(0,(cc.hp[id]||0)-dmg[id]); });
     cc.result={text}; cc.phase='reveal'; cc.ack={};
   });
 }
@@ -2512,58 +2554,18 @@ function mpRenderCombatLoot(pvp,c){
     return;
   }
   if(!_lootInit){ _lootRemaining=(c.loot||[]).map(it=>({...it})); _lootInit=true; }
-  const you=state.you;
-  const eqSlot=(k,ico,lab)=>{ const it=you.equip[k]; return `<div class="dep-row"><span>${ico} ${it?escapeHtml(it.name):('<span class="dim">'+lab+' base</span>')}</span></div>`; };
-  const mineRows=[];
-  packSections().forEach(sec=>{ if(sidePocketsBlocked()&&sec!=='centro') return;
-    (you.pack[sec]||[]).forEach((it,i)=>{
-      const canEq=['arma','armatura','casco','gadget'].includes(it.slot);
-      mineRows.push(`<div class="dep-row" draggable="true" ondragstart="mpDragStart('pack','${sec}',${i})">
-        <span>${escapeHtml(it.name)}</span>
-        <span style="display:flex;gap:4px">
-          ${canEq?`<button class="btn" onclick="mpLootEquip('${sec}',${i})">Equip</button>`:''}
-          <button class="btn" onclick="mpLootDiscard('${sec}',${i})" title="Scarta per liberare spazio">🗑</button>
-        </span></div>`);
-    });
-  });
-  const mineHTML=mineRows.length?mineRows.join(''):'<div class="inv-empty">zaino vuoto</div>';
-  const lootHTML=_lootRemaining.length? _lootRemaining.map((it,i)=>`<div class="dep-row" draggable="true" ondragstart="mpDragStart('loot',null,${i})">
-      <span>${escapeHtml(it.name)}</span>
-      <button class="btn" ${packTotalFree()>0?'':'disabled'} onclick="mpLootTake(${i})">◂ Prendi</button></div>`).join('')
-    : '<div class="inv-empty">niente da saccheggiare</div>';
-  openModal(`<div class="modal-h"><span class="stencil" style="color:var(--green)">💀 Saccheggio — sconfitti: ${(c.loserIds||[]).map(nm).join(', ')}</span>
-      <span class="dim small">Zaino ${packTotal()}/6</span></div>
-    <div class="modal-b">
-      <p class="muted small">Libera spazio nel tuo zaino (<b>Equip</b>/🗑) e prendi le carte del giocatore sconfitto. Puoi <b>trascinare</b> le carte tra le due colonne oppure usare i pulsanti. La <b>Tasca sicura</b> è protetta.</p>
-      <div class="dep-grid">
-        <div ondragover="event.preventDefault()" ondrop="mpDropToMine(event)">
-          <div class="inv-colh">Il tuo zaino (${packTotal()}/6) + equip</div>
-          <div style="margin:4px 0 8px">${eqSlot('arma','🗡','arma')}${eqSlot('armatura','🛡','armatura')}${eqSlot('casco','⛑','casco')}</div>
-          ${mineHTML}
-        </div>
-        <div ondragover="event.preventDefault()" ondrop="mpDropToLoot(event)">
-          <div class="inv-colh">Bottino dei giocatori sconfitti</div>
-          ${lootHTML}
-        </div>
-      </div>
-      <div class="center" style="margin-top:14px"><button class="btn primary" onclick="mpCombatLootDone()">FINE SACCHEGGIO ▸</button></div>
-    </div>`);
+  // Vista inventario classica in "modalità spoil": bottino del nemico a sinistra, inventario aperto a destra.
+  const losers=(c.loserIds||[]).map(nm).join(', ');
+  state.spoilMode=true;
+  state.spoilCtx={
+    title:`<span class="stencil" style="color:var(--green)">💀 Saccheggio${losers?` — sconfitti: ${losers}`:''}</span>`,
+    subtitle:`Hai vinto lo scontro. Prendi le carte del giocatore sconfitto e sistema il tuo inventario: <b>trascina</b> dal bottino agli slot (o tocca le carte), equipaggia, sposta, e trascina una tua carta <b>sul bottino</b> per scartarla. La <b>Tasca sicura</b> è protetta.`,
+    doneLabel:'FINE SACCHEGGIO ▸',
+    done:mpCombatLootDone
+  };
+  state.invSel=null; state.invMsg=null;
+  renderInventory();
 }
-function mpLootTake(i){
-  const it=_lootRemaining[i]; if(!it) return;
-  if(packTotalFree()<=0){ log('🎒 Zaino pieno: libera spazio (Equip/🗑) prima di raccogliere.','bad'); return; }
-  packAdd(it); _lootRemaining.splice(i,1); renderHUD(); mpRenderCombatLoot(net.pvp,net.pvp.combat);
-}
-function mpLootDiscard(sec,i){ const c=(state.you.pack[sec]||[]).splice(i,1)[0]; if(c) log(`🗑 Scarti <b>${c.name}</b> per liberare spazio.`,'bad'); renderHUD(); mpRenderCombatLoot(net.pvp,net.pvp.combat); }
-function mpLootEquip(sec,i){
-  const it=state.you.pack[sec][i]; if(!it) return;
-  if(it.slot==='gadget'){ const gi=state.you.equip.gadget.findIndex(g=>!g); if(gi<0){ log('🎒 Slot gadget pieni.','bad'); return; } state.you.pack[sec].splice(i,1); state.you.equip.gadget[gi]=it; }
-  else { const cur=state.you.equip[it.slot]; state.you.pack[sec].splice(i,1); state.you.equip[it.slot]=it; if(cur) packAdd(cur); }
-  recalcStats(); renderHUD(); mpRenderCombatLoot(net.pvp,net.pvp.combat);
-}
-function mpDragStart(kind,sec,i){ _dragKind=kind; _dragSec=sec; _dragIdx=i; }
-function mpDropToMine(e){ e.preventDefault(); if(_dragKind==='loot') mpLootTake(_dragIdx); _dragKind=null; }
-function mpDropToLoot(e){ e.preventDefault(); if(_dragKind==='pack') mpLootDiscard(_dragSec,_dragIdx); _dragKind=null; }
 function mpCombatLootDone(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.winnerId!==myId) return;
   const wf={ pack:state.you.pack, equip:state.you.equip, hp:c.hp[myId], equipScore:state.you.equipScore };
@@ -3550,6 +3552,12 @@ function beginYourTurn(){
   state.you.hidden=false; state.milSearchCount=0; state.movedFirst=false;
   drawPawn();   // all'inizio del tuo turno la pedina torna normale (fine visualizzazione "nascosto")
   state.you.weaponUsedThisTurn=false;   // reset flag di turno (arma usata → usura)
+  if(state.you.reviveEquipPending){
+    // Sei rientrato dopo la morte: fase di RIARMO (equipaggiati dal magazzino), poi INIZIA TURNO.
+    // Nessun timer finché non premi INIZIA TURNO: il turno vero (movimento) parte da lì.
+    openReviveEquip();
+    return;
+  }
   const inSafe = SAFE.has(state.you.tile.type);   // accampamento o avamposto
   if(inSafe && state.you.safeTurnPending){
     // Turno di GESTIONE safe zone: sicuro, azioni illimitate, si esce il turno successivo
@@ -3563,11 +3571,13 @@ function beginYourTurn(){
     // Turno esterno (incluso il turno 1 e il turno di uscita dalla base): movimento obbligatorio
     const discoMalus = hasItem("Disco segreto") ? 1 : 0;   // Disco segreto: −1 azione per turno finché lo tieni
     state.phase="move"; state.actionsLeft=2-discoMalus;
-    if(!inSafe && state.event && state.event.actionsBonus) state.actionsLeft += state.event.actionsBonus;
+    // Bonus azioni dell'evento (es. «Giornata lunga»): vale in OGNI turno di movimento,
+    // anche quando si esce dalla base/avamposto (la gestione safe è il ramo if, con 0 azioni).
+    if(state.event && state.event.actionsBonus) state.actionsLeft += state.event.actionsBonus;
     updateActionUI(); highlightReach(true);
     log(`È il tuo turno. Ti trovi in <b>${state.you.tile.name}</b>. <b>Movimento obbligatorio</b>: scegli una casella evidenziata.`);
     if(discoMalus) log(`💿 Porti il <b>Disco segreto</b>: hai <b>1 azione in meno</b> questo turno (azioni: ${state.actionsLeft}).`,"bad");
-    if(state.event?.actionsBonus && !inSafe) log(`⚡ Evento <b>${state.event.t}</b>: +${state.event.actionsBonus} azioni extra (totale: ${state.actionsLeft}).`,"evt");
+    if(state.event?.actionsBonus) log(`⚡ Evento <b>${state.event.t}</b>: +${state.event.actionsBonus} azioni extra (totale: ${state.actionsLeft}).`,"evt");
   }
   startTurnTimer();
 }
@@ -3644,10 +3654,12 @@ function doMove(t, first){
     setTimeout(()=>{healAtBase();drawPawn();renderHUD();concludeTurn();},700);
     return;
   }
-  // Avamposto: entrarci termina il turno (resti sull'avamposto); il turno dopo è di gestione safe zone
+  // Avamposto: entrarci TERMINA SUBITO il turno (come l'estrazione), ma resti sull'avamposto e NON ti curi.
+  // Il turno dopo è di gestione safe zone: niente movimento, ma commercio · consegna missioni · craft.
   if(t.type==="avamposto"){
     stopTurnTimer(); state.you.safeTurnPending=true;
-    log(`🏳️ Entri nell'<b>${t.name}</b>: il turno termina. Il prossimo turno potrai gestire deposito, commerciare e consegnare le missioni.`,"good");
+    state.phase="base"; state.actionsLeft=0; clearReach(); updateActionUI();   // nessuna altra azione in questo turno
+    log(`🏳️ Entri nell'<b>${t.name}</b>: il turno termina subito. Il prossimo turno resti qui (non ti muovi) e potrai <b>commerciare</b>, <b>consegnare missioni</b> e <b>craftare</b>.`,"good");
     setTimeout(()=>{renderHUD();concludeTurn();},600);
     return;
   }
@@ -5375,7 +5387,8 @@ function deathCleanup(){
   recalcStats();
   healAtBase();   // 3 vita + rimuove tutti gli stati
   state.you.tile=tileMap.get(state.you.campKey);
-  state.you.safeTurnPending=true;   // il prossimo turno in base sarà di gestione, poi si esce
+  state.you.safeTurnPending=false;        // niente turno di gestione sprecato
+  state.you.reviveEquipPending=true;      // rientri subito: il prossimo turno inizia con la fase di RIARMO, poi ti muovi
   drawPawn(); renderHUD();
 }
 function respawn(){
@@ -5530,6 +5543,7 @@ function pvpWin(){
   // Auto-completa missione "Senza pietà" se presente e non già completata
   const spietata=(state.you.missions||[]).find(m=>m.actionMission==="killPlayer" && !m.done);
   if(spietata){ spietata.done=true; log(`⚔ Missione completata: <b>${spietata.name}</b> — ${awardPremio(spietata.premio)}`,"good"); renderHUD(); }
+  _lootInit=false;   // nuovo saccheggio: reinizializza lo snapshot del bottino
   renderPvPLoot();
 }
 function foeLootList(){
@@ -5540,66 +5554,29 @@ function foeLootList(){
   return out;   // la Tasca sicura è esclusa
 }
 function renderPvPLoot(){
-  const foe=state.pvp.foe, list=foeLootList();
-  // Il TUO zaino: puoi scartare o equipaggiare per fare spazio
-  const mine=[];
-  packSections().forEach(s=>{ if(sidePocketsBlocked()&&s!=="centro")return;
-    state.you.pack[s].forEach((c,i)=>mine.push({sec:s,i,c})); });
-  const mineRows = mine.length ? mine.map(m=>{
-    const canEquip=["arma","armatura","casco","gadget"].includes(m.c.slot);
-    return `<div class="dep-row"><span>${m.c.name}</span>
-      <span style="display:flex;gap:4px">
-        ${canEquip?`<button class="btn" onclick="pvpMineEquip('${m.sec}',${m.i})">Equip</button>`:``}
-        <button class="btn" onclick="pvpMineDiscard('${m.sec}',${m.i})" title="Scarta">🗑</button>
-      </span></div>`;
-  }).join("") : `<div class="inv-empty">zaino vuoto</div>`;
-  // Inventario avversario (Tasca sicura esclusa)
-  const lootRows = list.length ? list.map((e,idx)=>`<div class="dep-row"><span>${e.it.name}</span>
-     <button class="btn" ${packTotalFree()>0?'':'disabled'} onclick="pvpTake(${idx})">◂ Prendi</button></div>`).join("")
-     : `<div class="inv-empty">niente da saccheggiare</div>`;
-  openModal(`
-    <div class="modal-h"><span class="stencil" style="color:var(--green)">💀 ${foe.name} eliminato — saccheggio</span>
-      <span class="dim small">Zaino ${packTotal()}/6</span></div>
-    <div class="modal-b">
-      <p class="muted small">Scarta o equipaggia le tue carte per fare spazio, poi prendi dall'inventario avversario. La <b>Tasca sicura</b> è protetta.</p>
-      <div class="dep-grid">
-        <div><div class="inv-colh">Il tuo zaino (${packTotal()}/6)</div>${mineRows}</div>
-        <div><div class="inv-colh">Inventario di ${foe.name}</div>${lootRows}</div>
-      </div>
-      <div class="center" style="margin-top:12px"><button class="btn primary" onclick="pvpLootDone()">Termina turno</button></div>
-    </div>`);
-}
-function pvpMineDiscard(sec,i){
-  const c=state.you.pack[sec].splice(i,1)[0];
-  if(c){ toRiciclaggio(c); log(`🗑 Scarti <b>${c.name}</b> → Riciclaggio.`,"bad"); }
-  renderHUD(); renderPvPLoot();
-}
-function pvpMineEquip(sec,i){
-  const it=state.you.pack[sec][i]; if(!it) return;
-  if(it.slot==="gadget"){
-    const gi=state.you.equip.gadget.findIndex(g=>!g);
-    if(gi<0){ log(`🎒 Spazi gadget pieni.`,"bad"); return; }
-    state.you.pack[sec].splice(i,1); state.you.equip.gadget[gi]=it;
-  }else{
-    const cur=state.you.equip[it.slot];
-    state.you.pack[sec].splice(i,1); state.you.equip[it.slot]=it;
-    if(cur) packAdd(cur);
+  const foe=state.pvp.foe;
+  if(!_lootInit){
+    _lootRemaining = foeLootList().map(e=>({...e.it}));               // snapshot del bottino saccheggiabile
+    // il perdente perde TUTTO l'inventario saccheggiabile (tranne la Tasca sicura), come in rete
+    if(foe.equip){ ['arma','armatura','casco'].forEach(k=>{ foe.equip[k]=null; }); foe.equip.gadget=[null,null]; }
+    foe.pack=[]; foe.equipScore=oppEquipScore(foe);
+    _lootInit=true;
   }
-  recalcStats(); log(`🎒 Equipaggi <b>${it.name}</b> (libera lo zaino).`);
-  renderHUD(); renderPvPLoot();
-}
-function pvpTake(idx){
-  const foe=state.pvp.foe, e=foeLootList()[idx]; if(!e||packTotalFree()<=0) return;
-  if(e.from.startsWith('equip.')){ foe.equip[e.from.split('.')[1]]=null; }
-  else if(e.from.startsWith('gadget.')){ foe.equip.gadget[+e.from.split('.')[1]]=null; }
-  else if(e.from.startsWith('pack.')){ foe.pack.splice(+e.from.split('.')[1],1); }
-  packAdd(e.it); foe.equipScore=oppEquipScore(foe);
-  log(`🎒 Saccheggi <b>${e.it.name}</b> da ${foe.name}.`,"good");
-  renderHUD(); renderPvPLoot();
+  // Vista inventario classica in "modalità spoil": bottino a sinistra, inventario aperto a destra.
+  state.spoilMode=true;
+  state.spoilCtx={
+    title:`<span class="stencil" style="color:var(--green)">💀 ${escapeHtml(foe.name)} eliminato — saccheggio</span>`,
+    subtitle:`Hai vinto lo scontro. Prendi le carte di <b>${escapeHtml(foe.name)}</b> e sistema il tuo inventario: <b>trascina</b> dal bottino agli slot (o tocca le carte), equipaggia, sposta, e trascina una tua carta <b>sul bottino</b> per scartarla. La <b>Tasca sicura</b> è protetta.`,
+    doneLabel:'Termina turno',
+    done:pvpLootDone
+  };
+  state.invSel=null; state.invMsg=null;
+  renderInventory();
 }
 function pvpLootDone(){
   const foe=state.pvp.foe;
   foe.hp=foe.maxhp; foe.tile=tileMap.get(foe.campKey); foe.equipScore=oppEquipScore(foe);  // il morto torna alla sua base
+  _lootInit=false; _lootRemaining=[]; state.spoilMode=false; state.spoilCtx=null;
   if(mpGame && foe.id){ mpApplyDefenderDeath(foe.id); mpWriteBack(); patchRoom(s=>{ s.pvp=null; s.game=mpSerialize(mpGame); }); }
   drawPawn(); state.pvp=null; enterPostEncounter();
 }
@@ -5894,6 +5871,107 @@ function depToPack(i){
   const it=state.you.deposito.splice(i,1)[0];
   if(it){ packAdd(it); log(`🗄️ Prelevi <b>${it.name}</b> dal magazzino.`); }
   recalcStats(); renderHUD(); openDeposito();
+}
+
+// =================== FASE DI RIARMO (rientro dopo la morte) ===================
+// Sei caduto: rientri dalla tua Base al turno successivo senza perdere un turno di
+// gestione. Prima del movimento puoi equipaggiarti dal Magazzino (drag & drop o
+// pulsanti), anche non prendere nulla, poi premi INIZIA TURNO.
+// Apre la fase di RIARMO: è l'inventario classico in "modalità Riarmo" (con colonna
+// Magazzino a sinistra e pulsante INIZIA TURNO al posto della X). Vedi renderInventory().
+function openReviveEquip(){
+  // la modalità Riarmo è determinata da state.you.reviveEquipPending (già true dopo la morte)
+  state.invSel=null; state.invMsg=null;
+  renderInventory();
+}
+// Preleva una carta dal magazzino e la mette nello zaino (fase Riarmo).
+function depTake(loc){
+  if(packTotalFree()<=0){ return invMsg("Zaino pieno: equipaggia o riponi qualcosa per fare spazio."); }
+  const it=locRemove(loc); if(!it) return;
+  packAdd(it); recalcStats(); state.invSel=null;
+  log(`📥 Prendi <b>${it.name}</b> dal magazzino.`,"good"); renderInventory();
+}
+// Drag dal Magazzino verso uno slot dell'inventario (equip/zaino/tasca): swap con eventuale occupante.
+function depDragToSlot(srcLoc, dstKey){
+  const y=state.you, di=+srcLoc.split(".")[1];
+  const item=y.deposito[di]; if(!item) return;
+  if(dstKey==='dep'){ renderInventory(); return; }                 // trascinato su se stesso
+  if(!canGoTo(item, dstKey)){ log(`⚠ ${item.name} non può andare lì.`,'bad'); renderInventory(); return; }
+  const dp=dstKey.split(".");
+  let dstItem=null;
+  if(dp[0]==='equip') dstItem = dp[1]==='gadget' ? (y.equip.gadget[+dp[2]]||null) : (y.equip[dp[1]]||null);
+  else { const sec=dp[1];
+    if(packFree(sec)<=0){ if(PACK_CAP[sec]===1) dstItem=y.pack[sec][0];
+      else { log(`⚠ ${PACK_LABEL[sec]} è piena.`,'bad'); renderInventory(); return; } } }
+  y.deposito.splice(di,1);                                          // esce dal magazzino
+  if(dstItem){                                                      // libera la destinazione, l'occupante torna nel magazzino
+    if(dp[0]==='equip'){ if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=null; else y.equip[dp[1]]=null; }
+    else y.pack[dp[1]]=y.pack[dp[1]].filter(x=>x!==dstItem);
+    y.deposito.push(dstItem);
+  }
+  if(dp[0]==='equip'){ if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else y.equip[dp[1]]=item; }
+  else y.pack[dp[1]].push(item);
+  recalcStats(); state.invSel=null;
+  log(dstItem?`🔀 Prendi <b>${item.name}</b> dal magazzino (rimetti <b>${dstItem.name}</b>).`:`🎒 Prendi <b>${item.name}</b> dal magazzino.`);
+  renderHUD(); renderInventory();
+}
+// Drag da uno slot dell'inventario verso il Magazzino: ripone la carta nel deposito.
+function depDragToStore(srcLoc){
+  const y=state.you;
+  if(srcLoc.startsWith('dep.')){ renderInventory(); return; }
+  if((y.deposito||[]).length>=15){ log('⚠ Magazzino pieno (max 15).','bad'); renderInventory(); return; }
+  const it=locRemove(srcLoc); if(!it){ renderInventory(); return; }
+  y.deposito.push(it); recalcStats(); state.invSel=null;
+  log(`🗄️ Riponi <b>${it.name}</b> nel magazzino.`); renderHUD(); renderInventory();
+}
+function reviveStart(){
+  state.you.reviveEquipPending=false; state.invSel=null; state.invMsg=null;   // fase conclusa (spegne anche la modalità Riarmo)
+  closeModal();
+  beginYourTurn();                                                 // prosegue come normale turno di movimento (dalla Base)
+}
+
+// =================== FASE DI SACCHEGGIO (post-vittoria PvP) ===================
+// Riusa l'inventario classico in "modalità spoil": a sinistra il bottino del nemico
+// (_lootRemaining, spoil.*), a destra l'inventario aperto. Vedi renderInventory().
+// Prendi una carta del bottino e mettila nello zaino.
+function spoilTake(loc){
+  if(packTotalFree()<=0){ return invMsg("Zaino pieno: equipaggia o scarta qualcosa per fare spazio."); }
+  const it=locRemove(loc); if(!it) return;
+  packAdd(it); recalcStats(); state.invSel=null;
+  log(`📥 Raccogli <b>${it.name}</b> dal bottino.`,"good"); renderHUD(); renderInventory();
+}
+// Drag dal bottino verso uno slot dell'inventario (equip/zaino/tasca).
+function spoilDragToSlot(srcLoc, dstKey){
+  const y=state.you, si=+srcLoc.split(".")[1];
+  const item=(_lootRemaining||[])[si]; if(!item) return;
+  if(dstKey==='spoil'||dstKey==='dep'){ renderInventory(); return; }             // trascinato su se stesso
+  if(!canGoTo(item, dstKey)){ log(`⚠ ${item.name} non può andare lì.`,'bad'); renderInventory(); return; }
+  const dp=dstKey.split(".");
+  if(dp[0]==='pack'){
+    if(packFree(dp[1])<=0){ log(`⚠ ${PACK_LABEL[dp[1]]} è piena: libera spazio.`,'bad'); renderInventory(); return; }
+    _lootRemaining.splice(si,1); y.pack[dp[1]].push(item);
+  } else {                                                                        // equip / tasca / gadget
+    const occ = dp[1]==='gadget' ? (y.equip.gadget[+dp[2]]||null) : (y.equip[dp[1]]||null);
+    if(occ && packTotalFree()<=0){ log('🎒 Zaino pieno: l\'oggetto sostituito deve entrare nello zaino — libera spazio.','bad'); renderInventory(); return; }
+    _lootRemaining.splice(si,1);
+    if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else y.equip[dp[1]]=item;
+    if(occ) packAdd(occ);
+  }
+  recalcStats(); state.invSel=null;
+  log(`🎒 Raccogli <b>${item.name}</b> dal bottino.`); renderHUD(); renderInventory();
+}
+// Drag di una tua carta sul bottino → la scarti (→ Riciclaggio) per fare spazio.
+function spoilDragToDiscard(srcLoc){
+  if(srcLoc.startsWith('spoil.')||srcLoc.startsWith('dep.')){ renderInventory(); return; }
+  const it=locRemove(srcLoc); if(!it){ renderInventory(); return; }
+  toRiciclaggio(it); recalcStats(); state.invSel=null;
+  log(`🗑 Scarti <b>${it.name}</b> per fare spazio → Riciclaggio.`,'bad'); renderHUD(); renderInventory();
+}
+// Conclude il saccheggio: spegne la modalità e chiama la finalizzazione della partita (rete o locale).
+function spoilFinish(){
+  const done=state.spoilCtx&&state.spoilCtx.done;
+  state.spoilMode=false; state.spoilCtx=null; state.invSel=null; state.invMsg=null;
+  if(typeof done==='function') done();
 }
 
 // =================== COMMERCIO ===================
@@ -6376,12 +6454,16 @@ function recalcStats(){
 function locGet(loc){
   const y=state.you, p=loc.split(".");
   if(p[0]==="loot")   return (state.pendingLoot||[])[+p[1]];
+  if(p[0]==="dep")    return (y.deposito||[])[+p[1]];              // magazzino (fase Riarmo)
+  if(p[0]==="spoil")  return (_lootRemaining||[])[+p[1]];          // bottino nemico (fase Saccheggio)
   if(p[0]==="pack")   return y.pack[p[1]][+p[2]];
   if(p[1]==="gadget") return y.equip.gadget[+p[2]];
   return y.equip[p[1]];
 }
 function locRemove(loc){
   const y=state.you, p=loc.split(".");
+  if(p[0]==="dep")  return y.deposito.splice(+p[1],1)[0];         // magazzino (fase Riarmo)
+  if(p[0]==="spoil") return _lootRemaining.splice(+p[1],1)[0];    // bottino nemico (fase Saccheggio)
   if(p[0]==="pack") return y.pack[p[1]].splice(+p[2],1)[0];
   if(p[1]==="gadget"){ const it=y.equip.gadget[+p[2]]; y.equip.gadget[+p[2]]=null; return it; }
   const it=y.equip[p[1]]; y.equip[p[1]]=null; return it;
@@ -6432,6 +6514,8 @@ function canGoTo(item, dstKey){
 
 // Per carte loot: lo slot destinazione deve essere vuoto (nessuno swap) e compatibile
 function canDropOnSlot(item, srcLoc, dstKey){
+  if(dstKey==='dep') return !!item && !srcLoc.startsWith('dep.') && (state.you.deposito||[]).length<15;   // riponi nel magazzino (Riarmo)
+  if(dstKey==='spoil') return !!item && !srcLoc.startsWith('spoil.') && !srcLoc.startsWith('dep.');        // scarta la tua carta (Saccheggio)
   if(!canGoTo(item, dstKey)) return false;
   if(!srcLoc.startsWith('loot.')) return true;
   const dp = dstKey.split('.');
@@ -6498,6 +6582,14 @@ function invDrop(e, el){
 
 function doDragDrop(srcLoc, dstKey){
   const y = state.you;
+  // Fase RIARMO: sorgente dal Magazzino → equipaggia/riponi in uno slot dell'inventario
+  if(srcLoc.startsWith('dep.')){ depDragToSlot(srcLoc, dstKey); return; }
+  // Fase RIARMO: destinazione = Magazzino → riponi la carta nel deposito
+  if(dstKey==='dep'){ depDragToStore(srcLoc); return; }
+  // Fase SACCHEGGIO: sorgente dal bottino nemico → raccogli/equipaggia in uno slot
+  if(srcLoc.startsWith('spoil.')){ spoilDragToSlot(srcLoc, dstKey); return; }
+  // Fase SACCHEGGIO: destinazione = bottino → scarta la tua carta per fare spazio
+  if(dstKey==='spoil'){ spoilDragToDiscard(srcLoc); return; }
   // Sorgente: carta dal bottino pendente → solo slot equip libero o sezione zaino libera
   if(srcLoc.startsWith('loot.')){
     const li = +srcLoc.split('.')[1];
@@ -6601,10 +6693,16 @@ function renderInventory(){
     + invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):1), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+1)</div>`, "equip.armatura")
     + invSlotHTML("⛑ Casco","+"+(y.equip.casco?itemEquip(y.equip.casco):1), y.equip.casco? invCardHTML("equip.casco",y.equip.casco) : `<div class="inv-empty">Base (+1)</div>`, "equip.casco");
   const msg = state.invMsg? `<div class="inv-msg">⚠ ${state.invMsg}</div>` : "";
-  const inLoot = state.lootRoom && (state.pendingLoot||[]).length;
-  const hint = inLoot
-    ? `Trascina le carte del bottino su uno slot libero (zaino o equip), oppure toccale per le opzioni.`
-    : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`;
+  const rev = !!(state.you && state.you.reviveEquipPending); // fase di RIARMO (rientro dopo la morte)
+  const spoil = !rev && !!state.spoilMode;                   // fase di SACCHEGGIO post-vittoria PvP
+  const inLoot = !rev && !spoil && state.lootRoom && (state.pendingLoot||[]).length;
+  const hint = rev
+    ? `Trascina le carte dal <b>Magazzino</b> negli slot (zaino · tasca sicura · gadget · arma/armatura/casco) o toccale per i pulsanti. Puoi anche riporre carte nel magazzino. Poi premi INIZIA TURNO.`
+    : (spoil
+      ? `Trascina le carte del <b>bottino</b> negli slot (zaino · tasca sicura · gadget · arma/armatura/casco) o toccale per i pulsanti. Trascina una tua carta <b>sul bottino</b> per scartarla e fare spazio. Poi premi FINE SACCHEGGIO.`
+      : (inLoot
+        ? `Trascina le carte del bottino su uno slot libero (zaino o equip), oppure toccale per le opzioni.`
+        : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`));
   const actions = state.invSel? invActionPanel(state.invSel)
     : `<p class="dim small center" style="margin:0">${hint}</p>`;
   // Pannello bottino da sistemare (solo in modalità loot-room)
@@ -6615,27 +6713,58 @@ function renderInventory(){
         ${state.pendingLoot.map((it,i)=>invCardHTML(`loot.${i}`,it)).join("")}
       </div>
     </div>` : "";
-  const header = inLoot
-    ? `<span class="stencil" style="color:var(--rust)">🎒 Zaino pieno — sistema il bottino</span>
-       <span class="dim small">${state.pendingLoot.length} da sistemare</span>`
-    : `<span class="stencil">🎒 Inventario</span>
-       <span class="dim small">Zaino ${packTotal()}/6 · ⚔ Equip +${y.equipScore}</span>`;
+  const spoilCtx = state.spoilCtx||{};
+  const header = rev
+    ? `<span class="stencil" style="color:var(--rust)">♻ Riarmo</span>
+       <span class="dim small">Zaino ${packTotal()}/6 · Magazzino ${(y.deposito||[]).length}/15 · ⚔ +${y.equipScore}</span>`
+    : (spoil
+      ? `${spoilCtx.title||'<span class="stencil" style="color:var(--green)">💀 Saccheggio</span>'}
+         <span class="dim small">Zaino ${packTotal()}/6 · ⚔ +${y.equipScore}</span>`
+      : (inLoot
+        ? `<span class="stencil" style="color:var(--rust)">🎒 Zaino pieno — sistema il bottino</span>
+           <span class="dim small">${state.pendingLoot.length} da sistemare</span>`
+        : `<span class="stencil">🎒 Inventario</span>
+           <span class="dim small">Zaino ${packTotal()}/6 · ⚔ Equip +${y.equipScore}</span>`));
   // In modalità bottino serve una scelta esplicita (nessuna X): si chiude rinunciando al bottino rimasto.
-  const footer = inLoot
-    ? `<div class="center" style="margin-top:12px"><button class="btn" onclick="lootRenounceAll()">Rinuncia al bottino rimasto & chiudi</button></div>`
-    : ``;
-  openModal(`
-    <div class="modal-h">${header}</div>
-    <div class="modal-b">
-      ${lootPanel}
+  const footer = rev
+    ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="reviveStart()">INIZIA TURNO ▸</button></div>`
+    : (spoil
+      ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="spoilFinish()">${spoilCtx.doneLabel||'FINE SACCHEGGIO ▸'}</button></div>`
+      : (inLoot
+        ? `<div class="center" style="margin-top:12px"><button class="btn" onclick="lootRenounceAll()">Rinuncia al bottino rimasto & chiudi</button></div>`
+        : ``));
+  const invGrid = `
       <div class="inv-grid">
         <div><div class="inv-colh">🎒 ZAINO <span class="dim small">${packTotal()}/6</span></div>${packCol}</div>
         <div><div class="inv-colh">🔒 TASCA / 🔧 GADGET</div>${midCol}</div>
         <div><div class="inv-colh">🗡 INDOSSO <span class="dim small">⚔ +${y.equipScore}</span></div>${eqCol}</div>
-      </div>
+      </div>`;
+  // Colonna laterale: Riarmo → Magazzino (dep.*, drop per riporre) · Saccheggio → bottino nemico (spoil.*, drop per scartare).
+  let sideSlot="";
+  if(rev){
+    const depCards = (y.deposito||[]).length ? y.deposito.map((it,i)=>invCardHTML(`dep.${i}`,it)).join("") : `<div class="inv-empty">magazzino vuoto</div>`;
+    sideSlot = invSlotHTML("🗄️ Magazzino (al sicuro)", (y.deposito||[]).length+"/15", depCards, "dep");
+  } else if(spoil){
+    const lootCards = (_lootRemaining||[]).length ? _lootRemaining.map((it,i)=>invCardHTML(`spoil.${i}`,it)).join("") : `<div class="inv-empty">niente da saccheggiare</div>`;
+    sideSlot = invSlotHTML("☠ Bottino del nemico", (_lootRemaining||[]).length+" carte", lootCards, "spoil");
+  }
+  const body = (rev||spoil)
+    ? `<div class="revive-grid"><div>${sideSlot}</div><div>${invGrid}</div></div>`
+    : invGrid;
+  const intro = rev
+    ? `<p class="muted small" style="margin:0 0 10px">Sei caduto e rientri dalla tua <b>Base</b>. Equipaggiati dal <b>Magazzino</b> prima di ripartire (puoi anche non prendere nulla). La <b>Tasca sicura</b> è protetta.</p>`
+    : (spoil
+      ? `<p class="muted small" style="margin:0 0 10px">${spoilCtx.subtitle||'Prendi le carte del giocatore sconfitto e sistema il tuo inventario. La <b>Tasca sicura</b> è protetta.'}</p>`
+      : "");
+  openModal(`
+    <div class="modal-h">${header}</div>
+    <div class="modal-b">
+      ${intro}
+      ${lootPanel}
+      ${body}
       <div class="inv-actions">${msg}${actions}</div>
       ${footer}
-    </div>`, false, inLoot ? null : closeInventory);
+    </div>`, (rev||spoil), (rev||spoil) ? null : (inLoot ? null : closeInventory));
 }
 function invActionPanel(loc){
   // Carta del bottino da sistemare (modalità loot-room)
@@ -6655,6 +6784,30 @@ function invActionPanel(loc){
     return `<div class="small" style="margin-bottom:8px"><b>${it.name}</b> — ${it.effect||''}${it.val?` <span class="dim">(valore ${it.val})</span>`:''}</div>
       <div class="dim small" style="margin-bottom:4px">Trascina la carta sullo slot, oppure usa i pulsanti.</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${btns.join("")}</div>`;
+  }
+  // Carta nel Magazzino (fase Riarmo): prendi nello zaino / equipaggia / metti in tasca sicura
+  if(loc.startsWith("dep.")){
+    const it=locGet(loc); if(!it) return "";
+    const btns=[`<button class="btn" onclick="invDetail('${loc}')">🔍 Dettaglio</button>`];
+    if(["arma","armatura","casco","gadget","consumabile"].includes(it.slot) && !it.noEquip && !isFood(it))
+      btns.push(`<button class="btn primary" onclick="invEquip('${loc}')">${it.slot==="consumabile"?"Equip. gadget":"Equipaggia"}</button>`);
+    if(packTotalFree()>0) btns.push(`<button class="btn primary" onclick="depTake('${loc}')">📥 Nello zaino</button>`);
+    if(!it.special) btns.push(`<button class="btn" onclick="invToTasca('${loc}')">${y_tascaFull()?'⇄':'→'} Tasca sicura</button>`);
+    return `<div class="small" style="margin-bottom:8px"><b>${it.name}</b> — ${it.effect||''}${it.val?` <span class="dim">(valore ${it.val})</span>`:''}</div>
+      <div class="dim small" style="margin-bottom:4px">Trascina la carta su uno slot, oppure usa i pulsanti.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${btns.join("")}</div>`;
+  }
+  // Carta del bottino nemico (fase Saccheggio): prendi nello zaino / equipaggia / metti in tasca sicura
+  if(loc.startsWith("spoil.")){
+    const it=locGet(loc); if(!it) return "";
+    const btns=[`<button class="btn" onclick="invDetail('${loc}')">🔍 Dettaglio</button>`];
+    if(["arma","armatura","casco","gadget","consumabile"].includes(it.slot) && !it.noEquip && !isFood(it))
+      btns.push(`<button class="btn primary" onclick="invEquip('${loc}')">${it.slot==="consumabile"?"Equip. gadget":"Equipaggia"}</button>`);
+    if(packTotalFree()>0) btns.push(`<button class="btn primary" onclick="spoilTake('${loc}')">📥 Prendi nello zaino</button>`);
+    if(!it.special) btns.push(`<button class="btn" onclick="invToTasca('${loc}')">${y_tascaFull()?'⇄':'→'} Tasca sicura</button>`);
+    return `<div class="small" style="margin-bottom:8px"><b>${it.name}</b> — ${it.effect||''}${it.val?` <span class="dim">(valore ${it.val})</span>`:''}</div>
+      <div class="dim small" style="margin-bottom:4px">Trascina la carta su uno slot, oppure usa i pulsanti.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${btns.join("")}</div>`;
   }
   const item=locGet(loc); if(!item) return "";
   const p=loc.split("."); const inPack=(p[0]==="pack");
