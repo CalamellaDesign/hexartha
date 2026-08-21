@@ -1690,9 +1690,11 @@ let roomCode=null, myId=null, myName=null, isHost=false, roomChannel=null, net=n
 // Salviamo SOLO l'identità (chi sei / quale stanza); la partita vive su Supabase.
 // Usiamo sessionStorage (PER SCHEDA): sopravvive al refresh ma tiene separati
 // giocatori diversi anche sullo stesso browser (niente identità accavallate).
-function saveSession(){ try{ sessionStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
-function clearSession(){ try{ sessionStorage.removeItem("hx_session"); }catch(e){} }
-function loadSession(){ try{ return JSON.parse(sessionStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
+// localStorage (non sessionStorage): la sessione sopravvive anche alla CHIUSURA della scheda,
+// così un giocatore disconnesso può rientrare con lo stesso personaggio (stesso id).
+function saveSession(){ try{ localStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem("hx_session"); sessionStorage.removeItem("hx_session"); }catch(e){} }
+function loadSession(){ try{ return JSON.parse(localStorage.getItem("hx_session")||sessionStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
 
 function randId(){ return Math.random().toString(36).slice(2,10); }
 function makeCode(){ return Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join(""); }
@@ -1753,12 +1755,29 @@ async function refreshRoom(){
 // ---------- Realtime: ascolto i cambiamenti della stanza ----------
 function subscribeRoom(){
   if(roomChannel){ SB.removeChannel(roomChannel); roomChannel=null; }
-  roomChannel=SB.channel("room:"+roomCode)
+  roomChannel=SB.channel("room:"+roomCode, { config:{ presence:{ key: myId } } })
     .on("postgres_changes",{event:"*",schema:"public",table:"rooms",filter:"code=eq."+roomCode},p=>{
       if(p.eventType==="DELETE"){ handleRoomGone(); return; }
       net=p.new.state; applyRoomState();
     })
-    .subscribe();
+    .on("presence",{event:"sync"}, updateOnline)
+    .on("presence",{event:"join"}, updateOnline)
+    .on("presence",{event:"leave"}, updateOnline)
+    .subscribe(async (status)=>{
+      if(status==="SUBSCRIBED"){ try{ await roomChannel.track({ id:myId, name:myName, at:Date.now() }); }catch(e){} }
+    });
+}
+// Ricostruisce l'elenco dei connessi dallo stato di presence; aggiorna UI e watchdog.
+function updateOnline(){
+  try{
+    const st=roomChannel?roomChannel.presenceState():{};
+    const set=new Set();
+    Object.values(st||{}).forEach(arr=>(arr||[]).forEach(m=>{ if(m&&m.id) set.add(m.id); }));
+    onlinePlayers=set;
+  }catch(e){ onlinePlayers=new Set(); }
+  onlinePlayers.add(myId);   // io sono sempre "online" per me stesso
+  if(onlinePlayers.size>=2) _presenceSeenMultiple=true;   // la presence funziona (ha visto più connessi): da qui il watchdog è affidabile
+  if(mpGame){ if(typeof mpRenderTurnOrder==="function") mpRenderTurnOrder(); watchdogTick(); }
 }
 
 // ---------- Ingresso in lobby ----------
@@ -1922,6 +1941,8 @@ function mpShowEndScreen(){
 
 function leaveCleanup(){
   if(roomChannel){ SB.removeChannel(roomChannel); roomChannel=null; }
+  if(_watchdogInterval){ clearInterval(_watchdogInterval); _watchdogInterval=null; }
+  _watchdogSince=null; onlinePlayers=new Set();
   roomCode=null; net=null; isHost=false; gameStarted=false;
 }
 function handleRoomGone(){
@@ -2050,6 +2071,10 @@ function mpSelfTest(){
    riscrive le modifiche, passa il turno al giocatore successivo (o avanza il giorno)
    e pubblica. Gli altri device vedono "È il turno di X" e la mappa aggiornata.      */
 let mpGame=null, mySeatIndex=-1, mpMyTurn=false;
+// --- Disconnessioni: presence + watchdog anti-stallo ---
+let onlinePlayers=new Set();          // id dei giocatori attualmente connessi (via Supabase Presence)
+let _watchdogSince=null, _watchdogInterval=null, _presenceSeenMultiple=false;
+const WATCHDOG_GRACE_MS=25000;        // attesa prima di saltare il turno di un giocatore offline (~25s)
 
 function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; return {...m, done:false}; }
 
@@ -2146,10 +2171,11 @@ function mpRenderTurnOrder(){
     const idx=(mpGame.starterIdx+pos)%N;
     const c=mpGame.characters[idx]; if(!c) continue;
     const isCur=(idx===mpGame.seat), isMe=(idx===mySeatIndex), ab=!!c.abandoned;
-    html+=`<div class="pl-row" style="${isCur?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}${ab?'opacity:.45;':''}">
+    const off = !ab && !isMe && _presenceSeenMultiple && !onlinePlayers.has(c.id);   // offline (solo se la presence è affidabile)
+    html+=`<div class="pl-row" style="${isCur?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}${(ab||off)?'opacity:.5;':''}">
       <span class="dim" style="min-width:14px;font-size:11px">${pos+1}.</span>
       <span class="pdot2" style="background:${c.color};color:${c.color}"></span>
-      <span style="${isCur?'color:var(--gold);font-weight:700':''}">${escapeHtml(c.name)}${isMe?' (tu)':''}${ab?' — ritirato':''}</span>
+      <span style="${isCur?'color:var(--gold);font-weight:700':''}">${escapeHtml(c.name)}${isMe?' (tu)':''}${ab?' — ritirato':off?' — <span style="color:var(--rust)">offline</span>':''}</span>
       ${isCur?'<span style="margin-left:auto;color:var(--gold)">▶</span>':''}
     </div>`;
   }
@@ -2164,6 +2190,7 @@ function mpEnterGame(){
     mpHydrate(mpDeserialize(net.game));
     show("game"); mpRenderAll();
     mpAfterHydrateFlow();
+    if(!_watchdogInterval) _watchdogInterval=setInterval(watchdogTick, 5000);   // controllo periodico anti-stallo disconnessioni
   });
 }
 function mpOnGameUpdate(){
@@ -2796,6 +2823,55 @@ function mpAdvanceDay(){
   mpGame.event=deck.shift();
   if(mpGame.event && mpGame.event.drop) mpPlaceDropWorld(w, mpGame.event.drop, mpGame.day);
   if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
+}
+
+// ===== Watchdog anti-stallo per le disconnessioni =====
+// Arbitro deterministico: host se online e non-abbandonato, altrimenti il presente col posto più basso.
+function watchdogArbiterId(){
+  if(!mpGame) return null;
+  const chars=mpGame.characters||[];
+  const ok=id=>{ const c=chars.find(x=>x&&x.id===id); return c && !c.abandoned && onlinePlayers.has(id); };
+  const hostId=net&&net.hostId;
+  if(hostId && ok(hostId)) return hostId;
+  for(const c of chars){ if(c && !c.abandoned && onlinePlayers.has(c.id)) return c.id; }
+  return null;
+}
+// Controllo periodico: se il giocatore di turno è offline da troppo, l'arbitro ne salta il turno.
+function watchdogTick(){
+  if(!mpGame || !net || net.phase!=="playing" || net.pvp){ _watchdogSince=null; return; }
+  if(!_presenceSeenMultiple){ _watchdogSince=null; return; }   // presence non ancora affidabile → non intervengo (nessun salto errato)
+  const seatChar=mpGame.characters[mpGame.seat];
+  if(!seatChar){ _watchdogSince=null; return; }
+  const activeOnline = onlinePlayers.has(seatChar.id) && !seatChar.abandoned;
+  if(activeOnline){ _watchdogSince=null; return; }            // il giocatore attivo c'è: tutto ok
+  if(myId!==watchdogArbiterId()) return;                      // non tocca a me arbitrare
+  if(_watchdogSince===null){ _watchdogSince=Date.now(); return; }   // avvia il conto alla rovescia
+  if(Date.now()-_watchdogSince >= WATCHDOG_GRACE_MS){ _watchdogSince=null; mpSkipOfflineTurn(seatChar.id, seatChar.name); }
+}
+// Salta il turno di un giocatore offline (avanza come una normale fine turno, ma senza modificare il suo personaggio).
+function mpSkipOfflineTurn(offlineId, offlineName){
+  mpGuard("Salta turno offline", ()=>{
+    const cur=mpGame.characters[mpGame.seat];
+    if(!cur || cur.id!==offlineId || onlinePlayers.has(offlineId)) return;   // già cambiato o tornato online
+    const active=mpActiveCharacters();
+    let ended=false, winnerId=null;
+    // Offline ≠ abbandonato: 'active' li include, quindi la partita NON finisce (pausa & aspetta). Solo fine giorni/vittoria fama chiudono.
+    mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
+    if(mpGame.turnsThisDay>=active.length){
+      const totalDays=mpGame.gameMode==="hardcore"?23:18;
+      if(mpGame.day>=totalDays){ ended=true; winnerId=mpTopFamaId(); }
+      else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
+    } else { mpGame.seat=mpNextSeat(mpGame.seat); }
+    const gameSer=mpSerialize(mpGame);
+    patchRoom(s=>{
+      if(!s.game||!s.game.characters) return;
+      const c=s.game.characters[s.game.seat];
+      if(!c || c.id!==offlineId) return;   // un altro arbitro ha già avanzato → non sovrascrivo
+      s.game=gameSer; s.pvp=null; s.live=null;
+      if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; }
+    });
+    log(`⏭️ <b>${escapeHtml(offlineName||'Un giocatore')}</b> è offline: il suo turno è stato saltato automaticamente.`,"bad");
+  });
 }
 
 // =================== GAME ===================
