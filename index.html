@@ -930,8 +930,10 @@
 <!-- ============ GAME ============ -->
 <section id="game" class="screen">
   <!-- Attesa del proprio turno (Tappa 2.2): targhetta NON bloccante (puoi navigare l'HUD) -->
-  <div id="mpwatch" style="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--gold);border-radius:22px;padding:7px 18px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55)">
-    <span class="stencil" style="color:var(--gold);font-size:14px;letter-spacing:.04em">⏳ È il turno di <span id="mpwatch-name">—</span> — puoi consultare l'HUD, non agire</span>
+  <div id="mpwatch" style="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--gold);border-radius:16px;padding:8px 18px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55);text-align:center;max-width:min(94vw,540px)">
+    <div class="stencil" style="color:var(--gold);font-size:13px;letter-spacing:.04em">👁️ Stai guardando il turno di <span id="mpwatch-name">—</span></div>
+    <div id="mpwatch-action" style="font-size:12px;color:var(--text);margin-top:2px;min-height:15px">&nbsp;</div>
+    <div id="mpwatch-stats" style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"></div>
   </div>
   <!-- STEPPER FASI DI GIOCO -->
   <div id="phase-stepper">
@@ -2619,9 +2621,68 @@ function mpWatch(){
   const active=mpGame.characters[mpGame.seat];
   const to=document.getElementById('turnof'); if(to) to.textContent = active?active.name:"—";
   mpShowWatch(active?active.name:"—");
+  mpHandleLive();   // FASE A: applica lo snapshot live del giocatore attivo (pedina + pannello + feed)
 }
 function mpShowWatch(name){ const el=document.getElementById('mpwatch'); if(!el)return; const n=document.getElementById('mpwatch-name'); if(n)n.textContent=name; el.style.display='block'; }
 function mpHideWatch(){ const el=document.getElementById('mpwatch'); if(el) el.style.display='none'; }
+
+// ============ FASE A — VISTA SPETTATORE IN TEMPO REALE ============
+// Il giocatore attivo trasmette un piccolo "snapshot live" a ogni azione (posizione, azione,
+// equipaggiamento, HP). MAI lo zaino né le carte in chiaro. Best-effort: se la rete fa i capricci
+// si salta l'aggiornamento senza disturbare chi gioca.
+async function publishLive(action, text){
+  if(!mpGame || !mpMyTurn || !roomCode || !net) return;   // solo l'attivo, nel suo turno di rete
+  if(net.pvp) return;                                      // durante il PvP non trasmetto live (flusso a parte)
+  const y=state.you; if(!y) return;
+  const nm=it=> (it&&it.name)?{name:it.name}:null;
+  const live={
+    by:myId, name:y.name||"", day:mpGame.day,
+    tileKey: y.tile?key(y.tile.col,y.tile.v):null,
+    action:action||"", text:text||"",
+    hp:y.hp, maxhp:y.maxhp,
+    equip:{ arma:nm(y.equip&&y.equip.arma), armatura:nm(y.equip&&y.equip.armatura),
+            casco:nm(y.equip&&y.equip.casco), gadget:((y.equip&&y.equip.gadget)||[]).map(nm) },
+    seq:Date.now()
+  };
+  try{
+    const s=JSON.parse(JSON.stringify(net)); s.live=live;   // net = stato a inizio turno (nessun altro scrive ora)
+    await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
+  }catch(e){ /* best-effort: ignora */ }
+}
+// Sul dispositivo di chi guarda: applica lo snapshot live (pedina + pannello + feed).
+let _lastLiveSeq=null;
+function mpHandleLive(){
+  const live = net && net.live;
+  const actEl=document.getElementById('mpwatch-action');
+  const stEl=document.getElementById('mpwatch-stats');
+  const activeId = mpGame && mpGame.characters[mpGame.seat] && mpGame.characters[mpGame.seat].id;
+  if(!live || !mpGame || mpMyTurn || live.by===myId || live.by!==activeId){   // no overlay se gioco io, non c'è live, o è un residuo di un altro turno
+    if(actEl) actEl.innerHTML='&nbsp;';
+    if(stEl) stEl.innerHTML='';
+    return;
+  }
+  // 1) muovi in tempo reale la pedina del giocatore attivo
+  if(live.tileKey){
+    const opp=(state.opponents||[]).find(o=>o.id===live.by);
+    const t=tileMap.get(live.tileKey);
+    if(opp && t && opp.tile!==t){ opp.tile=t; if(typeof drawPawn==="function") drawPawn(); }
+  }
+  // 2) pannello spettatore: azione corrente + HP + equipaggiamento (mai lo zaino)
+  if(actEl) actEl.innerHTML = live.text ? `▶ ${escapeHtml(live.text)}` : '&nbsp;';
+  if(stEl){
+    const eq=live.equip||{};
+    const chip=(ic,it)=> (it&&it.name) ? `<span>${ic} ${escapeHtml(it.name)}</span>` : `<span class="dim">${ic} —</span>`;
+    const gadgets=(eq.gadget||[]).filter(g=>g&&g.name).map(g=>escapeHtml(g.name)).join(', ')||'—';
+    stEl.innerHTML = `<span>❤ ${live.hp}/${live.maxhp}</span>`+
+      chip('🗡',eq.arma)+chip('🛡',eq.armatura)+chip('⛑',eq.casco)+`<span class="dim">🔧 ${gadgets}</span>`;
+  }
+  // 3) feed nel log: una riga per ogni azione nuova (seq)
+  if(live.seq && live.seq!==_lastLiveSeq){
+    _lastLiveSeq=live.seq;
+    if(live.action==="draw")   log(`👁️ <b>${escapeHtml(live.name||'?')}</b> ${escapeHtml(live.text||'pesca una carta')} 🂠`,"");
+    else if(live.text)         log(`👁️ <b>${escapeHtml(live.name||'?')}</b> ${escapeHtml(live.text)}`,"");
+  }
+}
 // Blocco azioni quando NON è il mio turno (l'HUD resta navigabile).
 function mpCanAct(){ return !mpGame || mpMyTurn; }
 function mpDeny(){ try{ log("⏳ Non è il tuo turno: puoi consultare l'HUD ma non agire.","bad"); }catch(e){} }
@@ -2655,7 +2716,7 @@ function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
     } else { mpGame.seat=mpNextSeat(mpGame.seat); }
   }
   const gameSer=mpSerialize(mpGame);
-  patchRoom(s=>{ s.game=gameSer; s.pvp=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
+  patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });   // s.live=null: fine turno → si spegne l'overlay spettatore
 }); }
 
 // Nuovo giorno condiviso: reset riciclaggio a nuova fase + pesca evento + effetti "per tutti".
@@ -3599,6 +3660,7 @@ function beginYourTurn(){
     if(discoMalus) log(`💿 Porti il <b>Disco segreto</b>: hai <b>1 azione in meno</b> questo turno (azioni: ${state.actionsLeft}).`,"bad");
     if(state.event?.actionsBonus) log(`⚡ Evento <b>${state.event.t}</b>: +${state.event.actionsBonus} azioni extra (totale: ${state.actionsLeft}).`,"evt");
   }
+  publishLive(state.phase==="base"?"safe":"start", "");   // FASE A: snapshot iniziale (posizione + equip + HP) per gli spettatori
   startTurnTimer();
 }
 
@@ -3664,6 +3726,7 @@ function doMove(t, first){
   if(first){ state.movedFirst=true; log(`➡ Ti sposti in <b>${t.name}</b> <span class="dim">(${TYPE_LABEL[t.type]})</span> — movimento obbligatorio completato.`); }
   else     { state.actionsLeft--; log(`➡ Azione Spostamento → <b>${t.name}</b>.`); }
   state.phase="actions"; updateActionUI();
+  publishLive("move", `si sposta in ${t.name}`);   // FASE A: pedina live + feed per gli spettatori
   // Estrazione propria → il turno termina subito e torni al tuo accampamento
   if(t.type==="estrazione" && k_isMyExtraction(t)){
     stopTurnTimer(); state.you.safeTurnPending=true;
@@ -3793,6 +3856,7 @@ function _executeSearch(useTorch){
     else keepable.push(it);
   });
   log(`🔎 Cerchi in <b>${t.name}</b> (mazzo ${deckName}): peschi ${drawn.length}, tieni ${keep}.`);
+  publishLive("draw", `cerca in ${t.name}`);   // FASE A: gli spettatori vedono la ricerca; le carte restano coperte
   renderHUD();
   // ORDINE CORRETTO: 1) RIVELA il bottino (flip, inclusa la carta trappola pescata)
   //                  2) scatta il MALUS (blocca le tasche laterali, sposta al centro, calcola l'eccesso)
@@ -3922,6 +3986,7 @@ function doStationTravel(t){
   state.you.coins--; state.you.tile=t; state.stationTravelActive=false;
   clearReach(); drawPawn(); renderHUD(); updateActionUI();
   log(`🚉 Paghi 1 moneta e viaggi fino a <b>${t.name}</b>.`);
+  publishLive("station", `viaggia in treno fino a ${t.name}`);   // FASE A
 }
 function cancelStationTravel(){
   state.stationTravelActive=false; clearReach(); updateActionUI();
@@ -3935,6 +4000,7 @@ function doHide(){
   disarmMove();
   state.you.hidden=true;spend();
   log(`🌑 Ti nascondi: nessun incontro (né PvE né PvP) alla fine del turno.`);
+  publishLive("hide", "si nasconde");   // FASE A
   drawPawn();   // mostra subito la pedina in versione "nascosta" (resta tale fino all'inizio del tuo prossimo turno)
   // nascondi termina la fase azioni
   state.actionsLeft=0;updateActionUI();
@@ -3952,6 +4018,7 @@ function doLock(){
   spend();
   removeLockpick();
   log(`🗝 Usi il Grimaldello per scassinare il deposito di <b>${foe?foe.name:"un avversario"}</b>!`,"good");
+  publishLive("lock", `scassina un deposito avversario`);   // FASE A
   recalcStats(); renderHUD();
   showLockpickAnimation(foe);
 }
@@ -4250,6 +4317,7 @@ function _confirmEndTurn(){
 }
 function doEncounter(){
   stopTurnTimer(); highlightReach(false);
+  publishLive("encounter", "sta affrontando un incontro…");   // FASE A: banner (i dettagli arrivano in Fase B)
   startEncounter();   // PvE (con eventuale scelta del Sensore di movimento)
 }
 // avversario da affrontare in PvP sulla casella; i nascosti solo col Sensore di movimento
@@ -4319,6 +4387,7 @@ function enterPostEncounter(){
   closeModal();
   state.phase="postEncounter"; state.you.hidden=false;
   clearReach(); renderHUD(); updateActionUI(); startTurnTimer();
+  publishLive("postenc", "ha concluso l'incontro");   // FASE A: aggiorna banner + HP dopo il combattimento
   log(`Scontro concluso. Puoi <b>curarti</b> e <b>gestire l'inventario</b>, poi premi <b>Termina turno</b>.`,"good");
   showWeaponBrokeModal();   // eventuale popup "arma scarica" ORA, dopo il loot (non copre più le carte)
 }
