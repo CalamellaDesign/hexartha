@@ -2630,7 +2630,7 @@ function mpHideWatch(){ const el=document.getElementById('mpwatch'); if(el) el.s
 // Il giocatore attivo trasmette un piccolo "snapshot live" a ogni azione (posizione, azione,
 // equipaggiamento, HP). MAI lo zaino né le carte in chiaro. Best-effort: se la rete fa i capricci
 // si salta l'aggiornamento senza disturbare chi gioca.
-async function publishLive(action, text){
+async function publishLive(action, text, extra){
   if(!mpGame || !mpMyTurn || !roomCode || !net) return;   // solo l'attivo, nel suo turno di rete
   if(net.pvp) return;                                      // durante il PvP non trasmetto live (flusso a parte)
   const y=state.you; if(!y) return;
@@ -2644,6 +2644,7 @@ async function publishLive(action, text){
             casco:nm(y.equip&&y.equip.casco), gadget:((y.equip&&y.equip.gadget)||[]).map(nm) },
     seq:Date.now()
   };
+  if(extra) Object.assign(live, extra);   // FASE B: dati incontro (live.enc) per la vista spettatore del combattimento
   try{
     const s=JSON.parse(JSON.stringify(net)); s.live=live;   // net = stato a inizio turno (nessun altro scrive ora)
     await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
@@ -2659,6 +2660,7 @@ function mpHandleLive(){
   if(!live || !mpGame || mpMyTurn || live.by===myId || live.by!==activeId){   // no overlay se gioco io, non c'è live, o è un residuo di un altro turno
     if(actEl) actEl.innerHTML='&nbsp;';
     if(stEl) stEl.innerHTML='';
+    closeSpectatorEncounter();
     return;
   }
   // 1) muovi in tempo reale la pedina del giocatore attivo
@@ -2682,6 +2684,63 @@ function mpHandleLive(){
     if(live.action==="draw")   log(`👁️ <b>${escapeHtml(live.name||'?')}</b> ${escapeHtml(live.text||'pesca una carta')} 🂠`,"");
     else if(live.text)         log(`👁️ <b>${escapeHtml(live.name||'?')}</b> ${escapeHtml(live.text)}`,"");
   }
+  // 4) FASE B: vista incontro in diretta (sola lettura)
+  if(live.enc && !live.enc.over) renderSpectatorEncounter(live);
+  else closeSpectatorEncounter();
+}
+// ---- FASE B: vista spettatore del combattimento PvE (sola lettura) ----
+let _specEncKey=null;
+function renderSpectatorEncounter(live){
+  const enc=live.enc; if(!enc || enc.over || !enc.enemy){ closeSpectatorEncounter(); return; }
+  const e=enc.enemy, y=enc.you||{}, roll=enc.roll;
+  const k=JSON.stringify([e.name, e.ehp, y.hp, y.tempHp, enc.phase, roll]);
+  if(_specEncKey===k) return;                       // stato invariato → non ri-renderizzo (niente flicker)
+  _specEncKey=k;
+  const diceHTML = roll ? (roll.kind==='flee' ? fleeDiceHTML(roll.fleeDie) : combatDiceHTML({dice:roll.dice||[]}, null)) : '';
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--rust)">👁️ Scontro di ${escapeHtml(live.name||'?')}</span>
+      <span class="dim small">stai guardando</span></div>
+    <div class="modal-b">
+      <div class="ec-wrap">
+        ${encounterCardHTML(e, e.ehp)}
+        <div class="ec-you">
+          <div class="nm">${escapeHtml(live.name||'?')}</div>
+          <div class="small muted">${escapeHtml(y.armaName||'')}</div>
+          <div class="ec-stat">Equipaggiamento <b style="color:var(--gold)">+${y.equipScore||0}</b></div>
+          <div class="small" style="margin-top:6px">Vita: ${pips(y.hp||0,y.maxhp||3)}${"🟨".repeat(y.tempHp||0)}</div>
+        </div>
+      </div>
+      <div class="roll-res center" id="spec-rollres">${roll?roll.res:'In attesa del tiro…'}</div>
+      <div class="dice" id="spec-dice">${diceHTML}</div>
+      <p class="dim small center" style="margin-top:10px">Stai <b>guardando</b> lo scontro — non puoi intervenire.</p>
+    </div>`);
+  if(roll && typeof mpSettleDice==='function') mpSettleDice('#spec-dice');   // orienta i dadi sul valore, senza animazione (attacco o fuga)
+}
+function closeSpectatorEncounter(){
+  if(_specEncKey===null) return;
+  _specEncKey=null;
+  const ov=document.getElementById('overlay');
+  if(ov&&ov.classList.contains('active')) closeModal();
+}
+// Snapshot dell'incontro PvE corrente, per la vista spettatore (nemico, vite, ultimo tiro).
+function currentEncSnapshot(){
+  if(typeof combat==="undefined" || !combat || !combat.e) return null;
+  const e=combat.e, p=combat.pending; let roll=null;
+  if(p){
+    if(p.kind==='flee') roll={kind:'flee', fleeDie:p.fleeDie, res:p.res};
+    else roll={kind:'combat', dice:(p.rp&&p.rp.dice||[]).map(d=>({v:d.v,kept:!!d.kept})), res:p.res};
+  }
+  return {
+    enemy:{ name:e.name, epithet:e.epithet||"", dmg:e.dmg, hp:e.hp, ehp:combat.ehp,
+            effect:e.effect||"", img:e.img||"", tipologia:e.tipologia||"", loot:e.loot },
+    you:{ hp:state.you.hp, maxhp:state.you.maxhp, tempHp:state.you.tempHp||0, equipScore:state.you.equipScore, armaName:state.you.armaName },
+    roll, phase:(p?'reveal':'rolling')
+  };
+}
+// Pubblica lo stato corrente del combattimento agli spettatori (nessuna riga di feed: aggiorna solo la vista).
+function publishEncounter(){
+  const enc=currentEncSnapshot(); if(!enc) return;
+  publishLive("encounter", "", { enc });
 }
 // Blocco azioni quando NON è il mio turno (l'HUD resta navigabile).
 function mpCanAct(){ return !mpGame || mpMyTurn; }
@@ -5258,6 +5317,7 @@ function renderCombat(msg){
     </div>`);
   if(firstReveal) scheduleEncFlip();
   startCombatIdle();   // (ri)avvia il timer di inattività: 60s senza agire → −1 vita
+  publishEncounter();  // FASE B: aggiorna la vista incontro degli spettatori (nemico, vite, ultimo tiro)
 }
 // Barra gadget in battaglia (usa/scarta gli equipaggiati) — ctx: 'pve' | 'pvp'
 function battleGadgetBar(ctx){
@@ -5506,6 +5566,7 @@ function tryFlee(){
 }
 function winEncounter(){
   stopCombatIdle();
+  publishLive("encounter", `ha sconfitto ${combat.e.name}`, { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   const e=combat.e; let bonus="";
   if(e.extraCoins){ state.you.coins+=e.extraCoins; bonus=` (+${e.extraCoins} monete)`; }
   // Determina mazzo loot: priorità lootDeck del nemico, poi evento, poi zona
@@ -5559,6 +5620,7 @@ function startExtraEncounter(){
 }
 function dieEncounter(){
   stopCombatIdle();
+  publishLive("encounter", "è caduto in combattimento", { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">☠ Sei caduto</span></div>
     <div class="modal-b center">
