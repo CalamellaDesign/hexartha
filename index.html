@@ -4102,8 +4102,14 @@ function updateActionUI(){
   const phase=state.phase;
   const base=phase==="base", moveReq=phase==="move", armedOpt=phase==="move-action", post=phase==="postEncounter";
   const t=state.you.tile;
+  // "base" copre DUE momenti diversi: (a) l'ISTANTE in cui entri in zona sicura e il turno TERMINA subito
+  // (safeTurnPending=true, nessuna azione possibile), e (b) il TURNO DI GESTIONE vero e proprio il turno dopo
+  // (safeTurnPending=false). I pulsanti di gestione e «Termina turno» valgono SOLO nel caso (b).
+  const entering = base && !!state.you.safeTurnPending;   // ingresso: turno appena chiuso, niente CTA
+  const mgmtActive = base && !state.you.safeTurnPending;   // turno di gestione attivo
   const pl=document.getElementById('phaselabel');
-  pl.textContent = base    ? `Gestione ${t.type==="avamposto"?"avamposto":"accampamento"} — «Termina turno» per uscire il prossimo turno`
+  pl.textContent = entering ? `Sei entrato in una zona sicura — turno terminato, si passa al prossimo giocatore`
+                 : base    ? `Gestione ${t.type==="avamposto"?"avamposto":"accampamento"} — «Termina turno» per uscire il prossimo turno`
                  : post    ? "Scontro concluso — curati e gestisci l'inventario, poi «Termina turno»"
                  : moveReq  ? "① Movimento obbligatorio — clicca una zona evidenziata in oro"
                  : armedOpt ? "Spostamento — clicca una zona evidenziata (o scegli un'altra azione)"
@@ -4149,14 +4155,16 @@ function updateActionUI(){
   endBtn.textContent=em.label; endBtn.dataset.mode=em.mode;
   // In fortezza con actionsLeft=0 l'incontro parte in automatico: blocca il pulsante per evitare double-trigger
   const fortressAutoStart = t.type==="fortezza" && state.actionsLeft===0 && phase==="actions";
-  endBtn.disabled=moveReq || fortressAutoStart;
+  // Durante l'INGRESSO in zona sicura il turno sta già chiudendosi da solo: niente «Termina turno».
+  endBtn.disabled=moveReq || fortressAutoStart || entering;
+  endBtn.style.display = entering ? 'none' : '';
   endBtn.classList.toggle('danger', em.mode==='encounter');
   endBtn.classList.toggle('primary', em.mode!=='encounter');
-  // Pulsanti safe zone (solo nel turno di gestione); "Consegna missioni" solo negli avamposti
+  // Pulsanti safe zone (solo nel TURNO DI GESTIONE vero, non all'ingresso); "Consegna missioni" solo negli avamposti
   // shopAnywhere (evento) consente commercio anche fuori dalle zone sicure, spendendo un'azione
-  document.getElementById('a-store').style.display   = (base && t.type==="accampamento") ? '' : 'none';
-  document.getElementById('a-trade').style.display   = (base || !!(state.event?.shopAnywhere)) ? '' : 'none';
-  document.getElementById('a-deliver').style.display = ((base && t.type==="avamposto") || !!(state.event?.deliveryAnywhere)) ? '' : 'none';
+  document.getElementById('a-store').style.display   = (mgmtActive && t.type==="accampamento") ? '' : 'none';
+  document.getElementById('a-trade').style.display   = (mgmtActive || !!(state.event?.shopAnywhere)) ? '' : 'none';
+  document.getElementById('a-deliver').style.display = ((mgmtActive && t.type==="avamposto") || !!(state.event?.deliveryAnywhere)) ? '' : 'none';
   updateCCBadges();
 }
 function updateStepper(){
@@ -5867,6 +5875,8 @@ function awardPremio(pr){
   return parts.join(" · ");
 }
 function deliverMissions(){
+  if(!mpCanAct()){ mpDeny(); return; }                       // non è il tuo turno
+  if(state.phase==="base" && state.you.safeTurnPending){ return; }   // sei appena entrato: il turno sta finendo, nessuna consegna
   const inAvamposto = state.you.tile.type==="avamposto";
   const canDeliver = inAvamposto || !!(state.event?.deliveryAnywhere);
   if(!canDeliver){ return; }
@@ -6092,7 +6102,9 @@ const IMG_TRADER="CARTE/Immagini Contrabbandieri/";
 function openCommerce(){
   // Solo visione se NON è il mio turno (attesa multiplayer) o se non sono in una situazione valida
   // (fase "base" = safe zone, oppure evento shopAnywhere). Le azioni di commercio valgono solo nel proprio turno.
-  _tradeViewOnly = !mpCanAct() || !(state.phase==="base" || !!(state.event?.shopAnywhere));
+  // Durante l'INGRESSO in zona sicura (safeTurnPending: turno che si sta chiudendo) → solo consultazione.
+  const entering = state.phase==="base" && !!state.you.safeTurnPending;
+  _tradeViewOnly = !mpCanAct() || entering || !(state.phase==="base" || !!(state.event?.shopAnywhere));
   if(!shop) shop={derrick:Array.from({length:3},()=>drawFrom('militare')), elvira:Array.from({length:3},()=>drawFrom('medico'))};
   currentVendorTab = currentVendorTab || 'derrick';
   const tabs=['derrick','elvira','michail'];
