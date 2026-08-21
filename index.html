@@ -2073,7 +2073,7 @@ function mpSelfTest(){
 let mpGame=null, mySeatIndex=-1, mpMyTurn=false;
 // --- Disconnessioni: presence + watchdog anti-stallo ---
 let onlinePlayers=new Set();          // id dei giocatori attualmente connessi (via Supabase Presence)
-let _watchdogSince=null, _watchdogInterval=null, _presenceSeenMultiple=false;
+let _watchdogSince=null, _watchdogInterval=null, _presenceSeenMultiple=false, _pvpForceSince=null;
 const WATCHDOG_GRACE_MS=25000;        // attesa prima di saltare il turno di un giocatore offline (~25s)
 
 function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; return {...m, done:false}; }
@@ -2838,8 +2838,10 @@ function watchdogArbiterId(){
 }
 // Controllo periodico: se il giocatore di turno è offline da troppo, l'arbitro ne salta il turno.
 function watchdogTick(){
-  if(!mpGame || !net || net.phase!=="playing" || net.pvp){ _watchdogSince=null; return; }
-  if(!_presenceSeenMultiple){ _watchdogSince=null; return; }   // presence non ancora affidabile → non intervengo (nessun salto errato)
+  if(!mpGame || !net || net.phase!=="playing"){ _watchdogSince=null; _pvpForceSince=null; return; }
+  if(!_presenceSeenMultiple){ _watchdogSince=null; _pvpForceSince=null; return; }   // presence non ancora affidabile → non intervengo
+  if(net.pvp){ _watchdogSince=null; return pvpWatchdogTick(); }   // durante il PvP → watchdog dedicato (forza gli offline / annulla se il mover è sparito)
+  _pvpForceSince=null;
   const seatChar=mpGame.characters[mpGame.seat];
   if(!seatChar){ _watchdogSince=null; return; }
   const activeOnline = onlinePlayers.has(seatChar.id) && !seatChar.abandoned;
@@ -2871,6 +2873,68 @@ function mpSkipOfflineTurn(offlineId, offlineName){
       if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; }
     });
     log(`⏭️ <b>${escapeHtml(offlineName||'Un giocatore')}</b> è offline: il suo turno è stato saltato automaticamente.`,"bad");
+  });
+}
+
+// ===== Watchdog anti-stallo durante un PvP =====
+// Arbitro PvP di ripiego (se il mover è offline): partecipante presente col posto più basso.
+function pvpFallbackArbiterId(pvp){
+  const seatOf=id=> mpGame? mpGame.characters.findIndex(c=>c&&c.id===id) : 0;
+  const present=(pvp.participants||[]).filter(id=>onlinePlayers.has(id)).sort((a,b)=>seatOf(a)-seatOf(b));
+  return present[0]||null;
+}
+// Partecipanti offline che stanno BLOCCANDO la fase corrente (voto/tiro/conferma mancante).
+function pvpOfflinePending(pvp){
+  const c=pvp.combat;
+  if(pvp.status==="voting"){
+    return (pvp.participants||[]).filter(id=>!onlinePlayers.has(id) && !(pvp.votes&&pvp.votes[id]));
+  }
+  if(pvp.status==="fighting" && c){
+    const alive=(c.participants||[]).filter(id=>c.hp&&c.hp[id]>0);
+    if(c.phase==="rolling") return alive.filter(id=>!onlinePlayers.has(id) && !(c.rolls&&c.rolls[id]));
+    if(c.phase==="reveal")  return alive.filter(id=>!onlinePlayers.has(id) && !(c.ack&&c.ack[id]));
+  }
+  return [];
+}
+function pvpWatchdogTick(){
+  const pvp=net&&net.pvp; if(!pvp){ _pvpForceSince=null; return; }
+  if(!(pvp.participants||[]).includes(myId)){ _pvpForceSince=null; return; }   // non sono coinvolto
+  const moverOffline = pvp.moverId && !onlinePlayers.has(pvp.moverId);
+  if(moverOffline){
+    // Il giocatore di turno (che ha innescato il PvP) è sparito → l'arbitro di ripiego annulla lo scontro.
+    if(myId!==pvpFallbackArbiterId(pvp)){ return; }
+    if(_pvpForceSince===null){ _pvpForceSince=Date.now(); return; }
+    if(Date.now()-_pvpForceSince >= WATCHDOG_GRACE_MS){ _pvpForceSince=null; abortPvpMoverGone(pvp); }
+    return;
+  }
+  // Mover presente: è LUI a forzare i partecipanti offline che bloccano la fase.
+  if(myId!==pvp.moverId){ _pvpForceSince=null; return; }
+  const pending=pvpOfflinePending(pvp);
+  if(!pending.length){ _pvpForceSince=null; return; }
+  if(_pvpForceSince===null){ _pvpForceSince=Date.now(); return; }
+  if(Date.now()-_pvpForceSince >= WATCHDOG_GRACE_MS){ _pvpForceSince=null; forcePvpForOffline(pvp, pending); }
+}
+// Forza voto/tiro/conferma dei partecipanti offline (rinuncia) così lo scontro può proseguire.
+function forcePvpForOffline(pvp, pending){
+  mpGuard("PvP: forza offline", ()=>{
+    patchRoom(s=>{
+      const sp=s.pvp; if(!sp) return;
+      if(sp.status==="voting"){
+        sp.votes=sp.votes||{}; pending.forEach(id=>{ if(!sp.votes[id]) sp.votes[id]='peace'; });   // offline: non alza la posta (voto Pace)
+      } else if(sp.status==="fighting" && sp.combat){
+        const cc=sp.combat;
+        if(cc.phase==="rolling"){ cc.rolls=cc.rolls||{}; pending.forEach(id=>{ if(!cc.rolls[id]) cc.rolls[id]={total:0,dice:[],notes:['offline'],label:'OFFLINE',dmgToOpp:1,forfeit:true}; }); }
+        else if(cc.phase==="reveal"){ cc.ack=cc.ack||{}; pending.forEach(id=>{ cc.ack[id]=true; }); }
+      }
+    });
+    log(`⏭️ PvP: ${pending.length} partecipante/i offline forzato/i (rinuncia) per non bloccare lo scontro.`,"bad");
+  });
+}
+// Il mover è offline durante il PvP → annulla lo scontro (poi il watchdog di turno salterà il suo turno).
+function abortPvpMoverGone(pvp){
+  mpGuard("PvP: mover offline", ()=>{
+    patchRoom(s=>{ s.pvp=null; });
+    log(`⏭️ Il giocatore di turno è offline durante lo scontro: PvP annullato, si prosegue.`,"bad");
   });
 }
 
