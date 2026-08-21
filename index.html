@@ -2082,7 +2082,7 @@ function mpBuildGame(players, gameMode){
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
-            discoSegretoInPlay:false, discoSegretoEliminated:false,
+            discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
   if(game.event && game.event.drop) mpPlaceDropWorld(game.world, game.event.drop, game.day);
@@ -2104,6 +2104,7 @@ function mpHydrate(game){
   state.destroyedTiles=(w.destroyedTiles instanceof Set)?w.destroyedTiles:new Set(w.destroyedTiles||[]);
   state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
   state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
+  state.discoAnnounce=w.discoAnnounce||null;
   state.extraEncounterAfterTurn=!!w.extraEncounterAfterTurn; state.zonaEvacuataTargets=w.zonaEvacuataTargets||null;
   if(mySeatIndex>=0) state.you = game.characters[mySeatIndex];   // stesso riferimento → le modifiche del turno restano nella partita
   state.opponents = game.characters.map((c,i)=>({c,i}))
@@ -2171,8 +2172,18 @@ function mpOnGameUpdate(){
     mpAfterHydrateFlow();
   });
 }
+// Avvisa TUTTI i device quando qualcuno trova il Disco segreto (marcatore condiviso w.discoAnnounce).
+let _lastDiscoAnnounceTs=null;
+function mpCheckDiscoAnnounce(){
+  const a=state.discoAnnounce; if(!a||!a.ts) return;
+  if(_lastDiscoAnnounceTs===a.ts) return;           // già mostrato questo annuncio
+  _lastDiscoAnnounceTs=a.ts;
+  if(a.byId===myId) return;                          // chi l'ha trovato ha già il suo messaggio
+  log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha trovato il DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
+}
 // A inizio di ogni GIORNO mostra la carta evento (per tutti), poi turno o attesa.
 function mpAfterHydrateFlow(){
+  mpCheckDiscoAnnounce();
   if(mpGame.day!==mpLastEventDay){
     mpLastEventDay=mpGame.day;
     const goEvent=()=>mpShowEventCard(()=>mpProceedTurnOrWatch());
@@ -2622,6 +2633,7 @@ function mpWriteBack(){
   w.eventDeckVerde=state.eventDeckVerde; w.eventDeckMarrone=state.eventDeckMarrone; w.eventDeckRosso=state.eventDeckRosso;
   w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
   w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
+  w.discoAnnounce=state.discoAnnounce||null;
 }
 function mpActiveCharacters(){ return mpGame.characters.filter(c=>!c.abandoned); }
 function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;k<N;k++){ s=(s+1)%N; if(mpGame.characters[s] && !mpGame.characters[s].abandoned) return s; } return from; }
@@ -3830,8 +3842,8 @@ function stowLoot(cards, done){
   const pending=[];
   cards.forEach(it=>{
     if(packAdd(it)){ log(`🎒 <b>${it.name}</b> → zaino.`,"good"); }
-    else if(!y_tascaFull()){ state.you.equip.tasca=it; log(`🎒 Zaino pieno: <b>${it.name}</b> → Tasca sicura.`,"good"); }
-    else pending.push(it);
+    else if(!y_tascaFull() && !it.special){ state.you.equip.tasca=it; log(`🎒 Zaino pieno: <b>${it.name}</b> → Tasca sicura.`,"good"); }
+    else pending.push(it);   // carte speciali: mai in Tasca sicura → vanno gestite a mano nello zaino
   });
   recalcStats(); renderHUD();
   state.pendingLoot=pending; state.pendingDone=done||null;
@@ -4860,8 +4872,8 @@ function lootStow(i){
   const it=(state.pendingLoot||[])[i]; if(!it) return;
   let where=null;
   if(packAdd(it)) where="nello zaino";
-  else if(!y_tascaFull()){ state.you.equip.tasca=it; where="nella Tasca sicura"; }
-  if(!where){ return invMsg("Nessuno spazio: libera prima l'inventario (sposta o scarta una carta)."); }
+  else if(!y_tascaFull() && !it.special){ state.you.equip.tasca=it; where="nella Tasca sicura"; }
+  if(!where){ return invMsg(it.special ? "Le carte speciali non vanno in Tasca sicura: libera spazio nello zaino." : "Nessuno spazio: libera prima l'inventario (sposta o scarta una carta)."); }
   state.pendingLoot.splice(i,1); state.invSel=null; recalcStats();
   log(`🎒 Riponi <b>${it.name}</b> ${where}.`,"good"); renderHUD(); lootRoomStep();
 }
@@ -6398,9 +6410,11 @@ function packAdd(item){ const secs=sidePocketsBlocked()?["centro"]:["centro","sx
   for(const sec of secs){
     if(packFree(sec)>0){
       state.you.pack[sec].push(item);
-      if(item.discoSegreto && !state.discoSegretoEliminated){
+      if(item.discoSegreto && !state.discoSegretoEliminated && !state.discoSegretoInPlay){   // solo alla PRIMA scoperta
         state.discoSegretoInPlay=true;
         log(`📡 <b>Hai trovato il Disco segreto!</b> Tutti i giocatori lo sanno. −1 azione per turno finché lo tieni.`,"evt");
+        // Marcatore condiviso: gli altri device lo vedono all'aggiornamento e mostrano l'avviso.
+        state.discoAnnounce={ name:(state.you&&state.you.name)||"Un giocatore", byId:myId, ts:Date.now() };
       }
       return sec;
     }
@@ -6623,7 +6637,7 @@ function canGoTo(item, dstKey){
     if(s==='arma')     return item.slot==='arma';
     if(s==='armatura') return item.slot==='armatura';
     if(s==='casco')    return item.slot==='casco';
-    if(s==='tasca')    return true;  // qualsiasi carta può stare nella tasca sicura
+    if(s==='tasca')    return !item.special;  // la Tasca sicura NON accetta carte speciali (bordo dorato) né il Disco segreto
   }
   return false;
 }
@@ -7099,7 +7113,7 @@ function removeCarriedByName(name){
 // Consegna una carta al giocatore: zaino → altrimenti Tasca sicura → altrimenti Riciclaggio
 function giveCard(card){
   if(packAdd(card)) return "nello zaino";
-  if(!y_tascaFull()){ state.you.equip.tasca=card; return "in Tasca sicura"; }
+  if(!y_tascaFull() && !card.special){ state.you.equip.tasca=card; return "in Tasca sicura"; }   // le speciali non vanno in Tasca sicura
   toRiciclaggio(card); return "zaino pieno → nel Riciclaggio";
 }
 // Cassaforte pescata: con la Chiave cassaforte la apri (10 monete + 1 Chiave Fortezza Rossa; chiave e cassaforte fuori gioco); senza chiave torna nel mazzo. Non viene mai tenuta.
