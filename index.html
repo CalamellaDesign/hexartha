@@ -1692,9 +1692,17 @@ let roomCode=null, myId=null, myName=null, isHost=false, roomChannel=null, net=n
 // giocatori diversi anche sullo stesso browser (niente identità accavallate).
 // localStorage (non sessionStorage): la sessione sopravvive anche alla CHIUSURA della scheda,
 // così un giocatore disconnesso può rientrare con lo stesso personaggio (stesso id).
-function saveSession(){ try{ localStorage.setItem("hx_session", JSON.stringify({code:roomCode,id:myId,name:myName,isHost})); }catch(e){} }
+// L'identità autoritativa vive in sessionStorage (PER SCHEDA): due schede dello stesso browser
+// restano giocatori DIVERSI. localStorage è solo un fallback per rientrare dopo la CHIUSURA della
+// scheda: al ricarico, se la scheda non ha ancora un'identità, "reclama" quella salvata su localStorage
+// copiandola nel proprio sessionStorage (così da lì in poi resta separata dalle altre schede).
+function saveSession(){ try{ const v=JSON.stringify({code:roomCode,id:myId,name:myName,isHost}); sessionStorage.setItem("hx_session", v); localStorage.setItem("hx_session", v); }catch(e){} }
 function clearSession(){ try{ localStorage.removeItem("hx_session"); sessionStorage.removeItem("hx_session"); }catch(e){} }
-function loadSession(){ try{ return JSON.parse(localStorage.getItem("hx_session")||sessionStorage.getItem("hx_session")||"null"); }catch(e){ return null; } }
+function loadSession(){ try{
+  const s=sessionStorage.getItem("hx_session"); if(s) return JSON.parse(s);
+  const l=localStorage.getItem("hx_session"); if(l){ sessionStorage.setItem("hx_session", l); return JSON.parse(l); }   // rientro dopo chiusura scheda
+  return null;
+}catch(e){ return null; } }
 
 function randId(){ return Math.random().toString(36).slice(2,10); }
 function makeCode(){ return Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join(""); }
@@ -2683,7 +2691,7 @@ function mpRenderCombatLoot(pvp,c){
         <p class="dim small">Perdi zaino ed equipaggiamento (tranne la Tasca sicura) e torni alla base.</p></div>`);
     return;
   }
-  if(!_lootInit){ _lootRemaining=(c.loot||[]).map(it=>({...it})); _lootInit=true; }
+  if(!_lootInit){ _lootRemaining=(c.loot||[]).map(it=>({...it})); if(c.hp[myId]!=null) state.you.hp=c.hp[myId]; _lootInit=true; }   // allinea la vita alla fine dello scontro: così curarsi dal bottino ha effetto reale
   // Vista inventario classica in "modalità spoil": bottino del nemico a sinistra, inventario aperto a destra.
   const losers=(c.loserIds||[]).map(nm).join(', ');
   state.spoilMode=true;
@@ -2698,7 +2706,7 @@ function mpRenderCombatLoot(pvp,c){
 }
 function mpCombatLootDone(){
   const c=net.pvp&&net.pvp.combat; if(!c||c.winnerId!==myId) return;
-  const wf={ pack:state.you.pack, equip:state.you.equip, hp:c.hp[myId], equipScore:state.you.equipScore };
+  const wf={ pack:state.you.pack, equip:state.you.equip, hp:state.you.hp, equipScore:state.you.equipScore };   // state.you.hp è allineato in mpRenderCombatLoot + eventuali cure dal bottino
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.winnerId===myId){ cc.winnerFinal=JSON.parse(JSON.stringify(wf)); cc.phase='done'; } });
 }
 // Attaccante: applica l'esito del vincitore + morte del perdente, poi termina il turno di chi aveva mosso.
@@ -5245,6 +5253,12 @@ function lootRenounce(i){
   state.pendingLoot.splice(i,1); toRiciclaggio(it); state.invSel=null;
   log(`🗑 Rinunci a <b>${it.name}</b> → Riciclaggio.`,"bad"); renderHUD(); lootRoomStep();
 }
+// Usa un consumabile/medico/cibo direttamente dal bottino (zaino pieno): applica l'effetto e prosegue.
+function lootUse(i){
+  const before=(state.pendingLoot||[]).length;
+  invUse(`loot.${i}`);                                   // gestisce cura/stati/vita e i messaggi "già al massimo"
+  if((state.pendingLoot||[]).length<before) lootRoomStep();   // consumato → avanza (chiude se era l'ultima carta)
+}
 function lootRenounceAll(){
   (state.pendingLoot||[]).forEach(it=>{ toRiciclaggio(it); log(`🗑 Rinunci a <b>${it.name}</b> → Riciclaggio.`,"bad"); });
   state.pendingLoot=[]; lootRoomStep();
@@ -6958,6 +6972,7 @@ function locGet(loc){
 }
 function locRemove(loc){
   const y=state.you, p=loc.split(".");
+  if(p[0]==="loot") return (state.pendingLoot||[]).splice(+p[1],1)[0];   // bottino da sistemare (zaino pieno)
   if(p[0]==="dep")  return y.deposito.splice(+p[1],1)[0];         // magazzino (fase Riarmo)
   if(p[0]==="spoil") return _lootRemaining.splice(+p[1],1)[0];    // bottino nemico (fase Saccheggio)
   if(p[0]==="pack") return y.pack[p[1]].splice(+p[2],1)[0];
@@ -7268,6 +7283,8 @@ function invActionPanel(loc){
     const i=+loc.split(".")[1], it=(state.pendingLoot||[])[i]; if(!it) return "";
     const canStow = packTotalFree()>0 || (!y_tascaFull());
     const btns=[];
+    if(it.slot==="consumabile"||it.slot==="cibo")   // usa subito dal bottino (es. Kit medico se ti manca vita) senza doverlo prima riporre
+      btns.push(`<button class="btn primary" onclick="lootUse(${i})">❤️ Usa</button>`);
     if(canStow) btns.push(`<button class="btn primary" onclick="lootStow(${i})">📥 Riponi nello zaino</button>`);
     // Equipaggia direttamente se slot compatibile libero
     if(['arma','armatura','casco'].includes(it.slot) && !state.you.equip[it.slot])
@@ -7297,6 +7314,8 @@ function invActionPanel(loc){
   if(loc.startsWith("spoil.")){
     const it=locGet(loc); if(!it) return "";
     const btns=[`<button class="btn" onclick="invDetail('${loc}')">🔍 Dettaglio</button>`];
+    if(it.slot==="consumabile"||it.slot==="cibo")   // medici/consumabili/cibo: usali direttamente dal bottino (es. curarti) senza prima riporli
+      btns.push(`<button class="btn primary" onclick="invUse('${loc}')">❤️ Usa</button>`);
     if(["arma","armatura","casco","gadget","consumabile"].includes(it.slot) && !it.noEquip && !isFood(it))
       btns.push(`<button class="btn primary" onclick="invEquip('${loc}')">${it.slot==="consumabile"?"Equip. gadget":"Equipaggia"}</button>`);
     if(packTotalFree()>0) btns.push(`<button class="btn primary" onclick="spoilTake('${loc}')">📥 Prendi nello zaino</button>`);
