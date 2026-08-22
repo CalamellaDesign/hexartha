@@ -934,6 +934,7 @@
     <div class="stencil" style="color:var(--gold);font-size:13px;letter-spacing:.04em">👁️ Stai guardando il turno di <span id="mpwatch-name">—</span></div>
     <div id="mpwatch-action" style="font-size:12px;color:var(--text);margin-top:2px;min-height:15px">&nbsp;</div>
     <div id="mpwatch-stats" style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"></div>
+    <button id="mpwatch-refresh" type="button" onclick="mpSoftRefresh()" title="Ricarica lo stato della partita senza uscire" style="pointer-events:auto;margin-top:7px;font-size:11px;padding:3px 12px;border-radius:9px;background:rgba(0,0,0,.35);color:var(--gold);border:1px solid var(--gold);cursor:pointer">🔄 Aggiorna</button>
   </div>
   <!-- STEPPER FASI DI GIOCO -->
   <div id="phase-stepper">
@@ -1712,7 +1713,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 async function createRoom(){
   const name=(prompt("Come ti chiami?","Host")||"Host").trim().slice(0,20)||"Host";
   myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false;
-  const st={hostId:myId, phase:"lobby", gameMode:"classica",
+  const st={hostId:myId, phase:"lobby", gameMode:"classica", rev:0,   // rev: contatore per il lock ottimistico delle scritture
             players:[{id:myId,name,color:COLORS[0]}]};
   const {error}=await SB.from("rooms").insert({code:roomCode, state:st});
   if(error){ alert("Non riesco a creare la stanza:\n"+error.message); return; }
@@ -1734,8 +1735,16 @@ async function doJoin(){
   if(!cur){ joinMsg("Stanza non trovata. Controlla il codice."); return; }
   if(cur.state.phase!=="lobby"){ joinMsg("La partita è già iniziata o la stanza è chiusa."); return; }
   if((cur.state.players||[]).length>=4){ joinMsg("Stanza piena (max 4 giocatori)."); return; }
+  const nameKey=name.trim().toLowerCase();
+  if((cur.state.players||[]).some(p=>(p.name||"").trim().toLowerCase()===nameKey)){ joinMsg("Nome già in uso in questa stanza. Scegline un altro."); return; }
   myId=randId(); myName=name; isHost=false; roomCode=code; gameStarted=false; endedShown=false; net=cur.state;
-  await patchRoom(s=>{ if(!s.players.some(p=>p.id===myId)) s.players.push({id:myId,name,color:COLORS[s.players.length%COLORS.length]}); });
+  let nameTaken=false;
+  await patchRoom(s=>{
+    if(s.players.some(p=>p.id===myId)) return;                                                   // già dentro (doppio click)
+    if(s.players.some(p=>(p.name||"").trim().toLowerCase()===nameKey)){ nameTaken=true; return; } // qualcuno l'ha preso nel frattempo
+    s.players.push({id:myId,name,color:COLORS[s.players.length%COLORS.length]});
+  });
+  if(nameTaken){ roomCode=null; net=null; joinMsg("Nome già in uso in questa stanza. Scegline un altro."); return; }
   saveSession(); enterLobby();
 }
 
@@ -1746,10 +1755,27 @@ async function fetchRoom(code){
   return data;
 }
 async function patchRoom(fn){
+  // Scrittura con LOCK OTTIMISTICO (rev): va a buon fine solo se nessun altro ha scritto nel frattempo.
+  // Impedisce che una scrittura in ritardo (es. uno snapshot "live") faccia "tornare indietro" lo stato.
+  for(let attempt=0; attempt<4; attempt++){
+    const cur=await fetchRoom(roomCode);
+    if(!cur){ handleRoomGone(); return; }
+    const s=JSON.parse(JSON.stringify(cur.state));
+    const baseRev=(s.rev||0);
+    fn(s);
+    s.rev=baseRev+1;
+    const {data,error}=await SB.from("rooms")
+      .update({state:s, updated_at:new Date().toISOString()})
+      .eq("code",roomCode).eq("state->>rev",String(baseRev)).select("code");
+    if(error) break;                                            // filtro non supportato / errore reale → fallback qui sotto
+    if(data && data.length){ net=s; applyRoomState(); return; }  // scritto: nessun conflitto
+    // 0 righe = qualcun altro ha scritto prima di me: rileggo lo stato fresco e riprovo
+  }
+  // Fallback SICURO (incondizionato): il gioco non si blocca mai, anche se il lock non fosse disponibile
   const cur=await fetchRoom(roomCode);
   if(!cur){ handleRoomGone(); return; }
   const s=JSON.parse(JSON.stringify(cur.state));
-  fn(s);
+  fn(s); s.rev=(s.rev||0)+1;
   const {error}=await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
   if(error){ alert("Errore di rete:\n"+error.message); return; }
   net=s; applyRoomState();
@@ -1889,6 +1915,7 @@ async function abandonGame(){
           for(let k=0;k<N;k++){ seat=(seat+1)%N; if(s.game.characters[seat] && !s.game.characters[seat].abandoned){ s.game.seat=seat; break; } }
         }
       }
+      s.rev=(s.rev||0)+1;   // avanza il rev: invalida eventuali snapshot "live" in ritardo
       await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",code);
     }
   }catch(e){ console.warn(e); }
@@ -1942,7 +1969,7 @@ function mpShowEndScreen(){
       <div class="end-winner-banner" style="color:${winnerColor}">${winnerLabel}</div>
       <div class="end-rank-list">${rows}</div>
       <div class="center" style="margin-top:20px">
-        <button class="btn primary" onclick="location.reload()">Torna alla home</button>
+        <button class="btn primary" onclick="location.reload()">CHIUDI</button>
       </div>
     </div>`, true);
 }
@@ -2755,6 +2782,20 @@ function mpWatch(){
 }
 function mpShowWatch(name){ const el=document.getElementById('mpwatch'); if(!el)return; const n=document.getElementById('mpwatch-name'); if(n)n.textContent=name; el.style.display='block'; }
 function mpHideWatch(){ const el=document.getElementById('mpwatch'); if(el) el.style.display='none'; }
+// Soft refresh: rilegge lo stato della stanza e riallinea la vista SENZA far uscire dalla partita.
+// Utile se il turno avversario sembra "bloccato" (di solito il canale realtime è caduto): lo riapre.
+async function mpSoftRefresh(){
+  const btn=document.getElementById('mpwatch-refresh');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ …'; }
+  try{
+    if(!roomChannel) subscribeRoom();                 // riapre il canale realtime se era caduto
+    _specEncKey=null; _specEncEnemy=null; _lastLiveSeq=null;   // forza il ridisegno di incontro/feed
+    await refreshRoom();                              // rilegge lo stato e riapplica (applyRoomState)
+    if(mpGame && !mpMyTurn){ mpWatch(); }             // ridisegna overlay + snapshot live
+    if(typeof drawPawn==='function') drawPawn();
+  }catch(e){ console.warn('soft refresh', e); }
+  if(btn){ setTimeout(()=>{ btn.disabled=false; btn.textContent='🔄 Aggiorna'; }, 500); }
+}
 
 // ============ FASE A — VISTA SPETTATORE IN TEMPO REALE ============
 // Il giocatore attivo trasmette un piccolo "snapshot live" a ogni azione (posizione, azione,
@@ -2776,8 +2817,19 @@ async function publishLive(action, text, extra){
   };
   if(extra) Object.assign(live, extra);   // FASE B: dati incontro (live.enc) per la vista spettatore del combattimento
   try{
-    const s=JSON.parse(JSON.stringify(net)); s.live=live;   // net = stato a inizio turno (nessun altro scrive ora)
-    await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
+    const baseRev=(net.rev||0);
+    const s=JSON.parse(JSON.stringify(net)); s.live=live;   // rev INVARIATO: lo snapshot live non fa avanzare lo stato autorevole
+    const {data,error}=await SB.from("rooms")
+      .update({state:s, updated_at:new Date().toISOString()})
+      .eq("code",roomCode).eq("state->>rev",String(baseRev)).select("code");
+    if(error){                                              // filtro non disponibile → best-effort classico
+      await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
+    } else if(!(data && data.length)){
+      // 0 righe: o è un VERO conflitto (stato già avanzato) o il filtro non ha agganciato.
+      const cur=await fetchRoom(roomCode);
+      if(cur && (cur.state.rev||0) > baseRev){ /* scrittura autorevole arrivata prima → SALTO (niente clobber, niente ritorni indietro) */ }
+      else { await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode); }   // rev non avanzato → aggiorno comunque (spettatore mai fermo)
+    }
   }catch(e){ /* best-effort: ignora */ }
 }
 // Sul dispositivo di chi guarda: applica lo snapshot live (pedina + pannello + feed).
@@ -2819,7 +2871,7 @@ function mpHandleLive(){
   else closeSpectatorEncounter();
 }
 // ---- FASE B: vista spettatore del combattimento PvE (sola lettura) ----
-let _specEncKey=null;
+let _specEncKey=null, _specEncEnemy=null;
 function renderSpectatorEncounter(live){
   const enc=live.enc; if(!enc || enc.over || !enc.enemy){ closeSpectatorEncounter(); return; }
   const e=enc.enemy, y=enc.you||{}, roll=enc.roll;
@@ -2827,26 +2879,42 @@ function renderSpectatorEncounter(live){
   if(_specEncKey===k) return;                       // stato invariato → non ri-renderizzo (niente flicker)
   _specEncKey=k;
   const diceHTML = roll ? (roll.kind==='flee' ? fleeDiceHTML(roll.fleeDie) : combatDiceHTML({dice:roll.dice||[]}, null)) : '';
+  const youHpHTML = `Vita: ${pips(y.hp||0,y.maxhp||3)}${"🟨".repeat(y.tempHp||0)}`;
+  const rollTxt = roll?roll.res:'In attesa del tiro…';
+  const ov=document.getElementById('overlay');
+  const modalOpen = ov && ov.classList.contains('active');
+  // AGGIORNAMENTO FLUIDO: se la modale dello STESSO scontro è già aperta, ritocco solo le parti che cambiano
+  // (HP nemico, dadi, esito) invece di ricostruire l'intera modale → niente sfarfallio né salti di scroll.
+  if(modalOpen && _specEncEnemy===e.name && document.getElementById('spec-enemy')){
+    document.getElementById('spec-enemy').innerHTML = encounterCardHTML(e, e.ehp);
+    const yh=document.getElementById('spec-youhp'); if(yh) yh.innerHTML = youHpHTML;
+    const rr=document.getElementById('spec-rollres'); if(rr) rr.textContent = rollTxt;
+    const dc=document.getElementById('spec-dice'); if(dc) dc.innerHTML = diceHTML;
+    if(roll && typeof mpSettleDice==='function') mpSettleDice('#spec-dice');
+    return;
+  }
+  _specEncEnemy=e.name;
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">👁️ Scontro di ${escapeHtml(live.name||'?')}</span>
       <span class="dim small">stai guardando</span></div>
     <div class="modal-b">
       <div class="ec-wrap">
-        ${encounterCardHTML(e, e.ehp)}
+        <div id="spec-enemy" style="display:contents">${encounterCardHTML(e, e.ehp)}</div>
         <div class="ec-you">
           <div class="nm">${escapeHtml(live.name||'?')}</div>
           <div class="small muted">${escapeHtml(y.armaName||'')}</div>
           <div class="ec-stat">Equipaggiamento <b style="color:var(--gold)">+${y.equipScore||0}</b></div>
-          <div class="small" style="margin-top:6px">Vita: ${pips(y.hp||0,y.maxhp||3)}${"🟨".repeat(y.tempHp||0)}</div>
+          <div class="small" style="margin-top:6px" id="spec-youhp">${youHpHTML}</div>
         </div>
       </div>
-      <div class="roll-res center" id="spec-rollres">${roll?roll.res:'In attesa del tiro…'}</div>
+      <div class="roll-res center" id="spec-rollres">${rollTxt}</div>
       <div class="dice" id="spec-dice">${diceHTML}</div>
       <p class="dim small center" style="margin-top:10px">Stai <b>guardando</b> lo scontro — non puoi intervenire.</p>
     </div>`);
   if(roll && typeof mpSettleDice==='function') mpSettleDice('#spec-dice');   // orienta i dadi sul valore, senza animazione (attacco o fuga)
 }
 function closeSpectatorEncounter(){
+  _specEncEnemy=null;
   if(_specEncKey===null) return;
   _specEncKey=null;
   const ov=document.getElementById('overlay');
@@ -3627,6 +3695,13 @@ function drawOnePawn(svg,t,color,label,isYou,dx,hidden){
         <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b2"/>
         <feMerge><feMergeNode in="b1"/><feMergeNode in="b1"/><feMergeNode in="b2"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
+      <!-- Contorno bianco attorno alla silhouette: la stacca dallo sfondo scuro della mappa -->
+      <filter id="${gid}ol" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+        <feMorphology in="SourceAlpha" operator="dilate" radius="2.4" result="o"/>
+        <feFlood flood-color="#ffffff" flood-opacity=".92"/>
+        <feComposite in2="o" operator="in" result="ol"/>
+        <feMerge><feMergeNode in="ol"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
     </defs>
     <g transform="translate(${cx},${cy}) scale(${s})">
       ${hidden?`
@@ -3644,7 +3719,7 @@ function drawOnePawn(svg,t,color,label,isYou,dx,hidden){
       <ellipse cx="1" cy="44" rx="22" ry="6" fill="#000" opacity="${hidden?'.4':'.55'}"/>
       <!-- anello oro "sei tu" alla base (anche da nascosto, per riconoscerti) -->
       ${isYou?`<ellipse cx="1" cy="44" rx="24" ry="7" fill="none" stroke="#f0c040" stroke-width="3" opacity="${hidden?'.7':'.95'}"/>`:""}
-      <g${veil}>
+      <g${veil} filter="url(#${gid}ol)">
         <!-- gambe -->
         <rect x="-10" y="18" width="8" height="24" rx="3" fill="${legs}" stroke="${line}" stroke-width="2"/>
         <rect x="2"  y="18" width="8" height="24" rx="3" fill="${legs}" stroke="${line}" stroke-width="2"/>
@@ -4547,6 +4622,12 @@ function updateActionUI(){
   document.getElementById('a-trade').style.display   = (mgmtActive || !!(state.event?.shopAnywhere)) ? '' : 'none';
   document.getElementById('a-deliver').style.display = ((mgmtActive && t.type==="avamposto") || !!(state.event?.deliveryAnywhere)) ? '' : 'none';
   updateCCBadges();
+  // Mentre guardo il turno di un altro (non è il mio): resta SOLO la fila dei pulsanti-azione, disabilitati.
+  // Niente «Termina turno», «Magazzino», «Commercia», «Consegna missioni»: si riattivano al mio prossimo turno.
+  if(mpGame && !mpMyTurn){
+    ['a-move','a-search','a-hide','a-lock'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
+    ['a-end','a-store','a-trade','a-deliver'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  }
 }
 function updateStepper(){
   const d=state.day||1;
@@ -6148,10 +6229,21 @@ function showEndScreen(reason){
     </div>`, true);
 }
 
-function victory(){ showEndScreen("5 punti fama raggiunti — vittoria immediata."); }
+function victory(){
+  if(mpGame){ mpEndGameShared(myId, "partita"); return; }   // multiplayer: chiude la partita per TUTTI (classifica condivisa)
+  showEndScreen("5 punti fama raggiunti — vittoria immediata.");
+}
 function gameOver(){
   const totalDays=(state.gameMode==="hardcore")?23:18;
+  if(mpGame){ mpEndGameShared((typeof mpTopFamaId==="function"?mpTopFamaId():null), "partita"); return; }
   showEndScreen(`${totalDays} giorni trascorsi. La città ha avuto la meglio.`);
+}
+// Chiude la partita CONDIVISA: scrive lo stato e imposta phase="ended".
+// Il realtime di OGNI client farà scattare handleEnded() → classifica finale con solo «CHIUDI».
+function mpEndGameShared(winnerId, reason){
+  try{ mpMyTurn=false; if(typeof stopTurnTimer==="function") stopTurnTimer(); if(typeof mpWriteBack==="function") mpWriteBack(); }catch(e){}
+  const gameSer=(typeof mpSerialize==="function")?mpSerialize(mpGame):(net&&net.game);
+  patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; s.phase="ended"; s.winnerId=winnerId||null; s.endReason=reason||"partita"; });
 }
 
 // =================== DETTAGLIO LUOGO ===================
