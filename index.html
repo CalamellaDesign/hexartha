@@ -2288,6 +2288,7 @@ function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p
 
 let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
 let _combatRenderKey=null, _combatActed=null, _pvpRevealAnimated=false;
+let _mpRoundBonus=0;   // bonus (es. Granata) applicato al MIO prossimo tiro nello scontro di rete
 let _lootInit=false, _lootRemaining=[];
 function mpPvpKey(pvp){ return pvp? pvp.attackerId+"|"+pvp.defenderId : ""; }
 
@@ -2315,7 +2316,7 @@ function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
     stopPvpIdle();
-    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(!(pvp.participants||[]).includes(myId)) return true;   // non coinvolto: attende
@@ -2429,8 +2430,9 @@ function mpBeginCombat(){
     else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; }
   });
   const combat={ participants:parts, hp, maxhp, round:1, rolls:{}, ack:{}, result:null,
-    phase:'rolling', winnerId:null, loserIds:[], loot:null };
-  _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _lootInit=false; _lootRemaining=[];
+    phase:'rolling', winnerId:null, loserIds:[], loot:null,
+    fled:{}, debuffAgainst:{}, gadgetConsumed:{} };   // gadget in battaglia: fuga · stordimento avversari · consumo (per il loot)
+  _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[];
   if(state){ state.spoilMode=false; state.spoilCtx=null; }
   patchRoom(s=>{ if(s.pvp){ s.pvp.status='fighting'; s.pvp.combat=combat; } });
 }
@@ -2442,6 +2444,7 @@ function mpComputeMyRoll(){
   const ge=gearDieEffects();
   const rp=rollPlayerDice();
   let pd=rp.sum+you.equipScore-(you.states.ossa?2:0)-(you.dmgPenalty||0)+ge.delta;
+  if(_mpRoundBonus){ pd+=_mpRoundBonus; ge.notes.push(`💥 Granata: +${_mpRoundBonus} a questo tiro`); _mpRoundBonus=0; }   // bonus da gadget (solo questo tiro)
   const lg=lanciaGranateMod(you.equip.arma); if(lg){ pd+=lg.delta; ge.notes.push(lg.note); }
   return { total:Math.max(0,pd), dice:rp.dice.map(d=>({v:d.v,kept:d.kept})),
            notes:ge.notes||[], label:rp.label||"", dmgToOpp: ge.assassinate?2:1 };
@@ -2450,7 +2453,7 @@ function mpComputeMyRoll(){
 // Gestione dello stato di combattimento (render + arbitraggio lato attaccante).
 function mpHandleCombat(pvp){
   const c=pvp.combat; if(!c) return;
-  const rk=c.phase+"|"+c.round+"|"+Object.keys(c.rolls||{}).sort().join(",")+"|"+Object.keys(c.ack||{}).sort().join(",")+"|"+(c.winnerId||"")+"|"+(c.loserIds||[]).join(",");
+  const rk=c.phase+"|"+c.round+"|"+Object.keys(c.rolls||{}).sort().join(",")+"|"+Object.keys(c.ack||{}).sort().join(",")+"|"+(c.winnerId||"")+"|"+(c.loserIds||[]).join(",")+"|"+Object.keys(c.fled||{}).sort().join(",")+"|"+JSON.stringify(c.debuffAgainst||{});
   if(_combatRenderKey!==rk){
     _combatRenderKey=rk;
     if(c.phase==='rolling'||c.phase==='reveal') mpRenderCombat(pvp,c);
@@ -2463,7 +2466,7 @@ function mpHandleCombat(pvp){
   }
 }
 function mpOrch(key,fn){ if(_combatActed===key) return; _combatActed=key; fn(); }
-function mpAliveIds(c){ return (c.participants||[]).filter(id=>c.hp[id]>0); }
+function mpAliveIds(c){ return (c.participants||[]).filter(id=>c.hp[id]>0 && !(c.fled&&c.fled[id])); }   // esclude eliminati e fuggiti (fumogena)
 function mpAllAliveRolled(c){ return mpAliveIds(c).every(id=>c.rolls&&c.rolls[id]); }
 function mpAllAliveAcked(c){ return mpAliveIds(c).every(id=>c.ack&&c.ack[id]); }
 
@@ -2493,17 +2496,19 @@ function mpRenderCombat(pvp,c){
     }
   }
   const rows=(c.participants||[]).map(id=>{
-    const dead=c.hp[id]<=0, isMe=(id===myId), roll=c.rolls&&c.rolls[id], isWin=(reveal&&id===winId);
+    const dead=c.hp[id]<=0, fled=!!(c.fled&&c.fled[id]), gone=dead||fled, isMe=(id===myId), roll=c.rolls&&c.rolls[id], isWin=(reveal&&id===winId);
     let dc;
-    if(reveal&&roll) dc=`<span id="pvp-dice-${id}">${mpDieRow(roll)}</span> <b>= ${roll.total}</b>${isWin?' <span class="pvp-win-badge">🏆</span>':''}`;
+    if(reveal&&roll) dc=`<span id="pvp-dice-${id}">${mpDieRow(roll)}</span> <b>= ${roll.total}</b>${roll.stunned?` <span class="dim small">(stordito −${roll.stunned})</span>`:''}${isWin?' <span class="pvp-win-badge">🏆</span>':''}`;
+    else if(fled) dc='<span class="dim small">💨 fuggito</span>';
     else if(dead) dc='<span class="dim small">☠ eliminato</span>';
     else dc = roll ? '<span class="dim small">✓ pronto</span>' : (isMe?'<span class="dim small">tocca «Tira»</span>':'<span class="dim small">in attesa…</span>');
-    return `<div class="pvp-combat-row${isMe?' me':''}${isWin?' win':''}" style="${dead?'opacity:.65':''}">
+    return `<div class="pvp-combat-row${isMe?' me':''}${isWin?' win':''}" style="${gone?'opacity:.65':''}">
       <span class="nm" style="color:${(pvp.colors||{})[id]||'#aaa'}">${isWin?'👑 ':''}${escapeHtml((pvp.names||{})[id]||'?')}${isMe?' (tu)':''}</span>
       <span class="hp">${heartsHTML(c.hp[id],c.maxhp[id])}</span>
       <span class="dc">${dc}</span></div>`;
   }).join("");
-  const alive=mpAliveIds(c), iAlive=alive.includes(myId), iRolled=c.rolls&&c.rolls[myId];
+  const alive=mpAliveIds(c), iAlive=alive.includes(myId), iRolled=c.rolls&&c.rolls[myId], iFled=!!(c.fled&&c.fled[myId]);
+  const myStun=Math.max(0,...alive.filter(id=>id!==myId).map(id=>(c.debuffAgainst&&c.debuffAgainst[id])||0),0);   // stordimento che ho applicato agli avversari
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Scontro — round ${c.round}</span></div>
     <div class="modal-b center">
@@ -2511,7 +2516,14 @@ function mpRenderCombat(pvp,c){
       <div class="roll-res" style="min-height:24px;font-weight:700;color:var(--gold)">${reveal&&c.result?c.result.text:''}</div>
       ${reveal
         ? (((c.ack&&c.ack[myId])||!iAlive) ? `<p class="dim">In attesa degli altri…</p>` : `<button class="btn primary" onclick="mpCombatAck()">Continua ▶</button>`)
-        : (!iAlive ? `<p class="dim">Sei stato eliminato — attendi la fine dello scontro.</p>` : (iRolled?`<p class="dim">Hai tirato — in attesa degli altri…</p>`:`<button class="btn primary" id="pvp-roll-btn" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>`))}
+        : (!iAlive
+            ? `<p class="dim">${iFled?'Sei fuggito dalla lotta':'Sei stato eliminato'} — attendi la fine dello scontro.</p>`
+            : (iRolled
+                ? `<p class="dim">Hai tirato — in attesa degli altri…</p>`
+                : `<button class="btn primary" id="pvp-roll-btn" onclick="mpCombatRoll()">🎲 Tira (2d6 + equip)</button>
+                   ${_mpRoundBonus?`<div class="center small" style="color:var(--gold)">Bonus attivo per il prossimo tiro: +${_mpRoundBonus}</div>`:''}
+                   ${myStun?`<div class="center small" style="color:var(--rust)">Avversari storditi: −${myStun} al loro tiro di questo round</div>`:''}
+                   ${mpBattleGadgetBar()}`))}
       <p class="dim small" style="margin-top:8px">Tutti tirano insieme: <b>perdi 1 vita per ogni avversario con punteggio uguale o superiore</b> al tuo. Solo un massimo unico resta salvo.</p>
       <div class="small" id="pvp-idle" style="margin-top:4px;font-weight:600"></div>
     </div>`);
@@ -2540,6 +2552,71 @@ function mpCombatAck(){
   stopPvpIdle();                                    // ho confermato: il timer si riarma al prossimo render se serve
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(cc&&cc.phase==='reveal'){ cc.ack=cc.ack||{}; cc.ack[myId]=true; } });
 }
+// ===== Gadget durante lo scontro PvP di rete =====
+// Barra con i gadget equipaggiati usabili in battaglia (Granata, Granata stordente, Granata fumogena, medici).
+// Torcia/Sensore sono pre-battaglia → esclusi (nessun campo battle e non consumabili).
+function mpBattleGadgetBar(){
+  const gs=(state.you.equip&&state.you.equip.gadget)||[];
+  const items=gs.map((g,i)=>({g,i})).filter(x=>x.g && (x.g.battle || x.g.slot==="consumabile"));
+  if(!items.length) return ``;
+  return `<div class="gbar"><span class="dim small">Gadget:</span> `+items.map(x=>
+    `<span class="gchip">🔧 ${escapeHtml(x.g.name)}
+      <button class="btn" onclick="mpUseGadget(${x.i})">Usa</button>
+      <button class="btn" onclick="mpDiscardGadget(${x.i})" title="Scarta">🗑</button></span>`
+  ).join(" ")+`</div>`;
+}
+// Uso di un gadget durante lo scontro: effetto locale immediato + UN solo aggiornamento condiviso
+// (registra il consumo per il loot e applica fuga/stordimento sullo stato di combattimento).
+function mpUseGadget(gi){
+  const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling') return;
+  if(c.hp[myId]<=0 || (c.fled&&c.fled[myId])) return;              // fuori dallo scontro
+  if(c.rolls&&c.rolls[myId]) return;                              // ho già tirato: assetto bloccato per questo round
+  const it=state.you.equip.gadget[gi]; if(!it) return;
+  const type = it.battle ? it.battle.type : (it.slot==="consumabile" ? "cons" : null);
+  if(!type) return;
+  const isMover=(myId===net.pvp.moverId);
+  // 1) effetto locale immediato (bonus al mio tiro / cura consumabile)
+  if(type==="bonus") _mpRoundBonus=(_mpRoundBonus||0)+it.battle.amount;
+  const consMsg = (type==="cons") ? consumeEffect(it) : "";
+  // 2) rimuovi il gadget dall'equipaggiamento locale → Riciclaggio
+  state.you.equip.gadget[gi]=null; toRiciclaggio(it); recalcStats(); renderHUD();
+  // 3) un SOLO patchRoom: consumo (loot) + effetti di stato condivisi
+  stopPvpIdle();
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc) return;
+    cc.gadgetConsumed=cc.gadgetConsumed||{}; (cc.gadgetConsumed[myId]=cc.gadgetConsumed[myId]||[]).push(it.name);
+    if(type==="flee"){
+      if(isMover){                                                // il giocatore di turno fugge → lo scontro si scioglie (nessun saccheggio)
+        cc.aborted=true; cc.winnerId=null; cc.loserIds=[]; cc.loot=[]; cc.result=null; cc.phase='done';
+      } else {                                                    // un avversario fugge → esce dallo scontro, gli altri proseguono
+        cc.fled=cc.fled||{}; cc.fled[myId]=true; if(cc.rolls) delete cc.rolls[myId];
+        const stillAlive=(cc.participants||[]).filter(id=>cc.hp[id]>0 && !cc.fled[id]);
+        if(stillAlive.length<=1){ cc.winnerId=stillAlive[0]||null; cc.loserIds=[]; cc.loot=[]; cc.result=null; cc.phase='done'; }
+      }
+    } else if(type==="debuff"){                                   // −amount al tiro di ogni avversario, solo questo round
+      cc.debuffAgainst=cc.debuffAgainst||{};
+      (cc.participants||[]).filter(id=>id!==myId && cc.hp[id]>0 && !(cc.fled&&cc.fled[id]))
+        .forEach(id=>{ cc.debuffAgainst[id]=(cc.debuffAgainst[id]||0)+it.battle.amount; });
+    }
+  });
+  // 4) log + feedback immediato (ridisegna la barra senza aspettare la rete)
+  if(type==="flee") log(`💨 Usi ${it.name}: fuggi dalla lotta!`,"good");
+  else if(type==="bonus") log(`💥 ${it.name}: +${it.battle.amount} al tuo prossimo tiro.`,"good");
+  else if(type==="debuff") log(`💫 ${it.name}: −${it.battle.amount} al tiro degli avversari (questo round).`,"good");
+  else if(type==="cons") log(`❤️ ${it.name} — ${consMsg}.`,"good");
+  if(type!=="flee" && net.pvp&&net.pvp.combat) mpRenderCombat(net.pvp, net.pvp.combat);
+}
+// Scarta un gadget durante lo scontro (→ Riciclaggio) senza usarlo.
+function mpDiscardGadget(gi){
+  const c=net.pvp&&net.pvp.combat; if(!c||c.phase!=='rolling') return;
+  if(c.rolls&&c.rolls[myId]) return;
+  const it=state.you.equip.gadget[gi]; if(!it) return;
+  state.you.equip.gadget[gi]=null; toRiciclaggio(it); recalcStats(); renderHUD();
+  stopPvpIdle();
+  patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc) return;
+    cc.gadgetConsumed=cc.gadgetConsumed||{}; (cc.gadgetConsumed[myId]=cc.gadgetConsumed[myId]||[]).push(it.name); });
+  log(`🗑 Scarti il gadget ${it.name} → Riciclaggio.`,"bad");
+  if(net.pvp&&net.pvp.combat) mpRenderCombat(net.pvp, net.pvp.combat);
+}
 // Attaccante: tutti hanno tirato → calcola l'esito del round e applica il danno.
 // Regola (2+ giocatori): ogni giocatore perde 1 vita per OGNI altro giocatore vivo
 // con punteggio UGUALE O MAGGIORE al proprio. Es. 8 · 8 · 5 → −1 · −1 · −2.
@@ -2549,18 +2626,22 @@ function mpCombatResolveRound(){
   const alive=mpAliveIds(c);
   if(!alive.every(id=>c.rolls&&c.rolls[id])) return;
   const names=(net.pvp.names)||{};
-  const totals=alive.map(id=>({id,total:c.rolls[id].total}));
+  const deb=c.debuffAgainst||{};   // Granata stordente: −X al tiro effettivo del bersaglio, solo questo round
+  const eff={}; alive.forEach(id=>{ eff[id]=Math.max(0,(c.rolls[id].total||0)-(deb[id]||0)); });
+  const totals=alive.map(id=>({id,total:eff[id]}));
   const dmg={};
   totals.forEach(me=>{ dmg[me.id]=totals.filter(o=>o.id!==me.id && o.total>=me.total).length; });
   const ordered=[...totals].sort((a,b)=>b.total-a.total);
-  const text=ordered.map(t=>{ const nm=escapeHtml(names[t.id]||'?');
+  const text=ordered.map(t=>{ const nm=escapeHtml(names[t.id]||'?'); const st=deb[t.id]?` <span class="dim">(−${deb[t.id]} stordito)</span>`:'';
     return dmg[t.id]>0
-      ? `<b>${nm}</b> ${t.total} <span style="color:var(--rust)">−${dmg[t.id]}</span>`
-      : `<b style="color:var(--gold)">${nm}</b> ${t.total} <span class="dim">salvo</span>`;
+      ? `<b>${nm}</b> ${t.total}${st} <span style="color:var(--rust)">−${dmg[t.id]}</span>`
+      : `<b style="color:var(--gold)">${nm}</b> ${t.total}${st} <span class="dim">salvo</span>`;
   }).join(' · ');
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='rolling') return;
+    // fissa il totale effettivo (dopo stordimento) nel tiro, così la rivelazione è coerente col calcolo
+    alive.forEach(id=>{ if(cc.rolls&&cc.rolls[id] && (deb[id]||0)>0){ cc.rolls[id].stunned=deb[id]; cc.rolls[id].total=eff[id]; } });
     Object.keys(dmg).forEach(id=>{ cc.hp[id]=Math.max(0,(cc.hp[id]||0)-dmg[id]); });
-    cc.result={text}; cc.phase='reveal'; cc.ack={};
+    cc.result={text}; cc.phase='reveal'; cc.ack={}; cc.debuffAgainst={};   // lo stordimento si esaurisce a fine round
   });
 }
 // Attaccante: entrambi hanno premuto Continua → morte o round successivo.
@@ -2573,19 +2654,22 @@ function mpCombatNextOrEnd(){
     const loot=[].concat(...deadIds.map(id=>mpLootFromChar(id)));
     patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='reveal')return;
       cc.winnerId=winnerId; cc.loserIds=deadIds; cc.loot=loot; cc.result=null;
-      cc.phase = winnerId ? 'loot' : 'done';   // nessun sopravvissuto → salta il saccheggio
+      cc.phase = (winnerId && loot.length) ? 'loot' : 'done';   // nessun sopravvissuto o nessun bottino (es. fuga) → salta il saccheggio
     });
   } else {
     patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='reveal')return;
-      cc.round=(cc.round||1)+1; cc.rolls={}; cc.ack={}; cc.result=null; cc.phase='rolling'; });
+      cc.round=(cc.round||1)+1; cc.rolls={}; cc.ack={}; cc.result=null; cc.phase='rolling'; cc.debuffAgainst={}; });
   }
 }
 // Bottino saccheggiabile del perdente (equip + zaino, Tasca sicura esclusa).
 function mpLootFromChar(id){
   const c=mpGame.characters.find(x=>x.id===id); if(!c) return [];
+  const cc=net.pvp&&net.pvp.combat;
+  const consumed=((cc&&cc.gadgetConsumed&&cc.gadgetConsumed[id])||[]).slice();   // gadget già usati/scartati in battaglia: non finiscono nel bottino
+  const stillHave=(it)=>{ const k=consumed.indexOf(it.name); if(k>=0){ consumed.splice(k,1); return false; } return true; };
   const out=[];
   ['arma','armatura','casco'].forEach(k=>{ if(c.equip&&c.equip[k]) out.push({...c.equip[k]}); });
-  (c.equip&&c.equip.gadget||[]).forEach(g=>{ if(g) out.push({...g}); });
+  (c.equip&&c.equip.gadget||[]).forEach(g=>{ if(g && stillHave(g)) out.push({...g}); });
   ['sx','centro','dx'].forEach(se=>{ ((c.pack&&c.pack[se])||[]).forEach(it=>out.push({...it})); });
   return out;
 }
@@ -2622,6 +2706,7 @@ function mpCombatFinalize(){
   stopPvpIdle();
   const c=net.pvp.combat; if(!c) return;
   closeModal();
+  if(c.aborted){ state.pvp=null; _lootInit=false; mpEndMyTurn(); return; }   // il giocatore di turno è fuggito (fumogena) → scontro sciolto, nessuna morte/saccheggio
   const winner=c.winnerId?mpGame.characters.find(x=>x.id===c.winnerId):null;
   const wf=c.winnerFinal;
   if(winner){
@@ -2629,6 +2714,16 @@ function mpCombatFinalize(){
     else { winner.hp=c.hp[c.winnerId]||winner.hp; }
   }
   const deadIds=(c.loserIds&&c.loserIds.length)?c.loserIds:(winner?[]:(c.participants||[]));
+  // Applica il consumo dei gadget usati in battaglia ai SOPRAVVISSUTI (i caduti vengono rimossi; il mover scrive già il proprio stato; il vincitore è coperto da winnerFinal).
+  const consumed=c.gadgetConsumed||{};
+  (c.participants||[]).forEach(id=>{
+    if(id===myId || deadIds.includes(id)) return;
+    if(winner && id===winner.id && wf) return;
+    const rest=(consumed[id]||[]).slice(); if(!rest.length) return;
+    const pc=mpGame.characters.find(x=>x.id===id); const g=pc&&pc.equip&&pc.equip.gadget; if(!g) return;
+    for(let i=0;i<g.length;i++){ if(g[i]){ const k=rest.indexOf(g[i].name); if(k>=0){ rest.splice(k,1); g[i]=null; } } }
+    pc.equipScore=oppEquipScore?oppEquipScore(pc):pc.equipScore;
+  });
   deadIds.forEach(id=>{ const lc=mpGame.characters.find(x=>x.id===id); if(lc) mpKillChar(lc); });
   state.pvp=null; _lootInit=false;
   mpEndMyTurn();   // scrive la partita (loot+morte), azzera pvp, passa il turno (fine turno di chi ha mosso)
@@ -2890,7 +2985,7 @@ function pvpOfflinePending(pvp){
     return (pvp.participants||[]).filter(id=>!onlinePlayers.has(id) && !(pvp.votes&&pvp.votes[id]));
   }
   if(pvp.status==="fighting" && c){
-    const alive=(c.participants||[]).filter(id=>c.hp&&c.hp[id]>0);
+    const alive=mpAliveIds(c);   // esclude eliminati e fuggiti
     if(c.phase==="rolling") return alive.filter(id=>!onlinePlayers.has(id) && !(c.rolls&&c.rolls[id]));
     if(c.phase==="reveal")  return alive.filter(id=>!onlinePlayers.has(id) && !(c.ack&&c.ack[id]));
   }
@@ -5234,7 +5329,7 @@ function updatePvpIdleUI(){
 }
 // (Ri)avvia o ferma il timer in base a cosa deve fare QUESTO giocatore nello stato corrente.
 function mpPvpIdleSync(c){
-  if(!c || c.hp[myId]<=0){ return stopPvpIdle(); }                 // niente timer se eliminato o senza combat
+  if(!c || c.hp[myId]<=0 || (c.fled&&c.fled[myId])){ return stopPvpIdle(); }   // niente timer se eliminato, fuggito o senza combat
   const needRoll = (c.phase==='rolling' && !(c.rolls&&c.rolls[myId]));
   const needAck  = (c.phase==='reveal'  && !(c.ack&&c.ack[myId]));
   if(needRoll) startPvpIdle('roll');
