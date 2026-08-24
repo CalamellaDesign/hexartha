@@ -130,6 +130,11 @@
   .pawn{pointer-events:none}
   .dropmark{pointer-events:none;transform-box:fill-box;transform-origin:center;animation:droppulse 1.4s ease-in-out infinite}
   @keyframes droppulse{0%,100%{opacity:.65}50%{opacity:1}}
+  /* Ordine del turno: box flottante sopra la mappa, in alto a sinistra (fuori dalla banda) */
+  .turnorder-float{position:absolute;top:12px;left:328px;z-index:11;width:186px;max-width:38vw;
+    background:rgba(14,13,11,.92);border:1px solid var(--border2);border-top:2px solid var(--rust-d);
+    border-radius:6px;padding:6px 9px;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  .turnorder-float .flab{font-size:9px;letter-spacing:.08em}
   #map-legend{position:absolute;bottom:64px;left:10px;z-index:5;background:rgba(14,13,11,.9);border:1px solid #3f392e;
     border-radius:4px;font-size:10px;color:#cfc6b0;min-width:158px;user-select:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   #map-legend .lg-h{padding:5px 9px;cursor:pointer;letter-spacing:.14em;font-weight:700;font-size:10px;color:#9a9a94;
@@ -282,6 +287,8 @@
     .actionsbar .btn{flex:1 1 22%;justify-content:center;padding:8px 3px;font-size:11px;min-height:42px;gap:4px}
     .actionsbar #a-end{flex:1 1 100%}
     #map-legend{bottom:56px}
+    .turnorder-float{left:8px;top:8px;width:auto;max-width:64vw}
+    #mpwatch{bottom:210px !important}   /* sopra la barra azioni fissa (più alta su mobile) */
     .cron{width:calc(100% - 16px);left:8px}
     .lobby-card{grid-template-columns:1fr}
     .lobby-side{border-left:none;border-top:1px solid var(--border)}
@@ -930,7 +937,7 @@
 <!-- ============ GAME ============ -->
 <section id="game" class="screen">
   <!-- Attesa del proprio turno (Tappa 2.2): targhetta NON bloccante (puoi navigare l'HUD) -->
-  <div id="mpwatch" style="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--gold);border-radius:16px;padding:8px 18px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55);text-align:center;max-width:min(94vw,540px)">
+  <div id="mpwatch" style="position:fixed;bottom:108px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--gold);border-radius:16px;padding:8px 18px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55);text-align:center;max-width:min(94vw,540px)">
     <div class="stencil" style="color:var(--gold);font-size:13px;letter-spacing:.04em">👁️ Stai guardando il turno di <span id="mpwatch-name">—</span></div>
     <div id="mpwatch-action" style="font-size:12px;color:var(--text);margin-top:2px;min-height:15px">&nbsp;</div>
     <div id="mpwatch-stats" style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"></div>
@@ -954,6 +961,11 @@
     </div>
   </div>
   <div class="mapwrap"><svg id="mapsvg"></svg>
+    <!-- Ordine del turno: box flottante in alto a sinistra, sopra la mappa (non nella banda) -->
+    <div class="turnorder-float" id="turnorder-card" style="display:none">
+      <span class="flab">ORDINE DEL TURNO</span>
+      <div id="turnorder-hud" style="margin-top:4px;display:flex;flex-direction:column;gap:2px"></div>
+    </div>
     <!-- CRONACA: registro richiudibile (chiuso di default) — LORE §4 "registro timbrato" -->
     <div class="cron" id="cron">
       <button class="cron-tab" onclick="toggleCronaca()" title="Apri/chiudi il registro del turno">
@@ -991,10 +1003,6 @@
       <span class="flab">FAMA</span>
       <div class="fstars" id="fama-stars"></div>
       <span class="dim small"><b id="fama">0</b>/5</span>
-    </div>
-    <div class="famacard" id="turnorder-card" style="margin-top:6px;display:none">
-      <span class="flab">ORDINE DEL TURNO</span>
-      <div id="turnorder-hud" style="margin-top:6px;display:flex;flex-direction:column;gap:3px"></div>
     </div>
     <div class="famacard" id="ranking-card" style="margin-top:6px;display:none">
       <span class="flab">CLASSIFICA</span>
@@ -1357,7 +1365,7 @@ const DECK_COMUNE=[
   {name:"Proiettore",           slot:"valore",     val:5, copies:3,  effect:"Oggetto di valore",                      img:IMG_C+"proiettore.png"},
   {name:"Scarti di ferro",      slot:"materiale",  val:1, copies:10, effect:"Materiale di crafting",                  img:IMG_C+"scarti di ferro.png"},
   {name:"Solitario",            slot:"valore",     val:8, copies:2,  effect:"Oggetto di valore",                      img:IMG_C+"solitario.png"},
-  {name:"Spinello",             slot:"consumabile",val:4, copies:4, tempLife:2, dmgPenalty:2, effect:"+2 vita extra (fino a fine turno), −2 al danno", img:IMG_C+"spinello.png"},
+  {name:"Spinello",             slot:"consumabile",val:4, copies:4, tempLife:2, dmgPenalty:2, noEquip:true, effect:"+2 vita extra (fino a fine turno), −2 al danno — si usa dallo zaino, non si equipaggia", img:IMG_C+"spinello.png"},
   {name:"Telefono rotto",       slot:"valore",     val:5, copies:3,  effect:"Oggetto di valore",                      img:IMG_C+"telefono rotto.png"},
   {name:"Torcia",               slot:"gadget",     val:4, copies:5, charges:5, maxCharges:5, torchTool:true, effect:"Se equipaggiata: Usa (−1 carica) → +1 carta vista alla Cerca in questo turno", img:IMG_C+"torcia.png"},
   {name:"Trappola per topi",    slot:"trappola",   val:0, copies:2, state:"avvelenato", effect:"Trappola: se pescata infliggi Avvelenato", img:IMG_C+"trappola per topi.png"},
@@ -1947,7 +1955,7 @@ function mpShowEndScreen(){
   all.sort((a,b)=> (a.abandoned?1:0)-(b.abandoned?1:0) || (b.fama-a.fama) || (b.coins-a.coins));
   const winId=net.winnerId, iWon=winId===myId;
   const winner=all.find(p=>p.id===winId);
-  const reason = net.endReason==="abbandono" ? "Gli altri giocatori hanno abbandonato la partita." : "Partita conclusa.";
+  const reason = (net.endReason==="abbandono" ? "Gli altri giocatori hanno abbandonato la partita." : "Partita conclusa.")+" Gli oggetti di ognuno sono stati venduti a metà prezzo e convertiti in monete.";
   const winnerLabel = iWon ? "Hai vinto!" : (winner? `${escapeHtml(winner.name)} vince!` : "Partita terminata");
   const winnerColor = winner? winner.color : "var(--gold)";
   const MEDAL=["🥇","🥈","🥉"];
@@ -2144,7 +2152,7 @@ function mpBuildGame(players, gameMode){
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
-            discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null,
+            discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null, famaAnnounce:null,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
   if(game.event && game.event.drop) mpPlaceDropWorld(game.world, game.event.drop, game.day);
@@ -2167,6 +2175,7 @@ function mpHydrate(game){
   state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
   state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
   state.discoAnnounce=w.discoAnnounce||null;
+  state.famaAnnounce=w.famaAnnounce||null;
   state.extraEncounterAfterTurn=!!w.extraEncounterAfterTurn; state.zonaEvacuataTargets=w.zonaEvacuataTargets||null;
   if(mySeatIndex>=0) state.you = game.characters[mySeatIndex];   // stesso riferimento → le modifiche del turno restano nella partita
   state.opponents = game.characters.map((c,i)=>({c,i}))
@@ -2245,9 +2254,31 @@ function mpCheckDiscoAnnounce(){
   if(a.byId===myId) return;                          // chi l'ha trovato ha già il suo messaggio
   log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha trovato il DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
 }
+// Segna un annuncio "missione completata" nella partita condivisa (visto dagli altri device al prossimo aggiornamento).
+function announceFama(byId, name, text){
+  state.famaAnnounce={ byId, name:name||"Un giocatore", text:text||"ha completato una missione", ts:Date.now() };
+}
+// Avvisa gli AVVERSARI con un popup quando un giocatore completa una missione e guadagna fama.
+let _lastFamaAnnounceTs=null;
+function mpCheckFamaAnnounce(){
+  const a=state.famaAnnounce; if(!a||!a.ts) return;
+  if(_lastFamaAnnounceTs===a.ts) return;             // già mostrato questo annuncio
+  _lastFamaAnnounceTs=a.ts;
+  if(a.byId===myId) return;                          // chi l'ha completata ha già il suo feedback
+  log(`🎖️ <b>${escapeHtml(a.name)}</b> ${escapeHtml(a.text)}.`,"evt");
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--gold)">🎖️ Missione completata</span></div>
+    <div class="modal-b center">
+      <div style="font-size:44px;margin:6px 0">★</div>
+      <p><b>${escapeHtml(a.name)}</b> ${escapeHtml(a.text)}.</p>
+      <p class="dim small" style="margin-top:6px">Occhio alla classifica: la fama porta alla vittoria.</p>
+      <button class="btn primary" style="margin-top:12px" onclick="closeModal()">Ok</button>
+    </div>`, false, closeModal);
+}
 // A inizio di ogni GIORNO mostra la carta evento (per tutti), poi turno o attesa.
 function mpAfterHydrateFlow(){
   mpCheckDiscoAnnounce();
+  mpCheckFamaAnnounce();
   if(mpGame.day!==mpLastEventDay){
     mpLastEventDay=mpGame.day;
     const goEvent=()=>mpShowEventCard(()=>mpProceedTurnOrWatch());
@@ -2551,14 +2582,14 @@ function mpBeginCombat(){
     const idx=mpGame.characters.findIndex(c=>c.id===id);
     if(idx>=0) mpGame.characters[idx]=mpDeserialize({c:src}).c;
   });
-  const hp={}, maxhp={};
+  const hp={}, maxhp={}, equipScore={};
   parts.forEach(id=>{
     const ch=mpGame.characters.find(c=>c.id===id);
-    if(id===myId){ hp[id]=state.you.hp; maxhp[id]=state.you.maxhp; }
-    else if(ch){ hp[id]=ch.hp; maxhp[id]=ch.maxhp||3; }
-    else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; }
+    if(id===myId){ hp[id]=state.you.hp; maxhp[id]=state.you.maxhp; equipScore[id]=state.you.equipScore; }
+    else if(ch){ hp[id]=ch.hp; maxhp[id]=ch.maxhp||3; equipScore[id]=(ch.equipScore!=null?ch.equipScore:3); }
+    else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; equipScore[id]=f?(f.equipScore||3):3; }
   });
-  const combat={ participants:parts, hp, maxhp, round:1, rolls:{}, ack:{}, result:null,
+  const combat={ participants:parts, hp, maxhp, equipScore, round:1, rolls:{}, ack:{}, result:null,
     phase:'rolling', winnerId:null, loserIds:[], loot:null,
     fled:{}, debuffAgainst:{}, gadgetConsumed:{} };   // gadget in battaglia: fuga · stordimento avversari · consumo (per il loot)
   _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[];
@@ -2632,8 +2663,12 @@ function mpRenderCombat(pvp,c){
     else if(fled) dc='<span class="dim small">💨 fuggito</span>';
     else if(dead) dc='<span class="dim small">☠ eliminato</span>';
     else dc = roll ? '<span class="dim small">✓ pronto</span>' : (isMe?'<span class="dim small">tocca «Tira»</span>':'<span class="dim small">in attesa…</span>');
+    const eqs=(c.equipScore&&c.equipScore[id]!=null)?c.equipScore[id]:'?';
+    const consumed=((c.gadgetConsumed&&c.gadgetConsumed[id])||[]);
+    const gTxt=consumed.length?` · 🔧 ${consumed.map(escapeHtml).join(', ')}`:'';
     return `<div class="pvp-combat-row${isMe?' me':''}${isWin?' win':''}" style="${gone?'opacity:.65':''}">
-      <span class="nm" style="color:${(pvp.colors||{})[id]||'#aaa'}">${isWin?'👑 ':''}${escapeHtml((pvp.names||{})[id]||'?')}${isMe?' (tu)':''}</span>
+      <span class="nm" style="color:${(pvp.colors||{})[id]||'#aaa'}">${isWin?'👑 ':''}${escapeHtml((pvp.names||{})[id]||'?')}${isMe?' (tu)':''}
+        <span class="dim small" style="display:block;font-weight:400;color:var(--muted)" title="Danno da equipaggiamento (arma+armatura+casco) e gadget usati">⚔ +${eqs}${gTxt}</span></span>
       <span class="hp">${heartsHTML(c.hp[id],c.maxhp[id])}</span>
       <span class="dc">${dc}</span></div>`;
   }).join("");
@@ -2856,8 +2891,10 @@ function mpCombatFinalize(){
     const mm=(winner.missions||[]).find(m=>m.actionMission==="killPlayer" && !m.done);
     if(mm){
       mm.done=true;
-      if(mm.premio&&mm.premio.fama) winner.fama=(winner.fama||0)+mm.premio.fama;
-      log(`⚔ <b>${escapeHtml(winner.name)}</b> completa la missione «${escapeHtml(mm.name)}»${mm.premio&&mm.premio.fama?` (★ Fama +${mm.premio.fama})`:''}.`,"good");
+      const fg=(mm.premio&&mm.premio.fama)||0;
+      if(fg) winner.fama=(winner.fama||0)+fg;
+      log(`⚔ <b>${escapeHtml(winner.name)}</b> completa la missione «${escapeHtml(mm.name)}»${fg?` (★ Fama +${fg})`:''}.`,"good");
+      announceFama(winner.id, winner.name, `ha completato «${mm.name}»${fg?` (+${fg} ★ fama)`:''}`);
       if(winner.id===myId) renderHUD();
     }
   }
@@ -3064,15 +3101,33 @@ function mpWriteBack(){
   w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
   w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
   w.discoAnnounce=state.discoAnnounce||null;
+  w.famaAnnounce=state.famaAnnounce||null;
 }
 function mpActiveCharacters(){ return mpGame.characters.filter(c=>!c.abandoned); }
 function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;k<N;k++){ s=(s+1)%N; if(mpGame.characters[s] && !mpGame.characters[s].abandoned) return s; } return from; }
-function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!best||c.fama>best.fama) best=c; }); return best?best.id:null; }
+function mpTopFamaId(){ let best=null; mpActiveCharacters().forEach(c=>{ if(!best || (c.fama||0)>(best.fama||0) || ((c.fama||0)===(best.fama||0) && (c.coins||0)>(best.coins||0))) best=c; }); return best?best.id:null; }   // spareggio: a parità di fama, più monete
+// Fine partita: ogni giocatore vende TUTTI gli oggetti (inventario + magazzino) a metà prezzo (per difetto) e incassa le monete.
+function mpLiquidateAll(){
+  if(_liquidated) return; _liquidated=true;   // una sola volta
+  mpActiveCharacters().forEach(c=>{
+    let gained=0;
+    const sell=(it)=>{ if(it) gained+=Math.floor((it.val||0)/2); };
+    if(c.equip){
+      ['arma','armatura','casco','tasca'].forEach(k=>{ sell(c.equip[k]); c.equip[k]=null; });
+      (c.equip.gadget||[]).forEach(sell); c.equip.gadget=[null,null];
+    }
+    if(c.pack){ ['sx','centro','dx'].forEach(s=>{ (c.pack[s]||[]).forEach(sell); c.pack[s]=[]; }); }
+    (c.deposito||[]).forEach(sell); c.deposito=[];
+    c.coins=(c.coins||0)+gained;
+    if(typeof oppEquipScore==='function') c.equipScore=oppEquipScore(c);
+  });
+}
+let _liquidated=false;
 
 // Fine del MIO turno → scrivo, passo al prossimo (o nuovo giorno / fine), pubblico.
 function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
   mpMyTurn=false; stopTurnTimer(); mpWriteBack();
-  let ended=false, winnerId=null;
+  let ended=false, winnerId=null, byFama=false;
   const active=mpActiveCharacters();
   if(state.you && state.you.fama>=5){ ended=true; winnerId=myId; }
   else if(active.length<=1){ ended=true; winnerId=active.length?active[0].id:null; }
@@ -3080,10 +3135,11 @@ function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
     mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
     if(mpGame.turnsThisDay>=active.length){
       const totalDays=mpGame.gameMode==="hardcore"?23:18;
-      if(mpGame.day>=totalDays){ ended=true; winnerId=mpTopFamaId(); }
+      if(mpGame.day>=totalDays){ ended=true; byFama=true; }
       else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
     } else { mpGame.seat=mpNextSeat(mpGame.seat); }
   }
+  if(ended){ mpLiquidateAll(); if(byFama) winnerId=mpTopFamaId(); }   // liquida gli oggetti in monete PRIMA di decidere il vincitore (spareggio monete)
   const gameSer=mpSerialize(mpGame);
   patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });   // s.live=null: fine turno → si spegne l'overlay spettatore
 }); }
@@ -3151,14 +3207,15 @@ function mpSkipOfflineTurn(offlineId, offlineName){
     const cur=mpGame.characters[mpGame.seat];
     if(!cur || cur.id!==offlineId || onlinePlayers.has(offlineId)) return;   // già cambiato o tornato online
     const active=mpActiveCharacters();
-    let ended=false, winnerId=null;
+    let ended=false, winnerId=null, byFama=false;
     // Offline ≠ abbandonato: 'active' li include, quindi la partita NON finisce (pausa & aspetta). Solo fine giorni/vittoria fama chiudono.
     mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
     if(mpGame.turnsThisDay>=active.length){
       const totalDays=mpGame.gameMode==="hardcore"?23:18;
-      if(mpGame.day>=totalDays){ ended=true; winnerId=mpTopFamaId(); }
+      if(mpGame.day>=totalDays){ ended=true; byFama=true; }
       else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
     } else { mpGame.seat=mpNextSeat(mpGame.seat); }
+    if(ended){ mpLiquidateAll(); if(byFama) winnerId=mpTopFamaId(); }   // liquidazione a fine partita + spareggio monete
     const gameSer=mpSerialize(mpGame);
     patchRoom(s=>{
       if(!s.game||!s.game.characters) return;
@@ -6361,6 +6418,13 @@ function buildEndRanking(){
 }
 
 function showEndScreen(reason){
+  if(!_liquidated){ _liquidated=true;   // fine partita (locale): vendi gli oggetti del giocatore a metà prezzo (per difetto)
+    const y=state.you; let gained=0; const sell=(it)=>{ if(it) gained+=Math.floor((it.val||0)/2); };
+    if(y.equip){ ['arma','armatura','casco','tasca'].forEach(k=>{ sell(y.equip[k]); y.equip[k]=null; }); (y.equip.gadget||[]).forEach(sell); y.equip.gadget=[null,null]; }
+    if(y.pack){ ['sx','centro','dx'].forEach(s=>{ (y.pack[s]||[]).forEach(sell); y.pack[s]=[]; }); }
+    (y.deposito||[]).forEach(sell); y.deposito=[];
+    y.coins=(y.coins||0)+gained; if(typeof recalcStats==='function') recalcStats();
+  }
   const {all, winners}=buildEndRanking();
   const isTie=winners.length>1;
   const winnerNames=winners.map(w=>w.isYou?"Tu":w.name).join(" e ");
@@ -6410,6 +6474,7 @@ function gameOver(){
 // Il realtime di OGNI client farà scattare handleEnded() → classifica finale con solo «CHIUDI».
 function mpEndGameShared(winnerId, reason){
   try{ mpMyTurn=false; if(typeof stopTurnTimer==="function") stopTurnTimer(); if(typeof mpWriteBack==="function") mpWriteBack(); }catch(e){}
+  try{ mpLiquidateAll(); if(!winnerId) winnerId=mpTopFamaId(); }catch(e){}   // fine partita: liquida gli oggetti in monete + spareggio monete
   const gameSer=(typeof mpSerialize==="function")?mpSerialize(mpGame):(net&&net.game);
   patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; s.phase="ended"; s.winnerId=winnerId||null; s.endReason=reason||"partita"; });
 }
@@ -6552,6 +6617,8 @@ function deliverMissions(){
   });
   renderHUD();
   if(done.length){
+    const famaGained = done.reduce((n,d)=>n+((d.m.premio&&d.m.premio.fama)||0),0);
+    if(mpGame && famaGained>0) announceFama(myId, state.you.name, `ha completato ${done.length>1?done.length+' missioni':'una missione'} (+${famaGained} ★ fama)`);
     done.forEach(d=>log(`📦 Missione completata: ${d.text.replace(/<[^>]+>/g,'')}`,"good"));
     openModal(`<div class="modal-h"><span class="stencil" style="color:var(--green)">📦 Missioni consegnate</span></div>
       <div class="modal-b"><ul style="margin:0 0 10px;padding-left:18px">${done.map(d=>`<li>${d.text}</li>`).join("")}</ul>
