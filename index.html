@@ -4373,9 +4373,10 @@ function _executeSearch(useTorch){
   // le trappole scattano subito (infliggono il malus) ma poi si tengono, tranne quelle "non si raccoglie" (Buca trappola)
   const keepable=[];
   const sprungNoKeep=[];   // trappole "non si raccoglie" (Buca): si RIVELANO prima, poi scatta il malus
+  const cassaforti=[];     // Cassaforte: si RIVELA (flip) e poi si risolve (apertura con chiave / info se manca)
   drawn.forEach(it=>{
     if(it.slot==="trappola"){ if(springTrap(it, true)) keepable.push(it); else sprungNoKeep.push(it); }   // true = via Cerca (la Buca scatta solo qui)
-    else if(it.name==="Cassaforte"){ handleCassaforte(); }   // risolta subito, non tenuta
+    else if(it.name==="Cassaforte"){ cassaforti.push(it); }   // rivelata e risolta DOPO il flip, mai tenuta
     else keepable.push(it);
   });
   log(`🔎 Cerchi in <b>${t.name}</b> (mazzo ${deckName}): peschi ${drawn.length}, tieni ${keep}.`);
@@ -4392,10 +4393,10 @@ function _executeSearch(useTorch){
       // 3) tutto insieme: carte tenute dal bottino + carte in eccesso spinte fuori dalle tasche bloccate
       const all=[...kept, ...overflow];
       if(all.length){ stowLoot(all, null); return; }
-      if(!discarded.length){
+      if(!discarded.length && !cassaforti.length && !sprungNoKeep.length){
         openModal(`<div class="modal-h"><span class="stencil">🔎 Cerca — ${t.name}</span></div>
           <div class="modal-b center"><p class="muted">Nessuna carta raccoglibile questa volta.<br>
-          <span class="dim small">(Trappola noKeep, Cassaforte senza chiave, o carte speciali già risolte.)</span></p>
+          <span class="dim small">(Trappola che non si raccoglie, o carte già risolte.)</span></p>
           <button class="btn primary" onclick="closeModal()">Ok</button></div>`);
       }
     });
@@ -4406,9 +4407,10 @@ function _executeSearch(useTorch){
     else if(keepable.length)        showLootDraw(keepable, `Bottino — ${t.name}`, ()=>afterReveal(keepable, []));
     else                            afterReveal([], []);   // niente da tenere (es. Buca/Cassaforte): mostra comunque l'eventuale malus
   };
-  // 1) se è scattata una trappola "non si raccoglie" (Buca): RIVELA prima la carta (flip), POI il resto (malus incluso)
-  if(sprungNoKeep.length) showLootDraw(sprungNoKeep, `⚠ Trappola! — ${t.name}`, revealKeepable);
-  else                    revealKeepable();
+  // 1) RIVELA prima le carte "speciali": trappola non-raccoglibile (Buca), poi la Cassaforte (flip + esito), infine il bottino tenibile
+  const afterTrap=()=> resolveCassaforteReveal(cassaforti, revealKeepable);
+  if(sprungNoKeep.length) showLootDraw(sprungNoKeep, `⚠ Trappola! — ${t.name}`, afterTrap);
+  else                    afterTrap();
 }
 function finalizeLoot(kept, discarded, zoneName, done){
   discarded.forEach(it=>toRiciclaggio(it));                 // scartati → mazzo Riciclaggio
@@ -7767,18 +7769,47 @@ function giveCard(card){
   if(!y_tascaFull() && !card.special){ state.you.equip.tasca=card; return "in Tasca sicura"; }   // le speciali non vanno in Tasca sicura
   toRiciclaggio(card); return "zaino pieno → nel Riciclaggio";
 }
-// Cassaforte pescata: con la Chiave cassaforte la apri (10 monete + 1 Chiave Fortezza Rossa; chiave e cassaforte fuori gioco); senza chiave torna nel mazzo. Non viene mai tenuta.
-function handleCassaforte(){
-  if(!hasItem("Chiave cassaforte")){
-    log(`🔐 Trovi una <b>Cassaforte</b> ma non hai la <b>Chiave cassaforte</b>: la rimetti nel mazzo.`,"bad");
-    return;   // torna nel mazzo (non tenuta, non negli scarti)
+// Cassaforte pescata: rivela la carta (flip) e mostra 2 scelte — «Non aprire» e (solo con la Chiave) «Usa la chiave ed Apri».
+// Nessun popup d'alert: l'esito è solo nel registro. Più Casseforti → una alla volta.
+function resolveCassaforteReveal(cassaforti, onDone){
+  if(!cassaforti || !cassaforti.length){ if(onDone) onDone(); return; }
+  const step=(i)=>{ if(i>=cassaforti.length){ if(onDone) onDone(); return; } showCassaforteChoice(cassaforti[i], ()=>step(i+1)); };
+  step(0);
+}
+function showCassaforteChoice(it, onDone){
+  state._cassafDone = (typeof onDone==='function') ? onDone : null;
+  const hasKey = hasItem("Chiave cassaforte");
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--gold)">🔐 Cassaforte</span></div>
+    <div class="modal-b center">
+      <div class="lc-row"><div class="flip3d" id="fc-cassaf"><div class="flip-inner">
+        <div class="flip-front">${lootCardFaceHTML(it)}</div>
+        <div class="flip-back">${lootCardBackHTML(it)}</div>
+      </div></div></div>
+      <p class="dim small" style="margin:12px 0 2px">${hasKey
+        ? 'Hai la <b>Chiave cassaforte</b>: puoi aprirla (<b style="color:var(--gold)">+10 monete</b> e una <b>Chiave Fortezza Rossa</b>) oppure lasciarla nel mazzo.'
+        : 'Non hai la <b>Chiave cassaforte</b>: puoi solo lasciarla nel mazzo.'}</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+        <button class="btn" onclick="cassafChoose(false)">🚫 Non aprire</button>
+        ${hasKey ? `<button class="btn primary" onclick="cassafChoose(true)">🔑 Usa la chiave ed Apri</button>` : ``}
+      </div>
+    </div>`);
+  setTimeout(()=>document.getElementById('fc-cassaf')?.classList.add('revealed'), 220);
+}
+function cassafChoose(open){
+  const d=state._cassafDone; state._cassafDone=null;
+  if(open && hasItem("Chiave cassaforte")){
+    removeCarriedByName("Chiave cassaforte");          // chiave usata → fuori gioco (non nel Riciclaggio)
+    state.you.coins += 10;
+    const reward = findCard("Chiave Fortezza Rossa");
+    const where = reward ? giveCard(reward) : "";
+    recalcStats(); renderHUD();
+    log(`🔓 Apri la <b>Cassaforte</b> con la Chiave: <b>+10 monete</b> e ottieni una <b>Chiave Fortezza Rossa</b>${reward?` (${where})`:''}. Chiave cassaforte e Cassaforte messe <b>fuori gioco</b>.`,"good");
+  } else {
+    log(`🔐 Lasci la <b>Cassaforte</b> senza aprirla: torna nel mazzo.`,"bad");
   }
-  removeCarriedByName("Chiave cassaforte");            // chiave usata → fuori gioco (non nel Riciclaggio)
-  state.you.coins += 10;
-  const reward = findCard("Chiave Fortezza Rossa");
-  const where = reward ? giveCard(reward) : "";
-  recalcStats(); renderHUD();
-  log(`🔓 Apri la <b>Cassaforte</b> con la Chiave: <b>+10 monete</b> e ottieni una <b>Chiave Fortezza Rossa</b>${reward?` (${where})`:''}. Chiave cassaforte e Cassaforte messe <b>fuori gioco</b>.`,"good");
+  closeModal();
+  if(d) d();
 }
 // ===== Catalogo carte + Dettaglio carta =====
 function slotLabel(it){
