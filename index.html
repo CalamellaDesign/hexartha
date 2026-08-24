@@ -2312,16 +2312,40 @@ function mpShowEventCard(cb){
       </div>
       <p class="dim small" style="margin:6px 0">L'effetto è attivo per tutta la durata del giorno.</p>
       ${st?`<p class="small" style="margin:6px 0 14px">Inizia <b style="color:${st.color||'var(--gold)'}">${escapeHtml(st.name)}</b>, poi in senso orario.</p>`:""}
-      <button class="btn primary" onclick="closeModal();mpAfterEventCard()">Continua ▸</button>
+      ${(e.destroyedKeys&&e.destroyedKeys.length)
+        ? `<button class="btn primary" style="background:var(--rust);letter-spacing:.05em" onclick="closeModal();mpStartZonaEvacuata()">⚠ Scopri i luoghi distrutti ▸</button>`
+        : `<button class="btn primary" onclick="closeModal();mpAfterEventCard()">Continua ▸</button>`}
     </div>`);
 }
 function mpAfterEventCard(){ const cb=_mpEventCb; _mpEventCb=null; if(cb) cb(); }
+// Rivelazione (solo visiva) della Zona evacuata in rete: la distruzione è già avvenuta, condivisa, in mpAdvanceDay.
+function mpStartZonaEvacuata(){
+  const keys=(state.event&&state.event.destroyedKeys)||[];
+  const tiles=keys.map(k=>tileMap.get(k)).filter(Boolean);
+  const killed=(state.event&&state.event.destroyedKilledIds)||[];
+  startZonaEvacuata({ tiles, onDone:()=>mpAfterZonaEvacuata(killed) });
+}
+function mpAfterZonaEvacuata(killedIds){
+  if((killedIds||[]).includes(myId)){
+    openModal(`
+      <div class="modal-b center" style="padding:36px 24px">
+        <div style="font-size:56px;margin-bottom:12px">💀</div>
+        <p style="font-size:14px;color:var(--muted);font-style:italic;margin:0 0 10px;line-height:1.5">"Eri nel posto sbagliato quando le bombe sono cadute…"</p>
+        <div class="stencil" style="font-size:28px;color:var(--rust);letter-spacing:.18em;margin:14px 0">SEI MORTO!</div>
+        <p class="dim small" style="margin-bottom:18px">Il tuo luogo è stato distrutto: perdi l'inventario e riparti dalla base. Il deposito è salvo.</p>
+        <button class="btn primary" style="background:var(--rust)" onclick="closeModal();mpAfterEventCard()">Torna alla base ▸</button>
+      </div>`);
+  } else {
+    mpAfterEventCard();
+  }
+}
 
 // ============ PvP in rete (Tappa 2.3) ============
 // Lo zaino del personaggio è a sezioni {sx,centro,dx}; il motore PvP lo tratta come array.
 function mpPackToArray(p){ if(Array.isArray(p)) return p.slice(); if(p&&typeof p==="object") return [...(p.sx||[]),...(p.centro||[]),...(p.dx||[])]; return []; }
 
 let _pvpVoteKey=null, _pvpResolved=false, _pvpFightShown=false;
+let _pvpPrepShown=false, _pvpPrepKey=null, _pvpPrepBegun=false;   // fase di preparazione pre-combattimento (READY)
 let _combatRenderKey=null, _combatActed=null, _pvpRevealAnimated=false;
 let _mpRoundBonus=0;   // bonus (es. Granata) applicato al MIO prossimo tiro nello scontro di rete
 let _lootInit=false, _lootRemaining=[];
@@ -2337,7 +2361,7 @@ function mpCharInfo(ch){
     gadgetCount:g.filter(Boolean).length };
 }
 function mpStartPvpVote(foes){
-  _pvpResolved=false;
+  _pvpResolved=false; _pvpPrepShown=false; _pvpPrepKey=null; _pvpPrepBegun=false; if(state) state.pvpPrep=false;
   const showdown=isShowdown();
   const participants=[myId, ...foes.map(f=>f.id)];
   const names={[myId]:state.you.name}, colors={[myId]:state.you.color||'#c8a44e'}, info={[myId]:mpCharInfo(state.you)};
@@ -2351,7 +2375,7 @@ function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
     stopPvpIdle();
-    if(_pvpVoteKey||_combatRenderKey){ _pvpVoteKey=null; _pvpFightShown=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey||_pvpPrepShown){ _pvpVoteKey=null; _pvpFightShown=false; _pvpPrepShown=false; _pvpPrepKey=null; _pvpPrepBegun=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; state.pvpPrep=false; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(!(pvp.participants||[]).includes(myId)) return true;   // non coinvolto: attende
@@ -2363,6 +2387,8 @@ function mpHandlePvp(){
       if(pvp.showdown && votes[pvp.moverId]){ _pvpResolved=true; mpResolvePvp("fight"); }
       else if(parts.every(id=>votes[id])){ _pvpResolved=true; mpResolvePvp(parts.some(id=>votes[id]==='fight')?"fight":"peace"); }
     }
+  } else if(pvp.status==="prep"){
+    mpHandlePvpPrep(pvp);
   } else if(pvp.status==="fighting"){
     mpHandleCombat(pvp);
   }
@@ -2416,7 +2442,64 @@ function mpResolvePvp(outcome){
     state.pvp=null; enterPostEncounter();
     return;
   }
-  mpBeginCombat();   // combattimento sincronizzato: entrambi tirano i dadi
+  // Prima del combattimento: tutti i partecipanti entrano nella fase di PREPARAZIONE (inventario + READY).
+  patchRoom(s=>{ if(s.pvp && s.pvp.status==="voting"){ s.pvp.status="prep"; s.pvp.ready={}; } });
+  log(`⚔ Si combatte! Sistema l'inventario, poi premi <b>READY</b>.`,"bad");
+}
+
+// ===== Preparazione pre-combattimento (READY) =====
+// Dopo il voto "Lotta", ogni partecipante sistema l'inventario (cure/equip) e preme READY; lo scontro parte quando sono tutti pronti.
+function mpHandlePvpPrep(pvp){
+  const ready=pvp.ready||{}, parts=pvp.participants||[];
+  const iAmReady=!!ready[myId];
+  if(iAmReady){
+    const cnt=parts.filter(id=>ready[id]).length;
+    const k="wait|"+cnt+"/"+parts.length;
+    if(_pvpPrepKey!==k){ _pvpPrepKey=k; if(state) state.pvpPrep=false; mpPvpPrepWait(cnt, parts.length); }
+  } else if(!_pvpPrepShown){
+    _pvpPrepShown=true; _pvpPrepKey=null; stopPvpIdle();
+    if(state){ state.pvpPrep=true; state.invSel=null; state.invMsg=null; }
+    renderInventory();
+  }
+  // Il mover avvia lo scontro quando TUTTI sono pronti (una sola volta).
+  if(myId===pvp.moverId && !_pvpPrepBegun && parts.length && parts.every(id=>ready[id])){
+    _pvpPrepBegun=true; mpBeginCombat();
+  }
+}
+function mpPvpPrepWait(cnt,total){
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--rust)">⚔ Preparazione allo scontro</span></div>
+    <div class="modal-b center">
+      <div style="font-size:40px;margin:6px 0">⚔️</div>
+      <p>Sei <b style="color:var(--green)">PRONTO</b>.</p>
+      <p class="dim small">In attesa che tutti si preparino… (${cnt}/${total})</p>
+    </div>`);
+}
+// READY di rete: scrive lo stato del proprio personaggio (cure/equip di prep) nella partita condivisa e segna "pronto".
+function mpPvpReady(){
+  if(state) state.pvpPrep=false;
+  patchRoom(s=>{
+    if(!s.pvp || s.pvp.status!=="prep") return;
+    s.pvp.ready=s.pvp.ready||{}; s.pvp.ready[myId]=true;
+    if(s.game && s.game.characters){
+      const idx=s.game.characters.findIndex(c=>c.id===myId);
+      if(idx>=0) s.game.characters[idx]=mpSerialize(state.you);
+    }
+  });
+}
+// READY dall'inventario di preparazione (rete o locale).
+function pvpPrepReady(){
+  if(mpGame){ mpPvpReady(); return; }
+  state.pvpPrep=false;
+  const cb=state.pvpPrepDone; state.pvpPrepDone=null;
+  closeModal();
+  (cb||pvpFight)();
+}
+// Apre l'inventario di preparazione (PvP locale): sistemazione, poi READY → cb.
+function pvpStartPrep(cb){
+  state.pvpPrep=true; state.pvpPrepDone=cb||pvpFight;
+  state.invSel=null; state.invMsg=null;
+  renderInventory();
 }
 
 function mpDefenderWaitFight(pvp){
@@ -2459,16 +2542,27 @@ function mpKillChar(char){
 // L'attaccante inizializza il combattimento nello stato condiviso.
 function mpBeginCombat(){
   const pvp=net.pvp, parts=(pvp.participants||[]).slice();
+  // Aggiorna le copie locali dei personaggi coinvolti con lo stato di PREPARAZIONE (cure/equip fatti in prep),
+  // scritto nella partita condivisa quando ciascuno ha premuto READY. Così hp iniziali e bottino sono corretti.
+  parts.forEach(id=>{
+    if(id===myId) return;                                   // il mio è già state.you (live, con la mia preparazione)
+    const src=(net.game&&net.game.characters||[]).find(c=>c.id===id);
+    if(!src) return;
+    const idx=mpGame.characters.findIndex(c=>c.id===id);
+    if(idx>=0) mpGame.characters[idx]=mpDeserialize({c:src}).c;
+  });
   const hp={}, maxhp={};
   parts.forEach(id=>{
+    const ch=mpGame.characters.find(c=>c.id===id);
     if(id===myId){ hp[id]=state.you.hp; maxhp[id]=state.you.maxhp; }
+    else if(ch){ hp[id]=ch.hp; maxhp[id]=ch.maxhp||3; }
     else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; }
   });
   const combat={ participants:parts, hp, maxhp, round:1, rolls:{}, ack:{}, result:null,
     phase:'rolling', winnerId:null, loserIds:[], loot:null,
     fled:{}, debuffAgainst:{}, gadgetConsumed:{} };   // gadget in battaglia: fuga · stordimento avversari · consumo (per il loot)
   _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[];
-  if(state){ state.spoilMode=false; state.spoilCtx=null; }
+  if(state){ state.spoilMode=false; state.spoilCtx=null; state.pvpPrep=false; }
   patchRoom(s=>{ if(s.pvp){ s.pvp.status='fighting'; s.pvp.combat=combat; } });
 }
 
@@ -2481,7 +2575,8 @@ function mpComputeMyRoll(){
   let pd=rp.sum+you.equipScore-(you.states.ossa?2:0)-(you.dmgPenalty||0)+ge.delta;
   if(_mpRoundBonus){ pd+=_mpRoundBonus; ge.notes.push(`💥 Granata: +${_mpRoundBonus} a questo tiro`); _mpRoundBonus=0; }   // bonus da gadget (solo questo tiro)
   const lg=lanciaGranateMod(you.equip.arma); if(lg){ pd+=lg.delta; ge.notes.push(lg.note); }
-  return { total:Math.max(0,pd), dice:rp.dice.map(d=>({v:d.v,kept:d.kept})),
+  const crit=(rp.d1===6&&rp.d2===6), fumble=(rp.d1===1&&rp.d2===1);   // 6+6 vinci sempre · 1+1 perdi sempre (a prescindere dal totale)
+  return { total:Math.max(0,pd), crit, fumble, dice:rp.dice.map(d=>({v:d.v,kept:d.kept})),
            notes:ge.notes||[], label:rp.label||"", dmgToOpp: ge.assassinate?2:1 };
 }
 
@@ -2612,6 +2707,7 @@ function mpUseGadget(gi){
   const isMover=(myId===net.pvp.moverId);
   // 1) effetto locale immediato (bonus al mio tiro / cura consumabile)
   if(type==="bonus") _mpRoundBonus=(_mpRoundBonus||0)+it.battle.amount;
+  if(type==="cons" && c.hp[myId]!=null) state.you.hp=c.hp[myId];   // allinea alla vita reale dello scontro: la cura deve agire sui PV del combattimento, non su quelli d'inizio turno
   const consMsg = (type==="cons") ? consumeEffect(it) : "";
   // 2) rimuovi il gadget dall'equipaggiamento locale → Riciclaggio
   state.you.equip.gadget[gi]=null; toRiciclaggio(it); recalcStats(); renderHUD();
@@ -2619,6 +2715,7 @@ function mpUseGadget(gi){
   stopPvpIdle();
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc) return;
     cc.gadgetConsumed=cc.gadgetConsumed||{}; (cc.gadgetConsumed[myId]=cc.gadgetConsumed[myId]||[]).push(it.name);
+    if(type==="cons" && cc.hp[myId]!=null){ cc.hp[myId]=Math.min(cc.maxhp[myId]||state.you.maxhp, state.you.hp); }   // riporta la cura (garza/kit) nello stato condiviso dello scontro
     if(type==="flee"){
       if(isMover){                                                // il giocatore di turno fugge → lo scontro si scioglie (nessun saccheggio)
         cc.aborted=true; cc.winnerId=null; cc.loserIds=[]; cc.loot=[]; cc.result=null; cc.phase='done';
@@ -2663,14 +2760,18 @@ function mpCombatResolveRound(){
   const names=(net.pvp.names)||{};
   const deb=c.debuffAgainst||{};   // Granata stordente: −X al tiro effettivo del bersaglio, solo questo round
   const eff={}; alive.forEach(id=>{ eff[id]=Math.max(0,(c.rolls[id].total||0)-(deb[id]||0)); });
-  const totals=alive.map(id=>({id,total:eff[id]}));
+  // Valore di confronto: 6+6 (crit) batte sempre tutti (0 danni), 1+1 (fumble) perde sempre (a prescindere dal totale).
+  const CRIT=1e6, FUMB=-1e6;
+  const cmp={}; alive.forEach(id=>{ const r=c.rolls[id]||{}; cmp[id]= r.crit?CRIT : r.fumble?FUMB : eff[id]; });
   const dmg={};
-  totals.forEach(me=>{ dmg[me.id]=totals.filter(o=>o.id!==me.id && o.total>=me.total).length; });
-  const ordered=[...totals].sort((a,b)=>b.total-a.total);
-  const text=ordered.map(t=>{ const nm=escapeHtml(names[t.id]||'?'); const st=deb[t.id]?` <span class="dim">(−${deb[t.id]} stordito)</span>`:'';
-    return dmg[t.id]>0
-      ? `<b>${nm}</b> ${t.total}${st} <span style="color:var(--rust)">−${dmg[t.id]}</span>`
-      : `<b style="color:var(--gold)">${nm}</b> ${t.total}${st} <span class="dim">salvo</span>`;
+  alive.forEach(meId=>{ dmg[meId]=alive.filter(oId=>oId!==meId && cmp[oId]>=cmp[meId]).length; });
+  const ordered=[...alive].sort((a,b)=>cmp[b]-cmp[a]);
+  const text=ordered.map(id=>{ const nm=escapeHtml(names[id]||'?'); const r=c.rolls[id]||{};
+    const st=deb[id]?` <span class="dim">(−${deb[id]} stordito)</span>`:'';
+    const tag=r.crit?` <span class="crit">★6+6</span>`:r.fumble?` <span class="fumble">✘1+1</span>`:'';
+    return dmg[id]>0
+      ? `<b>${nm}</b> ${eff[id]}${tag}${st} <span style="color:var(--rust)">−${dmg[id]}</span>`
+      : `<b style="color:var(--gold)">${nm}</b> ${eff[id]}${tag}${st} <span class="dim">salvo</span>`;
   }).join(' · ');
   patchRoom(s=>{ const cc=s.pvp&&s.pvp.combat; if(!cc||cc.phase!=='rolling') return;
     // fissa il totale effettivo (dopo stordimento) nel tiro, così la rivelazione è coerente col calcolo
@@ -2749,6 +2850,17 @@ function mpCombatFinalize(){
     else { winner.hp=c.hp[c.winnerId]||winner.hp; }
   }
   const deadIds=(c.loserIds&&c.loserIds.length)?c.loserIds:(winner?[]:(c.participants||[]));
+  // Missione "Senza pietà" (actionMission killPlayer): il vincitore che ha ELIMINATO almeno un giocatore la completa.
+  // (La fuga con fumogena dà un vincitore ma con loserIds vuoto → nessun kill → nessun completamento.)
+  if(winner && (c.loserIds||[]).length){
+    const mm=(winner.missions||[]).find(m=>m.actionMission==="killPlayer" && !m.done);
+    if(mm){
+      mm.done=true;
+      if(mm.premio&&mm.premio.fama) winner.fama=(winner.fama||0)+mm.premio.fama;
+      log(`⚔ <b>${escapeHtml(winner.name)}</b> completa la missione «${escapeHtml(mm.name)}»${mm.premio&&mm.premio.fama?` (★ Fama +${mm.premio.fama})`:''}.`,"good");
+      if(winner.id===myId) renderHUD();
+    }
+  }
   // Applica il consumo dei gadget usati in battaglia ai SOPRAVVISSUTI (i caduti vengono rimossi; il mover scrive già il proprio stato; il vincitore è coperto da winnerFinal).
   const consumed=c.gadgetConsumed||{};
   (c.participants||[]).forEach(id=>{
@@ -2888,7 +3000,7 @@ function renderSpectatorEncounter(live){
   if(modalOpen && _specEncEnemy===e.name && document.getElementById('spec-enemy')){
     document.getElementById('spec-enemy').innerHTML = encounterCardHTML(e, e.ehp);
     const yh=document.getElementById('spec-youhp'); if(yh) yh.innerHTML = youHpHTML;
-    const rr=document.getElementById('spec-rollres'); if(rr) rr.textContent = rollTxt;
+    const rr=document.getElementById('spec-rollres'); if(rr) rr.innerHTML = rollTxt;
     const dc=document.getElementById('spec-dice'); if(dc) dc.innerHTML = diceHTML;
     if(roll && typeof mpSettleDice==='function') mpSettleDice('#spec-dice');
     return;
@@ -2994,6 +3106,18 @@ function mpAdvanceDay(){
   mpGame.event=deck.shift();
   if(mpGame.event && mpGame.event.drop) mpPlaceDropWorld(w, mpGame.event.drop, mpGame.day);
   if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
+  // Zona evacuata (destroyLocations): distruzione CONDIVISA e deterministica dei luoghi + morte di chi vi si trovava.
+  if(mpGame.event && mpGame.event.destroyLocations>0){
+    const dt=w.destroyedTiles;   // Set condiviso
+    const cand=TILES.filter(t=>!SAFE.has(t.type)&&t.type!=="fortezza"&&t.type!=="estrazione"&&!dt.has(key(t.col,t.v)));
+    const picks=shuffle([...cand]).slice(0, Math.min(mpGame.event.destroyLocations, cand.length));
+    const keys=picks.map(t=>key(t.col,t.v));
+    keys.forEach(kk=>dt.add(kk));
+    const killed=[];
+    mpActiveCharacters().forEach(c=>{ if(c.tile && keys.includes(key(c.tile.col,c.tile.v))){ killed.push(c.id); mpKillChar(c); } });
+    mpGame.event.destroyedKeys=keys;            // per la rivelazione/notifica su ogni device
+    mpGame.event.destroyedKilledIds=killed;     // chi è morto perché si trovava lì
+  }
 }
 
 // ===== Watchdog anti-stallo per le disconnessioni =====
@@ -3060,6 +3184,9 @@ function pvpOfflinePending(pvp){
   if(pvp.status==="voting"){
     return (pvp.participants||[]).filter(id=>!onlinePlayers.has(id) && !(pvp.votes&&pvp.votes[id]));
   }
+  if(pvp.status==="prep"){
+    return (pvp.participants||[]).filter(id=>!onlinePlayers.has(id) && !(pvp.ready&&pvp.ready[id]));
+  }
   if(pvp.status==="fighting" && c){
     const alive=mpAliveIds(c);   // esclude eliminati e fuggiti
     if(c.phase==="rolling") return alive.filter(id=>!onlinePlayers.has(id) && !(c.rolls&&c.rolls[id]));
@@ -3092,6 +3219,8 @@ function forcePvpForOffline(pvp, pending){
       const sp=s.pvp; if(!sp) return;
       if(sp.status==="voting"){
         sp.votes=sp.votes||{}; pending.forEach(id=>{ if(!sp.votes[id]) sp.votes[id]='peace'; });   // offline: non alza la posta (voto Pace)
+      } else if(sp.status==="prep"){
+        sp.ready=sp.ready||{}; pending.forEach(id=>{ sp.ready[id]=true; });   // offline: pronto d'ufficio (nessuna preparazione)
       } else if(sp.status==="fighting" && sp.combat){
         const cc=sp.combat;
         if(cc.phase==="rolling"){ cc.rolls=cc.rolls||{}; pending.forEach(id=>{ if(!cc.rolls[id]) cc.rolls[id]={total:0,dice:[],notes:['offline'],label:'OFFLINE',dmgToOpp:1,forfeit:true}; }); }
@@ -3826,9 +3955,8 @@ function continueNewDay(period, first){
     state.you.coins += state.event.coinsForAll;
     log(`💰 Evento <b>${state.event.t}</b>: ricevi <b>${state.event.coinsForAll} monete</b>.`,"good");
   }
-  if(state.event.allPoison && state.you.tile.type!=="accampamento"){
-    applyStateSilent("avvelenato");  // popup mostrato dopo la carta evento via drainMalusQueue
-  }
+  // Scorie tossiche (allPoison): l'avvelenamento è applicato a INIZIO TURNO di ogni giocatore
+  // (vedi beginYourTurn), così vale sia in locale sia in rete ed esclude tutte le zone sicure.
   // destroyLocations: calcola subito i target, la sequenza visiva parte DOPO la carta evento
   if(state.event.destroyLocations>0){
     const cand=TILES.filter(t=>!SAFE.has(t.type)&&t.type!=="fortezza"&&t.type!=="estrazione"&&!state.destroyedTiles.has(key(t.col,t.v)));
@@ -3873,9 +4001,13 @@ function showPhaseInterlude(period, onDone){
       <button class="btn primary" onclick="closeModal();(window._phaseInterlCb&&window._phaseInterlCb())">Continua ▸</button>
     </div>`);
 }
-function startZonaEvacuata(){
-  const tiles=state.zonaEvacuataTargets;
-  if(!tiles||!tiles.length){ beginYourTurn(); return; }
+let _zevOnDone=null;
+function zevContinue(){ const cb=_zevOnDone; _zevOnDone=null; if(cb) cb(); else resolveZonaEvacuata(); }
+function startZonaEvacuata(opts){
+  opts=opts||{};
+  const tiles=opts.tiles||state.zonaEvacuataTargets;
+  _zevOnDone=opts.onDone||null;
+  if(!tiles||!tiles.length){ (opts.onDone||beginYourTurn)(); return; }
   const TYPE_COLOR={urbana:"#b7b1a1",riciclaggio:"#c46cb4",ospedaliera:"#7fe0c8",militare:"#c6c23e",stazione:"#e3a437"};
   const TYPE_ICO={urbana:"🏙",riciclaggio:"♻️",ospedaliera:"🏥",militare:"🪖",stazione:"🚉"};
   function coverCard(i){
@@ -3946,7 +4078,7 @@ function startZonaEvacuata(){
                 const act=document.getElementById('zev-act');
                 if(act) act.innerHTML=`
                   <p class="dim small" style="margin-bottom:10px">Questi luoghi sono impraticabili per il resto della partita.</p>
-                  <button class="btn primary" style="background:var(--rust)" onclick="closeModal();resolveZonaEvacuata()">Ho capito ▸</button>`;
+                  <button class="btn primary" style="background:var(--rust)" onclick="closeModal();zevContinue()">Ho capito ▸</button>`;
               }, 700);
             }, 1300);
           }
@@ -4007,6 +4139,8 @@ function showEventCard(){
 function beginYourTurn(){
   document.getElementById('turnof').textContent="Tu";
   combat=null;   // sicurezza: a inizio turno nessuno scontro è in corso (sblocca cibo ecc.)
+  state.pendingPvp=null;   // sicurezza: nessun PvP in sospeso da un turno precedente
+  state.pvpPrep=false; state.pvpPrepDone=null;   // sicurezza: nessuna preparazione PvP residua
   state.you.hidden=false; state.milSearchCount=0; state.movedFirst=false;
   drawPawn();   // all'inizio del tuo turno la pedina torna normale (fine visualizzazione "nascosto")
   state.you.weaponUsedThisTurn=false;   // reset flag di turno (arma usata → usura)
@@ -4015,6 +4149,18 @@ function beginYourTurn(){
     // Nessun timer finché non premi INIZIA TURNO: il turno vero (movimento) parte da lì.
     openReviveEquip();
     return;
+  }
+  // Evento "Scorie tossiche" (allPoison): a inizio turno chi NON è in zona sicura (Base/avamposto)
+  // viene avvelenato; se è già avvelenato perde 1 vita (EVENTI.md). Ogni giocatore sul proprio device.
+  if(state.event && state.event.allPoison && !SAFE.has(state.you.tile.type)){
+    if(state.you.states.avvelenato){
+      hurtYou(1); renderHUD();
+      log(`☣ <b>Scorie tossiche</b>: eri già avvelenato — perdi 1 vita.`,"bad");
+      if(state.you.hp<=0){ log(`☠ Le scorie tossiche ti finiscono.`,"bad"); return respawn(); }
+    } else {
+      log(`☣ <b>Scorie tossiche</b>: l'aria è tossica fuori dalle zone sicure — vieni <b>avvelenato</b>.`,"bad");
+      applyState("avvelenato");   // popup + svuotamento tasche laterali
+    }
   }
   const inSafe = SAFE.has(state.you.tile.type);   // accampamento o avamposto
   if(inSafe && state.you.safeTurnPending){
@@ -4565,6 +4711,7 @@ function updateActionUI(){
   const mgmtActive = base && !state.you.safeTurnPending;   // turno di gestione attivo
   const pl=document.getElementById('phaselabel');
   pl.textContent = entering ? `Sei entrato in una zona sicura — turno terminato, si passa al prossimo giocatore`
+                 : (state.pendingPvp && state.pendingPvp.length) ? "PvE concluso — curati e gestisci l'inventario, poi «Avvia PvP»"
                  : base    ? `Gestione ${t.type==="avamposto"?"avamposto":"accampamento"} — «Termina turno» per uscire il prossimo turno`
                  : post    ? "Scontro concluso — curati e gestisci l'inventario, poi «Termina turno»"
                  : moveReq  ? "① Movimento obbligatorio — clicca una zona evidenziata in oro"
@@ -4614,8 +4761,8 @@ function updateActionUI(){
   // Durante l'INGRESSO in zona sicura il turno sta già chiudendosi da solo: niente «Termina turno».
   endBtn.disabled=moveReq || fortressAutoStart || entering;
   endBtn.style.display = entering ? 'none' : '';
-  endBtn.classList.toggle('danger', em.mode==='encounter');
-  endBtn.classList.toggle('primary', em.mode!=='encounter');
+  endBtn.classList.toggle('danger', em.mode==='encounter' || em.mode==='pvp');
+  endBtn.classList.toggle('primary', em.mode!=='encounter' && em.mode!=='pvp');
   // Pulsanti safe zone (solo nel TURNO DI GESTIONE vero, non all'ingresso); "Consegna missioni" solo negli avamposti
   // shopAnywhere (evento) consente commercio anche fuori dalle zone sicure, spendendo un'azione
   document.getElementById('a-store').style.display   = (mgmtActive && t.type==="accampamento") ? '' : 'none';
@@ -4661,6 +4808,7 @@ function useCharge(name){
 // La CTA in basso: "Effettua Incontro" o "Termina turno" secondo la fase
 function endTurnMode(){
   const ph=state.phase, t=state.you.tile;
+  if(state.pendingPvp && state.pendingPvp.length) return {label:"⚔ Avvia PvP", mode:"pvp"};   // PvE concluso: prima gestisci l'inventario, poi lancia lo scontro fra giocatori
   if(ph==="postEncounter"||ph==="base") return {label:"⏭ Termina turno", mode:"conclude"};
   if(ph==="actions"||ph==="move-action"){
     if(state.you.hidden || SAFE.has(t.type)) return {label:"⏭ Termina turno", mode:"conclude"};
@@ -4696,6 +4844,7 @@ function _confirmEndTurn(){
   const mode=(state._pendingEndMode||(endTurnMode().mode));
   state._pendingEndMode=null;
   if(mpGame) log(`🔎 [diag] Fine turno: modalità <b>${mode}</b> (fase ${state.phase} · tile ${state.you.tile.type} · nascosto ${state.you.hidden}).`,"evt");
+  if(mode==="pvp") return startPendingPvp();
   (mode==="encounter") ? doEncounter() : concludeTurn();
 }
 function doEncounter(){
@@ -4732,8 +4881,16 @@ function postPvE(){
     const opp=(state.opponents||[]).map(o=>`${o.name}@${o.tile?key(o.tile.col,o.tile.v):'?'}${o.hidden?'(nasc)':''}${o.hp<=0?'(morto)':''}`).join(', ')||'nessuno';
     log(`🔎 [diag] Io su <b>${mine}</b> (${state.you.tile.type})${state.you.hidden?' — sono nascosto':''}. Avversari trovati sulla casella: <b>${foes.length}</b>. Posizioni: ${opp}.`,"evt");
   }
-  if(foes.length && !state.you.hidden){ startPvP(foes); return; }
+  if(foes.length && !state.you.hidden){ state.pendingPvp=foes; enterPostEncounter(); return; }   // PvP in sospeso: prima gestione inventario, poi «Avvia PvP»
   enterPostEncounter();
+}
+// Avvia il PvP tenuto in sospeso dopo il PvE (dopo che il giocatore di turno si è sistemato l'inventario).
+function startPendingPvp(){
+  const foes=state.pendingPvp; state.pendingPvp=null;
+  if(!foes || !foes.length || state.you.hidden){ return concludeTurn(); }
+  stopTurnTimer();
+  publishLive("encounter", "sta affrontando un incontro…");
+  startPvP(foes);
 }
 // Applica -1 usura all'arma equipaggiata (chiamata a fine di ogni incontro in cui si è combattuto).
 // Se l'usura raggiunge 0 mostra un popup di avviso.
@@ -4771,7 +4928,11 @@ function enterPostEncounter(){
   state.phase="postEncounter"; state.you.hidden=false;
   clearReach(); renderHUD(); updateActionUI(); startTurnTimer();
   publishLive("postenc", "ha concluso l'incontro");   // FASE A: aggiorna banner + HP dopo il combattimento
-  log(`Scontro concluso. Puoi <b>curarti</b> e <b>gestire l'inventario</b>, poi premi <b>Termina turno</b>.`,"good");
+  if(state.pendingPvp && state.pendingPvp.length){
+    log(`Hai concluso il PvE, ma un altro giocatore è sulla tua casella. <b>Curati</b> e <b>sistema l'inventario</b>, poi premi <b>Avvia PvP</b>.`,"good");
+  } else {
+    log(`Scontro concluso. Puoi <b>curarti</b> e <b>gestire l'inventario</b>, poi premi <b>Termina turno</b>.`,"good");
+  }
   showWeaponBrokeModal();   // eventuale popup "arma scarica" ORA, dopo il loot (non copre più le carte)
 }
 function concludeTurn(){
@@ -4806,6 +4967,7 @@ function concludeTurn(){
   claimDropForYou(afterTurnResolved);
 }
 function forceEndOfTurn(){   // dal timer scaduto
+  if(state.pendingPvp && state.pendingPvp.length){ return startPendingPvp(); }   // PvP in sospeso: il timer non salta lo scontro, lo avvia
   if(state.phase==="postEncounter"||state.phase==="base"){ return concludeTurn(); }
   if(state.you.hidden || SAFE.has(state.you.tile.type)){ return concludeTurn(); }
   // Timer scaduto senza aver fatto il movimento obbligatorio: il gioco trascina la pedina
@@ -4874,7 +5036,11 @@ function openModal(html,wide,closeFn){
     ? '<button class="modal-x" type="button" aria-label="Chiudi" title="Chiudi" onclick="dismissModal()">✕</button>' : '';
   m.innerHTML=x+html;
   m.classList.toggle('wide',!!wide);
-  document.getElementById('overlay').classList.add('active');
+  const ov=document.getElementById('overlay');
+  // Click all'esterno (sul fondo scuro): chiude SOLO le modali richiudibili (quelle con la X / con una funzione di chiusura).
+  // Le modali "forzate" (voto/prep/scontro/saccheggio/eventi…) non hanno _modalCloseFn → il click fuori non fa nulla.
+  ov.onclick=(e)=>{ if(e.target===ov && window._modalCloseFn) dismissModal(); };
+  ov.classList.add('active');
   setTimeout(initEffModal,0);
 }
 function dismissModal(){ const fn=window._modalCloseFn; window._modalCloseFn=null; (typeof fn==='function'?fn:closeModal)(); }
@@ -6029,14 +6195,14 @@ function pvpVote(choice){
   if(isShowdown()){
     state.pvp.foeChoice='fight';
     log(`💀 Resa dei conti — scontro inevitabile con <b>${foe.name}</b>.`,"bad");
-    return pvpFight();
+    return pvpStartPrep(pvpFight);
   }
   const stronger=oppEquipScore(foe)>=state.you.equipScore;
   const foeChoice=((stronger? Math.random()<0.7 : Math.random()<0.35) ? 'fight':'peace');
   state.pvp.foeChoice=foeChoice;
   log(`⚖ Voto PvP: Tu → ${choice==='fight'?'Lotta':'Pace'} · ${foe.name} → ${foeChoice==='fight'?'Lotta':'Pace'}.`);
   if(choice==='peace' && foeChoice==='peace') pvpPeace();
-  else pvpFight();
+  else pvpStartPrep(pvpFight);
 }
 function pvpPeace(){
   const foe=state.pvp.foe;
@@ -7299,13 +7465,16 @@ function renderInventory(){
   const rev = !!(state.you && state.you.reviveEquipPending); // fase di RIARMO (rientro dopo la morte)
   const spoil = !rev && !!state.spoilMode;                   // fase di SACCHEGGIO post-vittoria PvP
   const inLoot = !rev && !spoil && state.lootRoom && (state.pendingLoot||[]).length;
+  const prep = !rev && !spoil && !inLoot && !!(state && state.pvpPrep);   // fase di preparazione pre-PvP (READY)
   const hint = rev
     ? `Trascina le carte dal <b>Magazzino</b> negli slot (zaino · tasca sicura · gadget · arma/armatura/casco) o toccale per i pulsanti. Puoi anche riporre carte nel magazzino. Poi premi INIZIA TURNO.`
     : (spoil
       ? `Trascina le carte del <b>bottino</b> negli slot (zaino · tasca sicura · gadget · arma/armatura/casco) o toccale per i pulsanti. Trascina una tua carta <b>sul bottino</b> per scartarla e fare spazio. Poi premi FINE SACCHEGGIO.`
       : (inLoot
         ? `Trascina le carte del bottino su uno slot libero (zaino o equip), oppure toccale per le opzioni.`
-        : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`));
+        : (prep
+          ? `⚔ <b>Preparati allo scontro</b>: curati, equipaggia e sistema l'inventario. Poi premi <b>READY</b>.`
+          : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`)));
   const actions = state.invSel? invActionPanel(state.invSel)
     : `<p class="dim small center" style="margin:0">${hint}</p>`;
   // Pannello bottino da sistemare (solo in modalità loot-room)
@@ -7326,8 +7495,11 @@ function renderInventory(){
       : (inLoot
         ? `<span class="stencil" style="color:var(--rust)">🎒 Zaino pieno — sistema il bottino</span>
            <span class="dim small">${state.pendingLoot.length} da sistemare</span>`
-        : `<span class="stencil">🎒 Inventario</span>
-           <span class="dim small">Zaino ${packTotal()}/6 · ⚔ Equip +${y.equipScore}</span>`));
+        : (prep
+          ? `<span class="stencil" style="color:var(--rust)">⚔ Preparazione allo scontro</span>
+             <span class="dim small">Zaino ${packTotal()}/6 · ⚔ +${y.equipScore}</span>`
+          : `<span class="stencil">🎒 Inventario</span>
+             <span class="dim small">Zaino ${packTotal()}/6 · ⚔ Equip +${y.equipScore}</span>`)));
   // In modalità bottino serve una scelta esplicita (nessuna X): si chiude rinunciando al bottino rimasto.
   const footer = rev
     ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="reviveStart()">INIZIA TURNO ▸</button></div>`
@@ -7335,7 +7507,9 @@ function renderInventory(){
       ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="spoilFinish()">${spoilCtx.doneLabel||'FINE SACCHEGGIO ▸'}</button></div>`
       : (inLoot
         ? `<div class="center" style="margin-top:12px"><button class="btn" onclick="lootRenounceAll()">Rinuncia al bottino rimasto & chiudi</button></div>`
-        : ``));
+        : (prep
+          ? `<div class="center" style="margin-top:12px"><button class="btn primary" style="background:var(--rust)" onclick="pvpPrepReady()">⚔ READY ▸</button></div>`
+          : ``)));
   const invGrid = `
       <div class="inv-grid">
         <div><div class="inv-colh">🎒 ZAINO <span class="dim small">${packTotal()}/6</span></div>${packCol}</div>
@@ -7367,7 +7541,7 @@ function renderInventory(){
       ${body}
       <div class="inv-actions">${msg}${actions}</div>
       ${footer}
-    </div>`, (rev||spoil), (rev||spoil) ? null : (inLoot ? null : closeInventory));
+    </div>`, (rev||spoil), (rev||spoil||inLoot||prep) ? null : closeInventory);
 }
 function invActionPanel(loc){
   // Carta del bottino da sistemare (modalità loot-room)
