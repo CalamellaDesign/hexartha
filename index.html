@@ -6489,7 +6489,7 @@ function showLocation(t){
     <div class="modal-h"><span class="stencil">${t.name}</span>
       <span class="tag" style="border-color:var(--rust);color:var(--rust)">${TYPE_LABEL[t.type]}</span></div>
     <div class="modal-b">
-      <img class="loc-img" src="${src}" alt="${t.name}"
+      <img class="loc-img" src="${src}" alt="${t.name}" loading="lazy" decoding="async"
         onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
       <div class="dim small" style="display:none;padding:40px;text-align:center;border:1px dashed var(--border2);border-radius:6px">
         (immagine: ${t.img})</div>
