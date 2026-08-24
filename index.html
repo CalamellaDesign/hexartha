@@ -135,7 +135,7 @@
     background:rgba(14,13,11,.92);border:1px solid var(--border2);border-top:2px solid var(--rust-d);
     border-radius:6px;padding:6px 9px;box-shadow:0 3px 12px rgba(0,0,0,.5)}
   .turnorder-float .flab{font-size:9px;letter-spacing:.08em}
-  #map-legend{position:absolute;bottom:64px;left:10px;z-index:5;background:rgba(14,13,11,.9);border:1px solid #3f392e;
+  #map-legend{position:absolute;top:12px;right:328px;z-index:11;background:rgba(14,13,11,.9);border:1px solid #3f392e;
     border-radius:4px;font-size:10px;color:#cfc6b0;min-width:158px;user-select:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   #map-legend .lg-h{padding:5px 9px;cursor:pointer;letter-spacing:.14em;font-weight:700;font-size:10px;color:#9a9a94;
     display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -286,7 +286,7 @@
     .actionsbar #phaselabel{font-size:10px}
     .actionsbar .btn{flex:1 1 22%;justify-content:center;padding:8px 3px;font-size:11px;min-height:42px;gap:4px}
     .actionsbar #a-end{flex:1 1 100%}
-    #map-legend{bottom:56px}
+    #map-legend{top:8px;right:8px;bottom:auto}
     .turnorder-float{left:8px;top:8px;width:auto;max-width:64vw}
     #mpwatch{left:8px !important;right:8px !important;bottom:8px !important;transform:none !important;width:auto !important;max-width:none !important}   /* rimpiazza la barra azioni (stessa posizione) */
     .cron{width:calc(100% - 16px);left:8px}
@@ -568,7 +568,7 @@
   .cd-wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
   .cd-card{width:170px;height:238px;flex:0 0 auto}
   .cd-info{flex:1;min-width:200px;max-width:340px}
-  .loc-img{width:100%;height:240px;object-fit:cover;border-radius:6px;border:1px solid var(--border);background:#000}
+  .loc-img{display:block;width:100%;height:auto;max-height:min(52vh,440px);object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#000}
   .loc-lore{color:var(--text);font-size:12px;line-height:1.65;margin:12px 0 6px;font-style:italic}
   .loc-type-desc{color:var(--muted);font-size:11px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border2)}
   .center{text-align:center}
@@ -1276,7 +1276,7 @@ const FORTRESS_ENEMIES=[
   {id:"inc_boss_arkan_voss",        name:"Arkan Voss",        epithet:"Il boss della fortezza", hp:3, dmg:20, loot:2, lootDeck:"militare", tipologia:"fortezza", boss:true, onHitState:"ossa", special:"Diario del boss", effect:"Se ti ferisce, aggiunge Ossa rotte. Se lo sconfiggi, ottieni il Diario del boss.", img:IMG_INC+"Arkan Voss.png"},
   {id:"inc_boss_karl_count",        name:"Karl Count",        epithet:"Bird Eye",          hp:1, dmg:16, loot:2, lootDeck:"militare", tipologia:"fortezza", boss:true, hitDmg:2, special:"Armatura Squadra d'Élite", effect:"Se ti ferisce, toglie 2 punti vita in un solo colpo. Se lo sconfiggi, ottieni Armatura d'élite.", img:IMG_INC+"Karl Count.png"},
   {id:"inc_boss_paola_cortello",    name:"Paola Cortello",    epithet:"Medicina letale",   hp:2, dmg:17, loot:2, lootDeck:"medico", tipologia:"fortezza", boss:true, special:"Armatura Squadra d'Élite", effect:"Se la sconfiggi, ottieni Armatura d'élite. Pesca solo carte loot Mediche.", img:IMG_INC+"Paola Cortello.png"},
-  {id:"inc_boss_vincenzo_benzina",  name:"Vincenzo Benzina",  epithet:"Lo spacca ossa",    hp:3, dmg:15, loot:2, lootDeck:"militare", tipologia:"fortezza", boss:true, onHitState:"ossa", special:"Diario del boss", effect:"Se ti ferisce, aggiunge Ossa rotte. Se lo sconfiggi, ottieni il Diario del boss.", img:IMG_INC+"Vincenzo Benzina.png"},
+  {id:"inc_boss_vincenzo_benzina",  name:"Vincenzo Benzina",  epithet:"Lo spacca ossa",    hp:3, dmg:15, loot:2, lootDeck:"militare", tipologia:"fortezza", boss:true, onHitState:"ossa", special:"Armatura Squadra d'Élite", effect:"Se ti ferisce, aggiunge Ossa rotte. Se lo sconfiggi, ottieni Armatura d'élite.", img:IMG_INC+"Vincenzo Benzina.png"},
 ];
 
 // Missioni divise per categoria (fonte di verità: CSV reali del gioco)
@@ -2152,7 +2152,7 @@ function mpBuildGame(players, gameMode){
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
-            discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null, famaAnnounce:null,
+            discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
   if(game.event && game.event.drop) mpPlaceDropWorld(game.world, game.event.drop, game.day);
@@ -2175,13 +2175,13 @@ function mpHydrate(game){
   state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
   state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
   state.discoAnnounce=w.discoAnnounce||null;
-  state.famaAnnounce=w.famaAnnounce||null;
   state.extraEncounterAfterTurn=!!w.extraEncounterAfterTurn; state.zonaEvacuataTargets=w.zonaEvacuataTargets||null;
   if(mySeatIndex>=0) state.you = game.characters[mySeatIndex];   // stesso riferimento → le modifiche del turno restano nella partita
   state.opponents = game.characters.map((c,i)=>({c,i}))
     .filter(o=>o.i!==mySeatIndex && !o.c.abandoned)
     .map(o=>{ const c=o.c; return {id:c.id,name:c.name,color:c.color,player:c.player,tile:c.tile,hidden:!!c.hidden,
              hp:c.hp,maxhp:c.maxhp,campKey:c.campKey,equip:c.equip,equipScore:c.equipScore,
+             fama:c.fama||0,coins:c.coins||0,
              pack:mpPackToArray(c.pack),deposito:c.deposito||[]}; });
   state.players = game.characters.map(c=>({name:c.name,color:c.color,you:c.id===myId}));
   const dsc=game.characters[game.starterIdx]; state.dayStarter=dsc?{name:dsc.name,color:dsc.color}:null;
@@ -2254,14 +2254,17 @@ function mpCheckDiscoAnnounce(){
   if(a.byId===myId) return;                          // chi l'ha trovato ha già il suo messaggio
   log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha trovato il DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
 }
-// Segna un annuncio "missione completata" nella partita condivisa (visto dagli altri device al prossimo aggiornamento).
+// Spinta IMMEDIATA di un annuncio "missione completata": campo top-level della stanza, così gli avversari
+// vedono il pop-up appena la missione è completata (non a fine turno).
 function announceFama(byId, name, text){
-  state.famaAnnounce={ byId, name:name||"Un giocatore", text:text||"ha completato una missione", ts:Date.now() };
+  if(!mpGame) return;
+  const ann={ byId, name:name||"Un giocatore", text:text||"ha completato una missione", ts:Date.now() };
+  patchRoom(s=>{ s.famaAnnounce=ann; });
 }
 // Avvisa gli AVVERSARI con un popup quando un giocatore completa una missione e guadagna fama.
 let _lastFamaAnnounceTs=null;
 function mpCheckFamaAnnounce(){
-  const a=state.famaAnnounce; if(!a||!a.ts) return;
+  const a=net && net.famaAnnounce; if(!a||!a.ts) return;
   if(_lastFamaAnnounceTs===a.ts) return;             // già mostrato questo annuncio
   _lastFamaAnnounceTs=a.ts;
   if(a.byId===myId) return;                          // chi l'ha completata ha già il suo feedback
@@ -3101,7 +3104,6 @@ function mpWriteBack(){
   w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
   w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
   w.discoAnnounce=state.discoAnnounce||null;
-  w.famaAnnounce=state.famaAnnounce||null;
 }
 function mpActiveCharacters(){ return mpGame.characters.filter(c=>!c.abandoned); }
 function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;k<N;k++){ s=(s+1)%N; if(mpGame.characters[s] && !mpGame.characters[s].abandoned) return s; } return from; }
@@ -6758,6 +6760,7 @@ function depDragToStore(srcLoc){
   log(`🗄️ Riponi <b>${it.name}</b> nel magazzino.`); renderHUD(); renderInventory();
 }
 function reviveStart(){
+  if(!mpCanAct()){ mpDeny(); return; }   // sicurezza: solo nel proprio turno si avvia il turno post-rientro
   state.you.reviveEquipPending=false; state.invSel=null; state.invMsg=null;   // fase conclusa (spegne anche la modalità Riarmo)
   closeModal();
   beginYourTurn();                                                 // prosegue come normale turno di movimento (dalla Base)
@@ -6970,8 +6973,8 @@ function sellItem(sec,i){
 
 // =================== CRAFTING ===================
 function openCrafting(){
-  if(!mpCanAct()){ mpDeny(); return; }
   if(document.getElementById('overlay').classList.contains('active'))closeModal();
+  const canAct=mpCanAct();                        // durante il turno altrui: solo consultazione (niente CREA)
   const inSafe=SAFE.has(state.you.tile.type);   // si crea solo in base/avamposto
   const rows=CRAFTING.map((r,ri)=>{
     const vHTML=r.variants.map((rec,vi)=>{
@@ -6981,19 +6984,20 @@ function openCrafting(){
         return `<span class="craft-ing ${enough?'have':'miss'}">${name}${qty>1?` ×${qty}`:''} <span class="dim">${have}/${qty}</span></span>`;
       }).join('<span class="dim"> + </span>');
       return `<div class="craft-variant">${r.variants.length>1?`<span class="dim small">Ric.${vi+1}</span> `:''}${ing}
-        <button class="btn ${ok&&inSafe?'primary':''}" ${ok&&inSafe?'':'disabled'} onclick="craftItem(${ri},${vi})">CREA</button></div>`;
+        <button class="btn ${ok&&inSafe&&canAct?'primary':''}" ${ok&&inSafe&&canAct?'':'disabled'} onclick="craftItem(${ri},${vi})">CREA</button></div>`;
     }).join("");
     return `<div class="craft-row"><div class="craft-res">🛠️ <b>${r.result}</b></div>${vHTML}</div>`;
   }).join("");
   openModal(`
     <div class="modal-h"><span class="stencil">🛠️ Manuale del Crafting</span>
-      <span class="dim small">${inSafe?'Puoi creare qui':'Solo consultazione — crea in base/avamposto'}</span></div>
+      <span class="dim small">${(inSafe&&canAct)?'Puoi creare qui':(canAct?'Solo consultazione — crea in base/avamposto':'Solo consultazione — non è il tuo turno')}</span></div>
     <div class="modal-b" style="max-height:72vh;overflow:auto">
       <p class="dim small">Ingredienti da inventario + magazzino. In verde quelli che possiedi. "CREA" attivo se hai tutta la ricetta (solo in safe zone).</p>
       ${rows}
     </div>`,false,closeModal);
 }
 function craftItem(ri,vi){
+  if(!mpCanAct()){ mpDeny(); return; }            // non è il tuo turno: nessun crafting
   if(!SAFE.has(state.you.tile.type)) return;
   const r=CRAFTING[ri], rec=r.variants[vi];
   if(!recipeSatisfied(rec)) return;
@@ -7531,7 +7535,7 @@ function renderInventory(){
     + invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):1), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+1)</div>`, "equip.armatura")
     + invSlotHTML("⛑ Casco","+"+(y.equip.casco?itemEquip(y.equip.casco):1), y.equip.casco? invCardHTML("equip.casco",y.equip.casco) : `<div class="inv-empty">Base (+1)</div>`, "equip.casco");
   const msg = state.invMsg? `<div class="inv-msg">⚠ ${state.invMsg}</div>` : "";
-  const rev = !!(state.you && state.you.reviveEquipPending); // fase di RIARMO (rientro dopo la morte)
+  const rev = !!(state.you && state.you.reviveEquipPending) && mpCanAct(); // fase di RIARMO (rientro dopo la morte) — SOLO nel proprio turno (durante il turno altrui l'inventario è di sola consultazione)
   const spoil = !rev && !!state.spoilMode;                   // fase di SACCHEGGIO post-vittoria PvP
   const inLoot = !rev && !spoil && state.lootRoom && (state.pendingLoot||[]).length;
   const prep = !rev && !spoil && !inLoot && !!(state && state.pvpPrep);   // fase di preparazione pre-PvP (READY)
