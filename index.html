@@ -1612,8 +1612,8 @@ function encTake(deck, discard){        // rimuove la carta in cima (la mette "i
   if(!deck.length) encReshuffle(deck, discard);
   return deck.shift();
 }
-function encReturnTop(deck, id){ if(id!=null) deck.unshift(id); }                                   // in cima
-function encReturnRandom(deck, id){ if(id!=null) deck.splice(Math.floor(Math.random()*(deck.length+1)),0,id); }  // posizione casuale
+function encReturnTop(deck, id){ if(deck && id!=null) deck.unshift(id); }                                   // in cima
+function encReturnRandom(deck, id){ if(deck && id!=null) deck.splice(Math.floor(Math.random()*(deck.length+1)),0,id); }  // posizione casuale
 // Inserisce i nemici aggiunti da un evento nel mazzo, UNA sola volta (allo scatto dell'evento).
 function encAddFromEvent(deck, ev){
   if(!ev || !ev.addEnemies || !deck) return;
@@ -2738,6 +2738,7 @@ function mpProceedTurnOrWatch(){
 function mpShowEventCard(cb){
   const e=state.event;
   if(!e){ if(cb) cb(); return; }
+  try{HXAudio.setPhaseByDay(state.day);}catch(_){}   // musica: allinea la fase (più cupa) al giorno corrente
   eventSound(e);   // Zona evacuata → allarme; ogni altro nuovo evento → chime
   _mpEventCb=cb;
   const colorMap={verde:"var(--green)",marrone:"var(--ochre)",rosso:"var(--rust)"};
@@ -3512,6 +3513,12 @@ function mpWriteBack(){
   w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
   w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
   w.discoAnnounce=state.discoAnnounce||null;
+  // Mazzi INCONTRI (roaming + Fortezza): scritti sempre nel mondo condiviso, così pescate/scarti/
+  // rimischi e i nemici aggiunti dagli eventi restano salvati a fine turno (no ripescaggio, no reset).
+  if(state.encounterDeck) w.encounterDeck=state.encounterDeck;
+  if(state.encounterDiscard) w.encounterDiscard=state.encounterDiscard;
+  if(state.fortressDeck) w.fortressDeck=state.fortressDeck;
+  if(state.fortressDiscard) w.fortressDiscard=state.fortressDiscard;
 }
 function mpActiveCharacters(){ return mpGame.characters.filter(c=>!c.abandoned); }
 function mpNextSeat(from){ const N=mpGame.order.length; let s=from; for(let k=0;k<N;k++){ s=(s+1)%N; if(mpGame.characters[s] && !mpGame.characters[s].abandoned) return s; } return from; }
@@ -4623,6 +4630,7 @@ function showEventCard(){
 }
 function beginYourTurn(){
   document.getElementById('turnof').textContent="Tu";
+  try{HXAudio.setPhaseByDay(state.day);}catch(_){}   // musica: fase allineata al giorno (più cupa avanzando)
   combat=null;   // sicurezza: a inizio turno nessuno scontro è in corso (sblocca cibo ecc.)
   state.pendingPvp=null;   // sicurezza: nessun PvP in sospeso da un turno precedente
   state.pvpPrep=false; state.pvpPrepDone=null;   // sicurezza: nessuna preparazione PvP residua
@@ -6112,12 +6120,16 @@ function enemyById(id){ const b=ENEMY_BY_ID[id]; return b ? applyEnemyMods(JSON.
 // va negli scarti solo se sconfitta (vedi encWinResolve/encAbortResolve alla risoluzione).
 function drawRoamEnemy(){
   if(!state.encounterDeck) state.encounterDeck=[]; if(!state.encounterDiscard) state.encounterDiscard=[];
-  return enemyById(encTake(state.encounterDeck, state.encounterDiscard));
+  let e=enemyById(encTake(state.encounterDeck, state.encounterDiscard));
+  if(!e) e=applyEnemyMods(JSON.parse(JSON.stringify(ENEMIES[0])));   // sicurezza: mai un nemico nullo (non bloccare il turno)
+  return e;
 }
 // Incontro Fortezza: pesca dal mazzo dei 5 boss (stessa logica).
 function drawFortressEnemy(){
   if(!state.fortressDeck) state.fortressDeck=[]; if(!state.fortressDiscard) state.fortressDiscard=[];
-  return enemyById(encTake(state.fortressDeck, state.fortressDiscard));
+  let e=enemyById(encTake(state.fortressDeck, state.fortressDiscard));
+  if(!e) e=applyEnemyMods(JSON.parse(JSON.stringify(FORTRESS_ENEMIES[0])));   // sicurezza: mai un nemico nullo
+  return e;
 }
 // Risoluzione dello scontro: individua il mazzo giusto (Fortezza o roaming) e SCARTA (vittoria)
 // oppure RIMETTE la carta nel mazzo in posizione casuale (morte / fuga / pace).
