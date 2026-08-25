@@ -268,6 +268,25 @@
   .cron.open .cron-body{height:min(44vh,320px)}
   .cron.open .cron-tab{border-color:var(--rust)}
   .cron-body .log{height:100%;box-shadow:0 6px 20px rgba(0,0,0,.7)}
+  /* --- Linguette CRONACA + CHAT affiancate (si apre una alla volta) --- */
+  .cron-tabs{display:flex;gap:4px;width:100%}
+  .cron-tabs .cron-tab{width:auto}
+  #tab-cron{flex:1;min-width:0}
+  .chat-tab{flex:none;border-left-color:var(--brace)}
+  .cron-tab.active{border-color:var(--rust)}
+  /* --- Pannello chat (stesso spazio della cronaca) --- */
+  .chatbox{height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#1c1c20,#161618);
+    border:1px solid var(--border2);border-radius:4px;box-shadow:0 6px 20px rgba(0,0,0,.7);overflow:hidden}
+  .chatlog{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+  .chat-msg{font-size:12px;line-height:1.35;word-break:break-word}
+  .chat-msg .who{font-weight:bold;margin-right:5px}
+  .chat-msg.mine{text-align:right}
+  .chat-sys{font-size:11px;color:var(--dim);text-align:center;font-style:italic;margin:2px 0}
+  .chatform{display:flex;gap:6px;padding:7px;border-top:1px solid var(--border2);background:rgba(0,0,0,.25)}
+  .chatform input{flex:1;min-width:0;background:#0f0f11;border:1px solid var(--border2);border-radius:4px;
+    color:var(--text);font-family:inherit;font-size:12px;padding:7px 9px}
+  .chatform input:focus{outline:none;border-color:var(--rust)}
+  .chatform .btn{flex:none;padding:7px 12px;font-size:12px}
   /* --- Inventario (modale): sezioni etichettate, slot vuoti disegnati --- */
   .inv-colh{font-size:11px;border-bottom:1px solid var(--border2);padding-bottom:4px;
     font-family:"Arial Narrow","Helvetica Neue",Impact,sans-serif;letter-spacing:.12em}
@@ -966,16 +985,29 @@
       <span class="flab">ORDINE DEL TURNO</span>
       <div id="turnorder-hud" style="margin-top:4px;display:flex;flex-direction:column;gap:2px"></div>
     </div>
-    <!-- CRONACA: registro richiudibile (chiuso di default) — LORE §4 "registro timbrato" -->
+    <!-- CRONACA + CHAT: due linguette affiancate, si apre una alla volta — LORE §4 "registro timbrato" -->
     <div class="cron" id="cron">
-      <button class="cron-tab" onclick="toggleCronaca()" title="Apri/chiudi il registro del turno">
-        <span class="stencil cron-t">📜 CRONACA</span>
-        <span class="cron-badge zero" id="cron-badge">0</span>
-        <span class="cron-prev" id="cron-prev">— registro di turno —</span>
-        <span class="cron-arrow" id="cron-arrow">▲</span>
-      </button>
+      <div class="cron-tabs">
+        <button class="cron-tab" id="tab-cron" onclick="toggleCronaca()" title="Apri/chiudi il registro del turno">
+          <span class="stencil cron-t">📜 CRONACA</span>
+          <span class="cron-badge zero" id="cron-badge">0</span>
+          <span class="cron-prev" id="cron-prev">— registro di turno —</span>
+          <span class="cron-arrow" id="cron-arrow">▲</span>
+        </button>
+        <button class="cron-tab chat-tab" id="tab-chat" onclick="toggleChat()" title="Chat coi giocatori" style="display:none">
+          <span class="stencil cron-t">💬 CHAT</span>
+          <span class="cron-badge zero" id="chat-badge">0</span>
+        </button>
+      </div>
       <div class="cron-body">
         <div class="log" id="log"></div>
+        <div class="chatbox" id="chatbox" style="display:none">
+          <div class="chatlog" id="chatlog"></div>
+          <form class="chatform" id="chatform" onsubmit="return sendChat(event)">
+            <input id="chatinput" type="text" maxlength="200" placeholder="Scrivi un messaggio…" autocomplete="off">
+            <button class="btn" type="submit">Invia</button>
+          </form>
+        </div>
       </div>
     </div>
   </div>
@@ -1099,6 +1131,261 @@
 /* =========================================================================
    HEXARTHA — prototipo flusso di gioco (mockup locale, single file)
    ========================================================================= */
+
+/* =========================================================================
+   HEXARTHA — AUDIO (musica ambientale sintetizzata + effetti) — Web Audio API
+   Nessun file esterno: tutto generato dal browser (ottimo per GitHub Pages).
+   - Musica: tappeto ambient cupo/malinconico "alla This War of Mine"
+             (accordi lenti in minore + note sparse di piano + riverbero).
+   - Effetti: giro carta, dado, click, combattimento, monete, vittoria/sconfitta.
+   - Pulsante 🔊/🔇 in alto a destra, con volumi separati per musica ed effetti.
+   - Le preferenze (mute + volumi) sono ricordate sul dispositivo (localStorage).
+   - I browser bloccano l'audio finché non tocchi lo schermo: parte al 1° gesto.
+   ========================================================================= */
+const HXAudio = (function(){
+  let ctx=null, master=null, musicGain=null, fxGain=null, revIn=null, noiseBuf=null;
+  let unlocked=false, musicPlaying=false, chordTimer=null, melodyTimer=null;
+
+  // ---- Preferenze persistenti (mute + volumi) ----
+  const P = {
+    get muted(){ return localStorage.getItem('hx_a_muted')==='1'; },
+    set muted(v){ localStorage.setItem('hx_a_muted', v?'1':'0'); },
+    get music(){ const v=parseFloat(localStorage.getItem('hx_a_music')); return isNaN(v)?0.5:v; },
+    set music(v){ localStorage.setItem('hx_a_music', String(v)); },
+    get fx(){ const v=parseFloat(localStorage.getItem('hx_a_fx')); return isNaN(v)?0.7:v; },
+    set fx(v){ localStorage.setItem('hx_a_fx', String(v)); },
+  };
+
+  // ---- Costruzione della catena audio (una sola volta, al primo gesto) ----
+  function build(){
+    if(ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = P.muted?0:1; master.connect(ctx.destination);
+    musicGain = ctx.createGain(); musicGain.gain.value = P.music; musicGain.connect(master);
+    fxGain = ctx.createGain(); fxGain.gain.value = P.fx; fxGain.connect(master);
+    // Riverbero economico: convolver con impulso sintetico che decade
+    const conv = ctx.createConvolver(); conv.buffer = makeImpulse(2.6, 3.0);
+    revIn = ctx.createGain(); revIn.gain.value = 0.9; revIn.connect(conv); conv.connect(musicGain);
+    // Buffer di rumore riutilizzabile per gli effetti
+    const n = ctx.createBuffer(1, ctx.sampleRate*1.0, ctx.sampleRate);
+    const nd = n.getChannelData(0); for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+    noiseBuf = n;
+  }
+  function makeImpulse(dur, decay){
+    const len = Math.floor(ctx.sampleRate*dur), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for(let ch=0; ch<2; ch++){ const d=buf.getChannelData(ch);
+      for(let i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len, decay); } }
+    return buf;
+  }
+  function ensure(){ build(); if(ctx && ctx.state==='suspended') ctx.resume(); return !!ctx; }
+
+  // ==================== MUSICA (ambient generativo, 3 periodi sempre più cupi) ====================
+  // Ogni periodo del gioco ha la sua tavolozza (registro, tonalità, filtro, drone):
+  //  Fase 0 "L'inizio" (g1-6): malinconico ma ancora "respirabile", registro medio.
+  //  Fase 1 "Il declino" (g7-13): più grave e teso, entra un drone sordo di sottofondo.
+  //  Fase 2 "La resa dei conti" (g14+): opprimente, cluster dissonanti gravi, drone pulsante.
+  // Il passaggio di fase è morbido: l'accordo in corso sfuma e il successivo nasce già nel nuovo mood.
+  const PHASES = [
+    { chords:[[110.00,164.81,220.00],[98.00,146.83,196.00],[87.31,130.81,174.61],[82.41,123.47,164.81]],
+      scale:[220,246.94,261.63,293.66,329.63,349.23,392,440],
+      lp:900, dur:16, gap:13000, padPeak:0.16, notePeak:0.12, noteDecay:2.6,
+      melMin:4500, melVar:7000, melChance:0.70, detune:5, drone:0,  droneLvl:0,    rev:0.85 },
+    { chords:[[82.41,98.00,146.83],[73.42,110.00,138.59],[65.41,98.00,130.81],[87.31,103.83,130.81]],
+      scale:[196,220,233.08,261.63,293.66,311.13,349.23,392],
+      lp:600, dur:18, gap:15000, padPeak:0.18, notePeak:0.11, noteDecay:3.0,
+      melMin:6000, melVar:8000, melChance:0.55, detune:7, drone:55, droneLvl:0.06, rev:0.92 },
+    { chords:[[55.00,65.41,92.50],[49.00,58.27,87.31],[43.65,61.74,82.41],[58.27,61.74,87.31]],
+      scale:[174.61,185,207.65,233.08,277.18,311.13],
+      lp:430, dur:20, gap:16000, padPeak:0.20, notePeak:0.10, noteDecay:3.6,
+      melMin:8000, melVar:9000, melChance:0.45, detune:10, drone:41, droneLvl:0.09, rev:1.0 },
+  ];
+  let phase=0, chordIx=0;
+  let dronOsc=null, dronGain=null, dronLp=null, lfo=null, lfoGain=null;
+  const cur = ()=>PHASES[phase];
+
+  function playChord(freqs, dur){
+    const c=cur(), t=ctx.currentTime, a=4.5, r=6.5;   // attacco/rilascio lunghi = tappeto morbido
+    freqs.forEach((f,idx)=>{
+      const o=ctx.createOscillator(); o.type = idx===0?'sine':'triangle';
+      o.frequency.value=f; o.detune.value=(Math.random()*2-1)*c.detune;
+      const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=c.lp; lp.Q.value=0.6;
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t);
+      const peak=c.padPeak/freqs.length;
+      g.gain.exponentialRampToValueAtTime(peak, t+a);
+      g.gain.setValueAtTime(peak, t+dur-r);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      o.connect(lp); lp.connect(g); g.connect(musicGain); g.connect(revIn);
+      o.start(t); o.stop(t+dur+0.1);
+    });
+  }
+  function playNote(f){
+    if(!ctx) return; const c=cur(), t=ctx.currentTime;
+    const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=f;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(c.notePeak, t+0.02);   // attacco rapido "alla piano"
+    g.gain.exponentialRampToValueAtTime(0.0001, t+c.noteDecay); // coda lunga
+    o.connect(g); g.connect(musicGain); g.connect(revIn);
+    o.start(t); o.stop(t+c.noteDecay+0.2);
+  }
+  function scheduleChord(){
+    const c=cur(); playChord(c.chords[chordIx%c.chords.length], c.dur);
+    chordIx++; chordTimer=setTimeout(scheduleChord, c.gap);   // leggero overlap col precedente
+  }
+  function scheduleMelody(){
+    const c=cur();
+    if(Math.random()<c.melChance) playNote(c.scale[Math.floor(Math.random()*c.scale.length)]);
+    melodyTimer=setTimeout(scheduleMelody, c.melMin + Math.random()*c.melVar);
+  }
+  function startDrone(){
+    if(dronOsc) return;
+    dronOsc=ctx.createOscillator(); dronOsc.type='sine'; dronOsc.frequency.value=55;
+    dronLp=ctx.createBiquadFilter(); dronLp.type='lowpass'; dronLp.frequency.value=180;
+    dronGain=ctx.createGain(); dronGain.gain.value=0.0001;
+    dronOsc.connect(dronLp); dronLp.connect(dronGain); dronGain.connect(musicGain);
+    lfo=ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.12;   // pulsare lento
+    lfoGain=ctx.createGain(); lfoGain.gain.value=0;
+    lfo.connect(lfoGain); lfoGain.connect(dronGain.gain);
+    dronOsc.start(); lfo.start();
+  }
+  function applyPhase(){
+    if(!ctx) return; const c=cur(), t=ctx.currentTime;
+    if(revIn) revIn.gain.setTargetAtTime(c.rev, t, 2);
+    if(dronOsc){
+      if(c.drone>0){ dronOsc.frequency.setTargetAtTime(c.drone,t,3); dronGain.gain.setTargetAtTime(c.droneLvl,t,4); lfoGain.gain.setTargetAtTime(c.droneLvl*0.7,t,4); }
+      else { dronGain.gain.setTargetAtTime(0.0001,t,4); lfoGain.gain.setTargetAtTime(0,t,4); }
+    }
+  }
+  function setPhase(i){ i=Math.max(0,Math.min(2, i|0)); if(i===phase) return; phase=i; applyPhase(); }
+  function setPhaseByDay(d){ setPhase(d<=6?0:d<=13?1:2); }   // stesse soglie di periodOfDay()
+
+  function startMusic(){
+    if(musicPlaying || !ensure() || P.muted) return;
+    musicPlaying=true; chordIx=0; startDrone(); applyPhase();
+    scheduleChord(); setTimeout(scheduleMelody, 6000);
+  }
+  function stopMusic(){
+    musicPlaying=false; clearTimeout(chordTimer); clearTimeout(melodyTimer);
+    if(ctx && dronGain){ dronGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 1.5); lfoGain.gain.setTargetAtTime(0, ctx.currentTime, 1.5); }
+  }
+
+  // ==================== EFFETTI (sintetizzati, nessun file) ====================
+  function noise(dur, type, freq, q, vol){
+    if(!ctx) return; const t=ctx.currentTime;
+    const src=ctx.createBufferSource(); src.buffer=noiseBuf;
+    const bp=ctx.createBiquadFilter(); bp.type=type||'bandpass'; bp.frequency.value=freq; bp.Q.value=q||1;
+    const g=ctx.createGain(); g.gain.setValueAtTime(vol||0.4,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(bp); bp.connect(g); g.connect(fxGain); src.start(t); src.stop(t+dur+0.02);
+    return {bp,g,t};
+  }
+  function tone(freq, dur, type, vol, slideTo){
+    if(!ctx) return; const t=ctx.currentTime;
+    const o=ctx.createOscillator(); o.type=type||'sine'; o.frequency.setValueAtTime(freq,t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t+dur);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.25, t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g); g.connect(fxGain); o.start(t); o.stop(t+dur+0.02);
+  }
+  // GIRO CARTA — file audio fornito dall'utente (AUDIO/FX audio carta_mixdown.mp3).
+  // Usa un HTMLAudioElement (funziona sia in locale file:// sia online su GitHub Pages).
+  // Rispetta il volume "Effetti" e il mute; se il file non si carica, ripiega sul suono sintetico.
+  let cardAudio=null, cardSampleBroken=false;
+  function cardSynth(){ const s=noise(0.22,'bandpass',1600,0.9,0.35); if(s) s.bp.frequency.exponentialRampToValueAtTime(3200, s.t+0.2); }
+  function playCardSample(){
+    if(cardSampleBroken){ cardSynth(); return; }
+    try{
+      if(!cardAudio){ cardAudio=new Audio(encodeURI('AUDIO/FX audio carta_mixdown.mp3')); cardAudio.preload='auto'; cardAudio.addEventListener('error',()=>{ cardSampleBroken=true; }); }
+      const a=cardAudio.cloneNode(); a.volume=Math.min(1,Math.max(0,P.fx)); a.play().catch(()=>{});   // clone = più flip possono sovrapporsi
+    }catch(e){ cardSynth(); }
+  }
+
+  let lastFx = {};
+  function fx(name){
+    if(!ensure() || P.muted) return;
+    const now = performance.now();
+    if(lastFx[name] && now-lastFx[name] < 55) return;   // anti-raffica
+    lastFx[name]=now;
+    switch(name){
+      case 'click':   tone(520,0.05,'triangle',0.10); break;
+      case 'card':    playCardSample(); break;
+      case 'dice':    [0,60,120].forEach(ms=>setTimeout(()=>noise(0.05,'bandpass',2600,3,0.3),ms)); break;
+      case 'combat':  tone(180,0.22,'triangle',0.35,70); noise(0.18,'bandpass',1400,1.2,0.40); break;
+      case 'coin':    tone(920,0.12,'sine',0.22); setTimeout(()=>tone(1280,0.14,'sine',0.20),80); break;
+      case 'win':     tone(523,0.18,'triangle',0.22); setTimeout(()=>tone(784,0.30,'triangle',0.22),150); break;
+      case 'lose':    tone(392,0.25,'triangle',0.22,300); setTimeout(()=>tone(262,0.45,'triangle',0.22,180),180); break;
+      case 'error':   tone(200,0.18,'square',0.18,140); break;
+      case 'chat':    tone(880,0.09,'sine',0.12); setTimeout(()=>tone(1174,0.11,'sine',0.10),70); break;   // notifica messaggio, discreta
+      default:        tone(520,0.05,'triangle',0.10);
+    }
+  }
+
+  // ==================== Controlli / preferenze ====================
+  function setMuted(v){ P.muted=v; if(master) master.gain.value=v?0:1; if(v) stopMusic(); else startMusic(); updateUI(); }
+  function toggleMute(){ setMuted(!P.muted); }
+  function setMusicVol(v){ P.music=v; if(musicGain) musicGain.gain.value=v; if(v>0 && !P.muted) startMusic(); }
+  function setFxVol(v){ P.fx=v; if(fxGain) fxGain.gain.value=v; }
+
+  // ==================== UI: pulsante + pannello volumi ====================
+  function updateUI(){
+    const b=document.getElementById('hx-audio-btn'); if(b) b.textContent = P.muted?'🔇':'🔊';
+  }
+  function buildUI(){
+    if(document.getElementById('hx-audio-ctrl')) return;
+    const css=document.createElement('style');
+    css.textContent=`
+      #hx-audio-ctrl{position:fixed;top:10px;right:10px;z-index:99999;font-family:inherit}
+      #hx-audio-btn{width:40px;height:40px;border-radius:8px;border:1px solid #5a5142;
+        background:rgba(20,18,15,.82);color:#e8e0d0;font-size:18px;cursor:pointer;
+        box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s}
+      #hx-audio-btn:hover{background:rgba(40,36,30,.95)}
+      #hx-audio-pop{display:none;position:absolute;top:46px;right:0;width:186px;padding:12px;
+        background:rgba(20,18,15,.96);border:1px solid #5a5142;border-radius:10px;
+        box-shadow:0 6px 20px rgba(0,0,0,.6);color:#d9cfbb}
+      #hx-audio-pop.open{display:block}
+      #hx-audio-pop .row{margin:8px 0;font-size:11px;letter-spacing:.06em}
+      #hx-audio-pop label{display:block;margin-bottom:4px;color:#b7ac95;text-transform:uppercase}
+      #hx-audio-pop input[type=range]{width:100%;accent-color:#d9a441}
+      #hx-audio-pop .mute{display:flex;align-items:center;gap:7px;margin-top:6px;cursor:pointer;font-size:12px}
+    `;
+    document.head.appendChild(css);
+    const wrap=document.createElement('div'); wrap.id='hx-audio-ctrl';
+    wrap.innerHTML=`
+      <button id="hx-audio-btn" title="Audio (musica ed effetti)">${P.muted?'🔇':'🔊'}</button>
+      <div id="hx-audio-pop">
+        <div class="row"><label>🎵 Musica</label><input id="hx-vol-music" type="range" min="0" max="1" step="0.01" value="${P.music}"></div>
+        <div class="row"><label>🔔 Effetti</label><input id="hx-vol-fx" type="range" min="0" max="1" step="0.01" value="${P.fx}"></div>
+        <label class="mute"><input id="hx-mute" type="checkbox" ${P.muted?'checked':''}> Silenzia tutto</label>
+      </div>`;
+    document.body.appendChild(wrap);
+    const btn=wrap.querySelector('#hx-audio-btn'), pop=wrap.querySelector('#hx-audio-pop');
+    btn.addEventListener('click', ()=>{ ensure(); pop.classList.toggle('open'); });
+    wrap.querySelector('#hx-vol-music').addEventListener('input', e=>setMusicVol(parseFloat(e.target.value)));
+    wrap.querySelector('#hx-vol-fx').addEventListener('input', e=>{ setFxVol(parseFloat(e.target.value)); fx('click'); });
+    wrap.querySelector('#hx-mute').addEventListener('change', e=>setMuted(e.target.checked));
+    document.addEventListener('click', e=>{ if(!wrap.contains(e.target)) pop.classList.remove('open'); });
+  }
+
+  // ---- Avvio: sblocco al primo gesto (policy autoplay dei browser) + click globale ----
+  function init(){
+    buildUI();
+    const unlock=()=>{ if(unlocked) return; unlocked=true; if(ensure()) startMusic();
+      window.removeEventListener('pointerdown',unlock); window.removeEventListener('keydown',unlock); window.removeEventListener('touchstart',unlock); };
+    window.addEventListener('pointerdown',unlock,{passive:true});
+    window.addEventListener('keydown',unlock);
+    window.addEventListener('touchstart',unlock,{passive:true});
+    // Suono discreto su ogni pulsante/link del gioco (delega globale)
+    document.addEventListener('click', e=>{ const el=e.target.closest('button,.btn,a[role=button]'); if(el && !el.closest('#hx-audio-ctrl')) fx('click'); }, true);
+    // GIRO CARTA — aggancio universale agli eventi del browser: cattura OGNI carta che si gira,
+    // qualunque funzione la riveli (bottino singolo/scelta multipla, Cassaforte, evento, Zona evacuata).
+    document.addEventListener('transitionstart', e=>{ const t=e.target; if(t&&t.classList&&t.classList.contains('flip-inner')) fx('card'); }, true);   // bottino: transition su .flip-inner
+    document.addEventListener('animationstart', e=>{ const t=e.target; if(!t||!t.classList) return; if(t.classList.contains('evt-card-anim')||t.classList.contains('zev-card-reveal')) fx('card'); }, true);   // carta evento / Zona evacuata
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  return { fx, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
+})();
 
 // ---------- Dati mappa (plancia reale — 43 tessere, coord "raddoppiate" col,v) ----------
 // Fonte: ZONES.md §4. Esagoni flat-top in 9 colonne (col 0 = ovest, col 8 = est).
@@ -1667,15 +1954,62 @@ function cronacaNotify(entry){
     if(b){ b.textContent=cronUnread>99?'99+':cronUnread; b.classList.remove('zero'); }
   }
 }
-function toggleCronaca(){
-  cronacaOpen=!cronacaOpen;
+// Un solo pannello aperto alla volta (CRONACA oppure CHAT); which = 'log' | 'chat' | null
+let chatOpen=false, chatUnread=0;
+function setDrawer(which){
+  cronacaOpen=(which==='log'); chatOpen=(which==='chat');
   const c=document.getElementById('cron'); if(!c)return;
-  c.classList.toggle('open',cronacaOpen);
+  c.classList.toggle('open', which!=null);
+  const logEl=document.getElementById('log'); if(logEl) logEl.style.display=(which==='log')?'':'none';
+  const chatEl=document.getElementById('chatbox'); if(chatEl) chatEl.style.display=(which==='chat')?'flex':'none';
   const a=document.getElementById('cron-arrow'); if(a) a.textContent=cronacaOpen?'▼':'▲';
+  document.getElementById('tab-cron')?.classList.toggle('active', cronacaOpen);
+  document.getElementById('tab-chat')?.classList.toggle('active', chatOpen);
   if(cronacaOpen){
     cronUnread=0;
     const b=document.getElementById('cron-badge'); if(b){ b.textContent='0'; b.classList.add('zero'); }
     const box=document.getElementById('log'); if(box) box.scrollTop=box.scrollHeight;
+  }
+  if(chatOpen){
+    chatUnread=0;
+    const b=document.getElementById('chat-badge'); if(b){ b.textContent='0'; b.classList.add('zero'); }
+    const box=document.getElementById('chatlog'); if(box) box.scrollTop=box.scrollHeight;
+    setTimeout(()=>document.getElementById('chatinput')?.focus(),50);
+  }
+}
+function toggleCronaca(){ setDrawer(cronacaOpen?null:'log'); }
+function toggleChat(){ setDrawer(chatOpen?null:'chat'); }
+
+// ---------- Chat di partita (solo online): messaggi via broadcast sul canale Supabase ----------
+function showChatTab(on){ const t=document.getElementById('tab-chat'); if(t) t.style.display=on?'':'none'; }
+function chatAppend(name, text, color, mine, sys){
+  const box=document.getElementById('chatlog'); if(!box) return;
+  const d=document.createElement('div');
+  if(sys){ d.className='chat-sys'; d.textContent=text; }
+  else{
+    d.className='chat-msg'+(mine?' mine':'');
+    d.innerHTML=`<span class="who" style="color:${color||'#d9a441'}">${escapeHtml(name)}:</span>${escapeHtml(text)}`;
+  }
+  box.appendChild(d); box.scrollTop=box.scrollHeight;
+}
+function sendChat(ev){
+  if(ev) ev.preventDefault();
+  const inp=document.getElementById('chatinput'); if(!inp) return false;
+  const text=(inp.value||'').trim().slice(0,200); inp.value='';
+  if(!text) return false;
+  const me=((net&&net.players)||[]).find(p=>p.id===myId);
+  const color=me?me.color:'#d9a441';
+  chatAppend(myName||'Io', text, color, true, false);   // eco locale: il broadcast non torna al mittente
+  if(roomChannel){ try{ roomChannel.send({type:'broadcast', event:'chat', payload:{id:myId, name:myName, text, color}}); }catch(e){} }
+  return false;
+}
+function chatReceive(payload){
+  if(!payload || payload.id===myId) return;
+  chatAppend(payload.name||'?', payload.text||'', payload.color, false, false);
+  try{HXAudio.fx('chat');}catch(e){}   // notifica discreta all'arrivo di un messaggio
+  if(!chatOpen){
+    chatUnread++;
+    const b=document.getElementById('chat-badge'); if(b){ b.textContent=chatUnread>99?'99+':chatUnread; b.classList.remove('zero'); }
   }
 }
 
@@ -1805,6 +2139,7 @@ function subscribeRoom(){
     .on("presence",{event:"sync"}, updateOnline)
     .on("presence",{event:"join"}, updateOnline)
     .on("presence",{event:"leave"}, updateOnline)
+    .on("broadcast",{event:"chat"}, p=>chatReceive(p.payload))   // chat di partita (nessuna scrittura sul DB)
     .subscribe(async (status)=>{
       if(status==="SUBSCRIBED"){ try{ await roomChannel.track({ id:myId, name:myName, at:Date.now() }); }catch(e){} }
     });
@@ -2194,6 +2529,7 @@ function mpRenderAll(){
   recalcStats();
   const dEl=document.getElementById('day'); if(dEl) dEl.textContent=state.day;
   const pd=document.getElementById('dayperiod'); if(pd) pd.textContent=periodOfDay(state.day);
+  try{HXAudio.setPhaseByDay(state.day);}catch(e){}   // musica: fase più cupa col progredire dei giorni
   if(state.event){
     const et=document.getElementById('eventtitle'); if(et) et.textContent="EVENTO · "+state.event.t;
     const ef=document.getElementById('eventeff'); if(ef) ef.textContent=state.event.eff||"";
@@ -2233,6 +2569,7 @@ function mpEnterGame(){
     _mpMapBuilt=false;                 // nuova entrata in partita → mappa da (ri)costruire una volta
     mpHydrate(mpDeserialize(net.game));
     show("game"); mpRenderAll();
+    showChatTab(true);   // partita di rete → abilita la linguetta CHAT accanto alla CRONACA
     mpAfterHydrateFlow();
     if(!_watchdogInterval) _watchdogInterval=setInterval(watchdogTick, 5000);   // controllo periodico anti-stallo disconnessioni
   });
@@ -4027,6 +4364,7 @@ function continueNewDay(period, first){
   state.extraEncounterAfterTurn = !!(state.event.extraEncounter);
   document.getElementById('day').textContent=state.day;
   const pd=document.getElementById('dayperiod'); if(pd) pd.textContent=period;
+  try{HXAudio.setPhaseByDay(state.day);}catch(e){}   // musica: fase più cupa col progredire dei giorni
   document.getElementById('eventtitle').textContent="EVENTO · "+state.event.t;
   const effEl=document.getElementById('eventeff'); if(effEl) effEl.textContent=state.event.eff||"";
   document.getElementById('eventdesc').textContent=state.event.d;
@@ -5539,7 +5877,7 @@ function showLootDraw(items, title, onDone){
       <button class="btn primary" style="margin-top:12px" onclick="closeLootDraw()">Raccogli e continua</button>
     </div>`);
   _lootOnDone=onDone||null;
-  // rivelazione sfalsata: ogni carta si gira dopo la precedente
+  // rivelazione sfalsata: ogni carta si gira dopo la precedente (il suono parte dal listener globale sul flip CSS)
   items.forEach((_,i)=>setTimeout(()=>document.getElementById('fc-'+i)?.classList.add('revealed'), 220+i*350));
 }
 function closeLootDraw(){ const cb=_lootOnDone; _lootOnDone=null; closeModal(); if(cb)cb(); }
@@ -5938,6 +6276,7 @@ function d6(){return 1+Math.floor(Math.random()*6);}
 // --- Effetti-dado di armi e caschi (§6.4) ---
 // Dadi d'attacco del giocatore: il Fucile di precisione (keep2of3) tira 3 dadi e tiene i 2 più alti (evidenziati); le altre armi 2 dadi.
 function rollPlayerDice(){
+  try{HXAudio.fx('dice');}catch(e){}
   const w=state.you.equip.arma;
   if(w && w.dieEffect && w.dieEffect.type==="keep2of3"){
     const raw=[d6(),d6(),d6()];
@@ -6083,6 +6422,7 @@ function continueCombat(){
     log(`🏃 Fuga fallita: resti nello scontro.`,"bad");
     return renderCombat();                            // resta in combattimento
   }
+  if(o.foe||o.you){ try{HXAudio.fx('combat');}catch(e){} }   // un colpo è andato a segno
   if(o.foe) combat.ehp-=o.foe;
   if(o.you){
     const dmgToTake = combat.e.hitDmg || 1;
@@ -6122,6 +6462,7 @@ function tryFlee(){
   animateReveal('#dice', [document.getElementById('rollres'), document.getElementById('combat-actions')]);
 }
 function winEncounter(){
+  try{HXAudio.fx('win');}catch(e){}
   stopCombatIdle();
   publishLive("encounter", `ha sconfitto ${combat.e.name}`, { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   const e=combat.e; let bonus="";
@@ -6176,6 +6517,7 @@ function startExtraEncounter(){
   renderCombat(`Incontro aggiuntivo! Appare <b>${e.name}</b> — <em>${e.epithet||''}</em>.`);
 }
 function dieEncounter(){
+  try{HXAudio.fx('lose');}catch(e){}
   stopCombatIdle();
   publishLive("encounter", "è caduto in combattimento", { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   openModal(`
@@ -6340,6 +6682,7 @@ function continuePvP(){
   const p=state.pvp.pending; if(!p) return;
   state.pvp.pending=null;
   const foe=state.pvp.foe;
+  if(p.outcome.foe||p.outcome.you){ try{HXAudio.fx('combat');}catch(e){} }
   if(p.outcome.foe) foe.hp-=p.outcome.foe;
   if(p.outcome.you) hurtYou(p.outcome.you);
   if(state.pvp.lgSpent){ const w=state.you.equip.arma; if(w&&w.lanciagranate&&(w.charges||0)<=0){ state.you.equip.arma=null; recalcStats(); log(`🚀 <b>${w.name}</b> esaurito: si scarta.`,"bad"); } state.pvp.lgSpent=false; }
@@ -6349,6 +6692,7 @@ function continuePvP(){
   renderPvPFight();
 }
 function pvpWin(){
+  try{HXAudio.fx('win');}catch(e){}
   log(`⚔ Hai eliminato <b>${state.pvp.foe.name}</b> in PvP!`,"good");
   // Usura: ogni incontro PvP concluso (vinto) consuma 1 punto usura arma
   applyWeaponWear();
@@ -6393,6 +6737,7 @@ function pvpLootDone(){
   drawPawn(); state.pvp=null; enterPostEncounter();
 }
 function pvpLose(){
+  try{HXAudio.fx('lose');}catch(e){}
   const foe=state.pvp.foe;
   log(`☠ <b>${foe.name}</b> ti ha eliminato in PvP.`,"bad");
   openModal(`
