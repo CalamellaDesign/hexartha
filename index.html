@@ -1181,28 +1181,32 @@ const HXAudio = (function(){
   }
   function ensure(){ build(); if(ctx && ctx.state==='suspended') ctx.resume(); return !!ctx; }
 
-  // ==================== MUSICA (ambient generativo, 3 periodi sempre più cupi) ====================
-  // Ogni periodo del gioco ha la sua tavolozza (registro, tonalità, filtro, drone):
-  //  Fase 0 "L'inizio" (g1-6): malinconico ma ancora "respirabile", registro medio.
-  //  Fase 1 "Il declino" (g7-13): più grave e teso, entra un drone sordo di sottofondo.
-  //  Fase 2 "La resa dei conti" (g14+): opprimente, cluster dissonanti gravi, drone pulsante.
-  // Il passaggio di fase è morbido: l'accordo in corso sfuma e il successivo nasce già nel nuovo mood.
+  // ==================== MUSICA (ambient generativo, 3 fasi NETTAMENTE diverse) ====================
+  // Ogni fase cambia registro, filtro, tempo (dur/gap), drone e — soprattutto — un BATTITO ritmico
+  // che rende inequivocabile il passaggio: assente all'inizio, lento e cupo nel declino, incalzante
+  // e ansiogeno nel finale. Il cambio è morbido: l'accordo in corso sfuma nel nuovo mood.
+  //  Fase 0 "L'inizio" (g1-6): calma, registro ALTO, filtro aperto, nessun battito.
+  //  Fase 1 "Il declino" (g7-13): registro medio-grave, drone, battito lento (~34 bpm), tensione.
+  //  Fase 2 "La resa dei conti" (g14+): cluster dissonanti gravi, filtro chiuso, battito incalzante (~60 bpm).
   const PHASES = [
-    { chords:[[110.00,164.81,220.00],[98.00,146.83,196.00],[87.31,130.81,174.61],[82.41,123.47,164.81]],
-      scale:[220,246.94,261.63,293.66,329.63,349.23,392,440],
-      lp:900, dur:16, gap:13000, padPeak:0.16, notePeak:0.12, noteDecay:2.6,
-      melMin:4500, melVar:7000, melChance:0.70, detune:5, drone:0,  droneLvl:0,    rev:0.85 },
-    { chords:[[82.41,98.00,146.83],[73.42,110.00,138.59],[65.41,98.00,130.81],[87.31,103.83,130.81]],
-      scale:[196,220,233.08,261.63,293.66,311.13,349.23,392],
-      lp:600, dur:18, gap:15000, padPeak:0.18, notePeak:0.11, noteDecay:3.0,
-      melMin:6000, melVar:8000, melChance:0.55, detune:7, drone:55, droneLvl:0.06, rev:0.92 },
-    { chords:[[55.00,65.41,92.50],[49.00,58.27,87.31],[43.65,61.74,82.41],[58.27,61.74,87.31]],
-      scale:[174.61,185,207.65,233.08,277.18,311.13],
-      lp:430, dur:20, gap:16000, padPeak:0.20, notePeak:0.10, noteDecay:3.6,
-      melMin:8000, melVar:9000, melChance:0.45, detune:10, drone:41, droneLvl:0.09, rev:1.0 },
+    { chords:[[220.00,277.18,329.63],[196.00,261.63,329.63],[174.61,261.63,349.23],[164.81,246.94,329.63]],
+      scale:[329.63,392,440,493.88,523.25,587.33,659.25],
+      lp:1400, dur:15, gap:12000, padPeak:0.15, notePeak:0.13, noteDecay:2.8,
+      melMin:4000, melVar:6000, melChance:0.75, detune:4, drone:0,  droneLvl:0,    rev:0.8,
+      pulseMs:0,    pulseF:0,  pulseLvl:0 },
+    { chords:[[110.00,130.81,164.81],[98.00,146.83,174.61],[87.31,130.81,155.56],[103.83,123.47,146.83]],
+      scale:[196,220,233.08,261.63,293.66,311.13],
+      lp:620, dur:11, gap:8500, padPeak:0.18, notePeak:0.11, noteDecay:3.0,
+      melMin:6000, melVar:7000, melChance:0.55, detune:8, drone:55, droneLvl:0.07, rev:0.92,
+      pulseMs:1750, pulseF:60, pulseLvl:0.26 },
+    { chords:[[55.00,58.27,82.41],[49.00,51.91,73.42],[43.65,46.25,65.41],[58.27,61.74,87.31]],
+      scale:[233.08,246.94,277.18,311.13,369.99],
+      lp:340, dur:8, gap:5500, padPeak:0.22, notePeak:0.10, noteDecay:3.4,
+      melMin:5000, melVar:5000, melChance:0.5, detune:14, drone:41, droneLvl:0.11, rev:1.0,
+      pulseMs:1000, pulseF:46, pulseLvl:0.36 },
   ];
   let phase=0, chordIx=0;
-  let dronOsc=null, dronGain=null, dronLp=null, lfo=null, lfoGain=null;
+  let dronOsc=null, dronGain=null, dronLp=null, lfo=null, lfoGain=null, pulseTimer=null;
   const cur = ()=>PHASES[phase];
 
   function playChord(freqs, dur){
@@ -1260,13 +1264,32 @@ const HXAudio = (function(){
   function setPhase(i){ i=Math.max(0,Math.min(2, i|0)); if(i===phase) return; phase=i; applyPhase(); }
   function setPhaseByDay(d){ setPhase(d<=6?0:d<=13?1:2); }   // stesse soglie di periodOfDay()
 
+  // BATTITO ritmico: il segnale più udibile del cambio di fase (assente in fase 0).
+  function playPulse(){
+    const c=cur(); if(!c.pulseMs || !ctx) return; const t=ctx.currentTime;
+    const o=ctx.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(c.pulseF*1.7, t); o.frequency.exponentialRampToValueAtTime(c.pulseF, t+0.09);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(c.pulseLvl, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.5);
+    o.connect(g); g.connect(musicGain); o.start(t); o.stop(t+0.55);
+    if(phase===2){ setTimeout(()=>{ if(ctx){ const t2=ctx.currentTime;   // fase finale: doppio colpo = "battito cardiaco" ansioso
+      const o2=ctx.createOscillator(); o2.type='sine'; o2.frequency.setValueAtTime(c.pulseF*1.5,t2); o2.frequency.exponentialRampToValueAtTime(c.pulseF*0.9,t2+0.08);
+      const g2=ctx.createGain(); g2.gain.setValueAtTime(0.0001,t2); g2.gain.exponentialRampToValueAtTime(c.pulseLvl*0.7,t2+0.012); g2.gain.exponentialRampToValueAtTime(0.0001,t2+0.4);
+      o2.connect(g2); g2.connect(musicGain); o2.start(t2); o2.stop(t2+0.45);
+    } }, 230); }
+  }
+  function schedulePulse(){
+    if(cur().pulseMs) playPulse();
+    pulseTimer=setTimeout(schedulePulse, cur().pulseMs || 1500);   // se fase senza battito, ricontrolla ogni 1.5s (per il cambio fase)
+  }
+
   function startMusic(){
     if(musicPlaying || !ensure() || P.muted) return;
     musicPlaying=true; chordIx=0; startDrone(); applyPhase();
-    scheduleChord(); setTimeout(scheduleMelody, 6000);
+    scheduleChord(); setTimeout(scheduleMelody, 6000); schedulePulse();
   }
   function stopMusic(){
-    musicPlaying=false; clearTimeout(chordTimer); clearTimeout(melodyTimer);
+    musicPlaying=false; clearTimeout(chordTimer); clearTimeout(melodyTimer); clearTimeout(pulseTimer);
     if(ctx && dronGain){ dronGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 1.5); lfoGain.gain.setTargetAtTime(0, ctx.currentTime, 1.5); }
   }
 
@@ -3327,10 +3350,53 @@ function mpCombatFinalize(){
 function mpStartMyTurn(){
   mpGuard("Inizio turno", ()=>{
     if(mpMyTurn) return;   // turno già avviato: evita il DOPPIO beginYourTurn (update duplicato Supabase + callback carta-evento) che saltava il turno di gestione safe-zone
+    const t=mpGame && mpGame.turn;
+    if(t && t.ownerId===myId && mpGame.seat===mySeatIndex){ restoreMyTurn(); return; }   // RIENTRO a metà turno: ripristina, non ricominciare
     mpMyTurn=true; mpHideWatch();
     const to=document.getElementById('turnof'); if(to) to.textContent = state.you?state.you.name:"Tu";
     beginYourTurn();
   });
+}
+// Snapshot del turno in corso (campi transitori che vivono solo in `state` + la globale `combat`).
+// Salvato in mpGame.turn ad ogni azione, così un refresh può riprendere esattamente da qui.
+function captureTurn(){
+  if(!mpGame) return;
+  mpGame.turn={
+    ownerId:myId, day:mpGame.day,
+    phase:state.phase, actionsLeft:state.actionsLeft, movedFirst:!!state.movedFirst,
+    milSearchCount:state.milSearchCount||0,
+    pendingPvp:state.pendingPvp||null, extraEncounterAfterTurn:!!state.extraEncounterAfterTurn,
+    stationTravelActive:!!state.stationTravelActive,
+    sensoreOpts:state.sensoreOpts||null, sensorePair:state.sensorePair||null,
+    lootRoom:!!state.lootRoom, pendingLoot:state.pendingLoot||null,
+    combat: (typeof combat!=="undefined" ? combat : null) || null
+  };
+}
+// Persiste subito lo stato dopo una mutazione "silenziosa" (es. gestione inventario) che non
+// passa già da publishLive. No-op fuori dal proprio turno di rete.
+function mpTouch(){ if(mpGame && mpMyTurn && !(net&&net.pvp)) publishLive("inv",""); }
+// Ripristino del turno dopo un refresh (lo snapshot è mio e il turno è mio).
+function restoreMyTurn(){
+  const t=mpGame.turn; if(!t){ beginYourTurn(); return; }
+  mpMyTurn=true; mpHideWatch();
+  state.phase=t.phase||"move"; state.actionsLeft=(t.actionsLeft!=null?t.actionsLeft:0);
+  state.movedFirst=!!t.movedFirst; state.milSearchCount=t.milSearchCount||0;
+  state.pendingPvp=t.pendingPvp||null; state.extraEncounterAfterTurn=!!t.extraEncounterAfterTurn;
+  state.stationTravelActive=!!t.stationTravelActive;
+  state.sensoreOpts=t.sensoreOpts||null; state.sensorePair=t.sensorePair||null;
+  state.lootRoom=!!t.lootRoom; state.pendingLoot=t.pendingLoot||null;
+  combat=t.combat||null;
+  const to=document.getElementById('turnof'); if(to) to.textContent=state.you?state.you.name:"Tu";
+  recalcStats(); renderHUD(); drawPawn();
+  if(combat){ renderCombat(); return; }                                  // riprende lo scontro esatto
+  if(state.you && state.you.reviveEquipPending){ openReviveEquip(); return; }
+  if(state.lootRoom){
+    // il callback di proseguimento non è serializzabile: fallback che restituisce il controllo al turno
+    if(!state.pendingDone) state.pendingDone=()=>{ closeModal(); renderHUD(); updateActionUI(); highlightReach(state.phase==="move"); startTurnTimer(); };
+    renderInventory(); return;
+  }
+  updateActionUI(); highlightReach(state.phase==="move"); startTurnTimer();
+  log(`↩️ Turno ripristinato dopo il ricaricamento: riprendi da dove eri.`,"evt");
 }
 function mpWatch(){
   mpMyTurn=false; stopTurnTimer();
@@ -3362,10 +3428,16 @@ async function mpSoftRefresh(){
 // Il giocatore attivo trasmette un piccolo "snapshot live" a ogni azione (posizione, azione,
 // equipaggiamento, HP). MAI lo zaino né le carte in chiaro. Best-effort: se la rete fa i capricci
 // si salta l'aggiornamento senza disturbare chi gioca.
+// PERSISTENZA PER-AZIONE: il giocatore attivo, dopo ogni azione, riscrive l'INTERO stato di
+// partita nella stanza (autorevole, con rev++ via patchRoom) più lo snapshot spettatore `live`.
+// Così un refresh riprende esattamente da qui (posizione, azioni, inventario, combattimento) e
+// il mondo condiviso (mazzi/eventi) resta sempre allineato fra i device. NON blocca la UI.
 async function publishLive(action, text, extra){
   if(!mpGame || !mpMyTurn || !roomCode || !net) return;   // solo l'attivo, nel suo turno di rete
-  if(net.pvp) return;                                      // durante il PvP non trasmetto live (flusso a parte)
+  if(net.pvp) return;                                      // durante il PvP: flusso a parte (net.pvp)
   const y=state.you; if(!y) return;
+  mpWriteBack();     // personaggio + mazzi incontri/eventi → mondo condiviso
+  captureTurn();     // snapshot campi transitori del turno (+ combat) per il rientro
   const nm=it=> (it&&it.name)?{name:it.name}:null;
   const live={
     by:myId, name:y.name||"", day:mpGame.day,
@@ -3377,21 +3449,8 @@ async function publishLive(action, text, extra){
     seq:Date.now()
   };
   if(extra) Object.assign(live, extra);   // FASE B: dati incontro (live.enc) per la vista spettatore del combattimento
-  try{
-    const baseRev=(net.rev||0);
-    const s=JSON.parse(JSON.stringify(net)); s.live=live;   // rev INVARIATO: lo snapshot live non fa avanzare lo stato autorevole
-    const {data,error}=await SB.from("rooms")
-      .update({state:s, updated_at:new Date().toISOString()})
-      .eq("code",roomCode).eq("state->>rev",String(baseRev)).select("code");
-    if(error){                                              // filtro non disponibile → best-effort classico
-      await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode);
-    } else if(!(data && data.length)){
-      // 0 righe: o è un VERO conflitto (stato già avanzato) o il filtro non ha agganciato.
-      const cur=await fetchRoom(roomCode);
-      if(cur && (cur.state.rev||0) > baseRev){ /* scrittura autorevole arrivata prima → SALTO (niente clobber, niente ritorni indietro) */ }
-      else { await SB.from("rooms").update({state:s, updated_at:new Date().toISOString()}).eq("code",roomCode); }   // rev non avanzato → aggiorno comunque (spettatore mai fermo)
-    }
-  }catch(e){ /* best-effort: ignora */ }
+  const gameSer=mpSerialize(mpGame);
+  patchRoom(s=>{ s.game=gameSer; s.live=live; });   // scrittura autorevole (rev++, lock+retry): stato sempre salvato
 }
 // Sul dispositivo di chi guarda: applica lo snapshot live (pedina + pannello + feed).
 let _lastLiveSeq=null;
@@ -3557,6 +3616,7 @@ function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
     } else { mpGame.seat=mpNextSeat(mpGame.seat); }
   }
   if(ended){ mpLiquidateAll(); if(byFama) winnerId=mpTopFamaId(); }   // liquida gli oggetti in monete PRIMA di decidere il vincitore (spareggio monete)
+  mpGame.turn=null;   // turno concluso: il prossimo giocatore parte pulito (beginYourTurn), nessuno snapshot residuo
   const gameSer=mpSerialize(mpGame);
   patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });   // s.live=null: fine turno → si spegne l'overlay spettatore
 }); }
@@ -6009,7 +6069,7 @@ function lootRenounceAll(){
   state.pendingLoot=[]; lootRoomStep();
 }
 function lootRoomStep(){
-  if((state.pendingLoot||[]).length){ renderInventory(); return; }   // altre carte da sistemare
+  if((state.pendingLoot||[]).length){ renderInventory(); mpTouch(); return; }   // altre carte da sistemare (persisti il progresso)
   state.lootRoom=false; state.invSel=null; state.invMsg=null;         // bottino risolto
   const d=state.pendingDone; state.pendingDone=null; closeModal(); renderHUD(); if(d)d();
 }
@@ -7560,10 +7620,19 @@ function renderRanking(){
   const card=document.getElementById('ranking-card');
   const box=document.getElementById('ranking-hud');
   if(!card||!box||!state) return;
-  const opps=state.opponents||[];
-  if(!opps.length){ card.style.display='none'; return; }
+  let entries;
+  if(mpGame && mpGame.characters){
+    // Rete: leggi la fama dalla FONTE DI VERITÀ condivisa (mpGame.characters), non da state.opponents
+    // (che si rinfresca solo a fine turno). Così la fama di TUTTI i giocatori è sempre aggiornata.
+    entries=mpGame.characters.filter(c=>c && !c.abandoned)
+      .map(c=>({name:c.id===myId?"Tu":c.name, fama:c.fama||0, color:c.color||"#aaa"}));
+  }else{
+    const opps=state.opponents||[];
+    if(!opps.length){ card.style.display='none'; return; }
+    entries=[{name:"Tu", fama:state.you.fama, color:"#c8a44e"}, ...opps.map(o=>({name:o.name, fama:o.fama||0, color:o.color||"#aaa"}))];
+  }
+  if(!entries.length){ card.style.display='none'; return; }
   card.style.display='flex';
-  const entries=[{name:"Tu", fama:state.you.fama, color:"#c8a44e"}, ...opps.map(o=>({name:o.name, fama:o.fama||0, color:o.color||"#aaa"}))];
   entries.sort((a,b)=>b.fama-a.fama);
   box.innerHTML=entries.map((e,i)=>{
     const stars="★".repeat(e.fama)+"☆".repeat(Math.max(0,5-e.fama));
@@ -8177,14 +8246,14 @@ function invEquip(loc){
     state.you.equip[slot]=item;
     if(cur) packAdd(cur);              // l'oggetto sostituito torna nello zaino
   }
-  recalcStats(); state.invSel=null; log(`🎒 Equipaggi <b>${item.name}</b>.`,"good"); renderInventory();
+  recalcStats(); state.invSel=null; log(`🎒 Equipaggi <b>${item.name}</b>.`,"good"); renderInventory(); mpTouch();
 }
 function invMove(loc,sec){
   const p=loc.split(".");
   if(sidePocketsBlocked() && sec!=="centro"){ return invMsg("Tasca laterale bloccata da uno stato."); }
   if(packFree(sec)>0){                                   // c'è posto: spostamento semplice
     const it=locRemove(loc); state.you.pack[sec].push(it);
-    state.invSel=`pack.${sec}.${state.you.pack[sec].length-1}`; renderInventory(); return;
+    state.invSel=`pack.${sec}.${state.you.pack[sec].length-1}`; renderInventory(); mpTouch(); return;
   }
   // destinazione piena: scambio possibile solo se la sezione è a 1 slot (sx/dx)
   if(PACK_CAP[sec]===1 && p[0]==="pack"){
@@ -8193,7 +8262,7 @@ function invMove(loc,sec){
     state.you.pack[sec].push(it);
     state.you.pack[p[1]].push(other);                     // torna dove stava la carta spostata
     log(`🎒 Scambi <b>${it.name}</b> ⇄ <b>${other.name}</b>.`);
-    state.invSel=`pack.${sec}.0`; renderInventory(); return;
+    state.invSel=`pack.${sec}.0`; renderInventory(); mpTouch(); return;
   }
   return invMsg("Sezione piena.");
 }
@@ -8210,16 +8279,16 @@ function invToTasca(loc){
   }else{
     log(`🎒 Metti <b>${it.name}</b> nella tasca sicura.`);
   }
-  recalcStats(); state.invSel="equip.tasca"; renderInventory();
+  recalcStats(); state.invSel="equip.tasca"; renderInventory(); mpTouch();
 }
 function invUnequip(loc){
   if(packTotalFree()<=0){ return invMsg("Zaino pieno: fai spazio prima."); }
   const it=locRemove(loc); packAdd(it); recalcStats(); state.invSel=null;
-  log(`🎒 Rimetti <b>${it.name}</b> nello zaino.`); renderInventory();
+  log(`🎒 Rimetti <b>${it.name}</b> nello zaino.`); renderInventory(); mpTouch();
 }
 function invDiscard(loc){
   const it=locRemove(loc); toRiciclaggio(it); recalcStats(); state.invSel=null;
-  log(`🗑 Scarti <b>${it.name}</b> → va nel mazzo Riciclaggio.`,"bad"); renderInventory();
+  log(`🗑 Scarti <b>${it.name}</b> → va nel mazzo Riciclaggio.`,"bad"); renderInventory(); mpTouch();
 }
 // Usa un consumabile (in qualsiasi momento del proprio turno, in qualsiasi zona)
 function invUse(loc){
@@ -8244,7 +8313,7 @@ function invUse(loc){
   const used=locRemove(loc); toRiciclaggio(used); state.invSel=null; renderHUD(); updateActionUI();   // usato → Riciclaggio
   const parts=[]; if(healed)parts.push(`+${healed} vita`); if(tmp)parts.push(`+${tmp} vita extra`); if(it.extraActions)parts.push(`+${it.extraActions} azioni`); if(cured.length)parts.push(`curi ${cured.join(", ")}`); if(it.dmgPenalty)parts.push(`−${it.dmgPenalty} danno (fino a fine turno)`);
   log(`❤️ Usi <b>${it.name}</b>${parts.length?` — ${parts.join(" · ")}`:""}.`,"good");
-  renderInventory();
+  renderInventory(); mpTouch();
 }
 // --- Batterie: ricarica un gadget (Torcia/Sensore). Se più d'uno, scegli quale ---
 function rechargeables(){ return allCarried().filter(i=>i && i.maxCharges!=null && (i.charges||0)<i.maxCharges); }
