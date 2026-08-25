@@ -1288,18 +1288,33 @@ const HXAudio = (function(){
     g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
     o.connect(g); g.connect(fxGain); o.start(t); o.stop(t+dur+0.02);
   }
-  // GIRO CARTA — file audio fornito dall'utente (AUDIO/FX audio carta_mixdown.mp3).
-  // Usa un HTMLAudioElement (funziona sia in locale file:// sia online su GitHub Pages).
-  // Rispetta il volume "Effetti" e il mute; se il file non si carica, ripiega sul suono sintetico.
-  let cardAudio=null, cardSampleBroken=false;
+  // CAMPIONI AUDIO (file MP3 forniti dall'utente in AUDIO/). Uso HTMLAudioElement clonato ad ogni
+  // riproduzione (più suoni sovrapponibili); funziona sia in locale file:// sia online su GitHub Pages.
+  // Rispetta volume "Effetti" e mute. `sample(key, loopMs)` riproduce una volta, o in loop per loopMs ms.
+  const SAMPLES={
+    card:         'AUDIO/FX audio carta_mixdown.mp3',
+    alarm:        'AUDIO/Alarm Sound Effect.mp3',
+    bossBanditi:  'AUDIO/boss banditi.mp3',
+    bossFortezza: 'AUDIO/Boss fortezza.mp3',
+    newEvent:     'AUDIO/Nuovo evento o missione.mp3',
+    discoSegreto: 'AUDIO/Disco segreto.mp3',
+  };
+  const _sampleEl={}, _sampleBroken={};
   function cardSynth(){ const s=noise(0.22,'bandpass',1600,0.9,0.35); if(s) s.bp.frequency.exponentialRampToValueAtTime(3200, s.t+0.2); }
-  function playCardSample(){
-    if(cardSampleBroken){ cardSynth(); return; }
+  function sample(key, loopMs){
+    if(P.muted) return null;
+    ensure();
+    const url=SAMPLES[key]; if(!url || _sampleBroken[key]) return null;
     try{
-      if(!cardAudio){ cardAudio=new Audio(encodeURI('AUDIO/FX audio carta_mixdown.mp3')); cardAudio.preload='auto'; cardAudio.addEventListener('error',()=>{ cardSampleBroken=true; }); }
-      const a=cardAudio.cloneNode(); a.volume=Math.min(1,Math.max(0,P.fx)); a.play().catch(()=>{});   // clone = più flip possono sovrapporsi
-    }catch(e){ cardSynth(); }
+      if(!_sampleEl[key]){ const a=new Audio(encodeURI(url)); a.preload='auto'; a.addEventListener('error',()=>{ _sampleBroken[key]=true; }); _sampleEl[key]=a; }
+      const node=_sampleEl[key].cloneNode();
+      node.volume=Math.min(1,Math.max(0,P.fx));
+      if(loopMs){ node.loop=true; node.play().catch(()=>{}); setTimeout(()=>{ try{ node.pause(); node.currentTime=0; }catch(e){} }, loopMs); }
+      else node.play().catch(()=>{});
+      return node;
+    }catch(e){ return null; }
   }
+  function playCardSample(){ if(!P.muted && sample('card')===null) cardSynth(); }   // se il file manca → fruscio sintetico
 
   let lastFx = {};
   function fx(name){
@@ -1384,7 +1399,7 @@ const HXAudio = (function(){
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
 
-  return { fx, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
+  return { fx, sample, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
 })();
 
 // ---------- Dati mappa (plancia reale — 43 tessere, coord "raddoppiate" col,v) ----------
@@ -1565,6 +1580,49 @@ const FORTRESS_ENEMIES=[
   {id:"inc_boss_paola_cortello",    name:"Paola Cortello",    epithet:"Medicina letale",   hp:2, dmg:17, loot:2, lootDeck:"medico", tipologia:"fortezza", boss:true, special:"Armatura Squadra d'Élite", effect:"Se la sconfiggi, ottieni Armatura d'élite. Pesca solo carte loot Mediche.", img:IMG_INC+"Paola Cortello.png"},
   {id:"inc_boss_vincenzo_benzina",  name:"Vincenzo Benzina",  epithet:"Lo spacca ossa",    hp:3, dmg:15, loot:2, lootDeck:"militare", tipologia:"fortezza", boss:true, onHitState:"ossa", special:"Armatura Squadra d'Élite", effect:"Se ti ferisce, aggiunge Ossa rotte. Se lo sconfiggi, ottieni Armatura d'élite.", img:IMG_INC+"Vincenzo Benzina.png"},
 ];
+
+// ---------- MAZZI INCONTRI (simulazione di mazzi reali: 1 sola copia per carta) ----------
+// Due mazzi con la STESSA logica: roaming (ENEMIES base + nemici aggiunti da eventi) e Fortezza (5 boss).
+// Il mazzo condiviso conserva solo gli ID; questa mappa risolve ID → carta completa.
+const ENEMY_BY_ID={};
+[...ENEMIES, ...ELITE_ENEMIES, ...TOSSICI_ENEMIES, ...SCAGNOZZI_ENEMIES, ...FORTRESS_ENEMIES].forEach(e=>{ ENEMY_BY_ID[e.id]=e; });
+const ROAM_BASE_IDS = ENEMIES.map(e=>e.id);          // 20 incontri base
+const FORTRESS_IDS  = FORTRESS_ENEMIES.map(e=>e.id); // 5 boss Fortezza
+// Regole:
+//  • pescare = la carta esce dal mazzo ed entra "in gioco" (NON va subito negli scarti);
+//  • se SCONFITTA in PvE → va negli scarti (non ripescabile fino al rimischio);
+//  • se il giocatore muore / fugge / fa pace → la carta TORNA nel mazzo in posizione casuale;
+//  • rimischio quando il mazzo si esaurisce OPPURE a inizio di ogni fase → mescola mazzo+scarti
+//    (le carte aggiunte da eventi restano nel mazzo fino a FINE partita);
+//  • eventi che aggiungono nemici → inseriti tra le carte ancora da pescare (scarti invariati).
+// Tutte le funzioni MUTANO gli array in place (mai riassegnati): così resta valido il riferimento
+// condiviso con world.encounterDeck/fortressDeck nel multiplayer.
+function encInit(deck, discard, ids){
+  const s=shuffle(ids.slice()); deck.length=0; s.forEach(x=>deck.push(x)); if(discard) discard.length=0;
+}
+function encReshuffle(deck, discard){
+  const s=shuffle([...deck, ...(discard||[])]);   // mazzo + scarti insieme (le carte-evento persistono)
+  deck.length=0; s.forEach(x=>deck.push(x)); if(discard) discard.length=0;
+}
+function encInsert(deck, ids){
+  const s=shuffle([...deck, ...ids]);   // i nuovi si mescolano tra le carte ancora da pescare
+  deck.length=0; s.forEach(x=>deck.push(x));
+}
+function encTake(deck, discard){        // rimuove la carta in cima (la mette "in gioco"); rimischia se vuoto
+  if(!deck.length) encReshuffle(deck, discard);
+  return deck.shift();
+}
+function encReturnTop(deck, id){ if(id!=null) deck.unshift(id); }                                   // in cima
+function encReturnRandom(deck, id){ if(id!=null) deck.splice(Math.floor(Math.random()*(deck.length+1)),0,id); }  // posizione casuale
+// Inserisce i nemici aggiunti da un evento nel mazzo, UNA sola volta (allo scatto dell'evento).
+function encAddFromEvent(deck, ev){
+  if(!ev || !ev.addEnemies || !deck) return;
+  let ids=null;
+  if(ev.addEnemies==="tossici")        ids=TOSSICI_ENEMIES.map(e=>e.id);
+  else if(ev.addEnemies==="scagnozzi") ids=SCAGNOZZI_ENEMIES.map(e=>e.id);
+  else if(ev.addEnemies==="dragomir")  ids=[DRAGOMIR_VUK.id];
+  if(ids) encInsert(deck, ids);
+}
 
 // Missioni divise per categoria (fonte di verità: CSV reali del gioco)
 // deliver = nomi oggetti da consegnare · premio = {fama, pv, coins, cards:[deck]}
@@ -1929,6 +1987,8 @@ function fresh(){
     destroyedTiles:new Set(),           // tile distrutte dall'evento "Zona evacuata"
     zonaEvacuataTargets:null,           // tile selezionate da distruggere (in attesa della sequenza)
     eventDeckVerde:[], eventDeckMarrone:[], eventDeckRosso:[],  // mazzi eventi per periodo
+    encounterDeck:[], encounterDiscard:[],   // mazzo INCONTRI roaming (id) + scarti: 1 copia per carta, no ripescaggio fino al rimischio
+    fortressDeck:[], fortressDiscard:[],     // mazzo FORTEZZA (5 boss): stessa logica del roaming
     extraEncounterAfterTurn:false,      // flag per incontro aggiuntivo (Corsa alle provviste)
     discoSegretoEliminated:false,       // Disco segreto eliminato dal gioco dopo consegna missione storia
     discoSegretoInPlay:false,           // true = Disco segreto è in possesso di qualcuno (non ripescabile)
@@ -2483,13 +2543,17 @@ function mpBuildGame(players, gameMode){
       abandoned:false };
   });
   const startSeat = Math.floor(Math.random()*players.length);   // chi inizia è casuale
+  const encounterDeck = shuffle(ROAM_BASE_IDS.slice());   // mazzo INCONTRI roaming condiviso (id), 1 copia per carta
+  const fortressDeck  = shuffle(FORTRESS_IDS.slice());     // mazzo FORTEZZA condiviso (5 boss)
   const game={ gameMode, day:1, seat:startSeat, starterIdx:startSeat, turnsThisDay:0,
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
+            encounterDeck, encounterDiscard:[], fortressDeck, fortressDiscard:[],
             destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
             discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
+  encAddFromEvent(game.world.encounterDeck, game.event);   // evento giorno 1 che aggiunge nemici
   if(game.event && game.event.drop) mpPlaceDropWorld(game.world, game.event.drop, game.day);
   if(game.event && game.event.coinsForAll) game.characters.forEach(c=>{ if(!c.abandoned) c.coins=(c.coins||0)+game.event.coinsForAll; });   // es. "Giorno di paga" pescato al Giorno 1
   return mpSerialize(game);
@@ -2506,6 +2570,12 @@ function mpHydrate(game){
   state.starterIdx=game.starterIdx||0;
   state.eventDeckVerde=w.eventDeckVerde; state.eventDeckMarrone=w.eventDeckMarrone; state.eventDeckRosso=w.eventDeckRosso;
   state.riciclaggioDeck=w.riciclaggioDeck;
+  if(!w.encounterDeck) w.encounterDeck=shuffle(ROAM_BASE_IDS.slice());   // partite iniziate prima di questo fix
+  if(!w.encounterDiscard) w.encounterDiscard=[];
+  if(!w.fortressDeck) w.fortressDeck=shuffle(FORTRESS_IDS.slice());
+  if(!w.fortressDiscard) w.fortressDiscard=[];
+  state.encounterDeck=w.encounterDeck; state.encounterDiscard=w.encounterDiscard;   // stesso riferimento: le pescate del turno restano nel mondo
+  state.fortressDeck=w.fortressDeck; state.fortressDiscard=w.fortressDiscard;
   state.destroyedTiles=(w.destroyedTiles instanceof Set)?w.destroyedTiles:new Set(w.destroyedTiles||[]);
   state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
   state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
@@ -2668,6 +2738,7 @@ function mpProceedTurnOrWatch(){
 function mpShowEventCard(cb){
   const e=state.event;
   if(!e){ if(cb) cb(); return; }
+  eventSound(e);   // Zona evacuata → allarme; ogni altro nuovo evento → chime
   _mpEventCb=cb;
   const colorMap={verde:"var(--green)",marrone:"var(--ochre)",rosso:"var(--rust)"};
   const bc=colorMap[e.color]||"var(--gold)";
@@ -3487,10 +3558,16 @@ function mpEndMyTurn(){ mpGuard("Fine turno", ()=>{
 function mpAdvanceDay(){
   mpGame.day++;
   const period=periodOfDay(mpGame.day), w=mpGame.world;
+  if(!w.encounterDeck) w.encounterDeck=shuffle(ROAM_BASE_IDS.slice());   // partite iniziate prima di questo fix
+  if(!w.encounterDiscard) w.encounterDiscard=[];
+  if(!w.fortressDeck) w.fortressDeck=shuffle(FORTRESS_IDS.slice());
+  if(!w.fortressDiscard) w.fortressDiscard=[];
   if(period!==periodOfDay(mpGame.day-1)){
     const keep=(w.riciclaggioDeck||[]).filter(c=>c&&c.crafted);
     const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
     const rd=[]; for(let i=0;i<10;i++) rd.push({...weightedPick(pool),deck:"comune"}); keep.forEach(c=>rd.push(c)); w.riciclaggioDeck=rd;
+    encReshuffle(w.encounterDeck, w.encounterDiscard);   // nuova fase → mazzi INCONTRI rimischiati (mazzo+scarti)
+    encReshuffle(w.fortressDeck, w.fortressDiscard);
   }
   let deck = period==="L'inizio"?w.eventDeckVerde : period==="Il declino"?w.eventDeckMarrone : w.eventDeckRosso;
   if(!deck||!deck.length){
@@ -3499,6 +3576,7 @@ function mpAdvanceDay(){
     else { const rf=shuffle([...EVENT_DECK_ROSSO]); w.eventDeckRosso=mpGame.gameMode==="hardcore"?rf:rf.slice(0,5); deck=w.eventDeckRosso; }
   }
   mpGame.event=deck.shift();
+  encAddFromEvent(w.encounterDeck, mpGame.event);   // eventi che aggiungono nemici → nel mazzo condiviso
   if(mpGame.event && mpGame.event.drop) mpPlaceDropWorld(w, mpGame.event.drop, mpGame.day);
   if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
   // Zona evacuata (destroyLocations): distruzione CONDIVISA e deterministica dei luoghi + morte di chi vi si trovava.
@@ -4174,6 +4252,7 @@ function claimDropForYou(done){
     showLootDraw(cards, "Drop aiuti — carte loot", ()=> stowLoot(cards, done));
   }else{
     const m=grantSecondaryMission(); renderHUD();
+    try{HXAudio.sample('newEvent');}catch(_){}   // nuova missione secondaria mostrata → chime
     log(`📜 Raggiungi per primo il <b>Drop missioni</b>: ricevi la missione secondaria <b>${m.name}</b>.`,"good");
     _dropOnDone=done;
     openModal(`
@@ -4311,6 +4390,8 @@ function startGame(){
   buildMissions();
   buildRiciclaggio();
   buildEventDecks();
+  encInit(state.encounterDeck, state.encounterDiscard, ROAM_BASE_IDS);   // mazzi INCONTRI: mischiati a inizio partita
+  encInit(state.fortressDeck, state.fortressDiscard, FORTRESS_IDS);
   buildMap();
   recalcStats();
   newDay(true);
@@ -4330,7 +4411,9 @@ function newDay(first){
   // Reset mazzo Riciclaggio a inizio di un NUOVO periodo (§5.1): rimescolato e ricreato
   if(!first && period!==periodOfDay(state.day-1)){
     const keptCrafted=buildRiciclaggio();
-    log(`♻️ Nuova fase (<b>${period}</b>): gli scarti tornano ai rispettivi mazzi. Il Riciclaggio si riformia con 10 nuove carte Comuni${keptCrafted?` + ${keptCrafted} oggetti craftati`:''}.`,"evt");
+    encReshuffle(state.encounterDeck, state.encounterDiscard);   // nuova fase → mazzi INCONTRI rimischiati (mazzo+scarti)
+    encReshuffle(state.fortressDeck, state.fortressDiscard);
+    log(`♻️ Nuova fase (<b>${period}</b>): gli scarti tornano ai rispettivi mazzi. Il Riciclaggio si riformia con 10 nuove carte Comuni${keptCrafted?` + ${keptCrafted} oggetti craftati`:''}. I mazzi Incontri (roaming e Fortezza) vengono rimischiati.`,"evt");
     showPhaseInterlude(period, ()=>continueNewDay(period, first));
     return;
   }
@@ -4346,6 +4429,7 @@ function continueNewDay(period, first){
     else { const rossoFull=shuffle([...EVENT_DECK_ROSSO]); state.eventDeckRosso=(state.gameMode==="hardcore")?rossoFull:rossoFull.slice(0,5); deck=state.eventDeckRosso; }
   }
   state.event = deck.shift();
+  encAddFromEvent(state.encounterDeck, state.event);   // eventi che aggiungono nemici → inseriti nel mazzo attuale
   // Effetti immediati di certi eventi
   if(state.event.coinsForAll){
     state.you.coins += state.event.coinsForAll;
@@ -4513,8 +4597,12 @@ function resolveZonaEvacuata(){
 }
 
 // PASSO 1 (a video): rivelazione della carta Evento del giorno
+// Riconosce l'evento "Zona evacuata" (distruzione luoghi).
+function isZonaEvacuata(e){ return !!(e && (e.destroyLocations>0 || (e.destroyedKeys&&e.destroyedKeys.length))); }
+function eventSound(e){ try{ HXAudio.sample(isZonaEvacuata(e) ? 'alarm' : 'newEvent'); }catch(_){} }
 function showEventCard(){
   const e=state.event, starter=state.dayStarter;
+  eventSound(e);   // Zona evacuata → allarme; ogni altro nuovo evento → chime "Nuovo evento/missione"
   const colorMap={verde:"var(--green)",marrone:"var(--ochre)",rosso:"var(--rust)"};
   const borderColor=colorMap[e.color]||"var(--gold)";
   const phaseLabel={verde:"L'inizio",marrone:"Il declino",rosso:"La resa dei conti"}[e.color]||"";
@@ -4856,7 +4944,7 @@ function renderChooseLoot(){
       <button class="btn primary" id="cl-confirm" style="margin-top:10px" ${lc.selected.length===lc.keepN?'':'disabled'} onclick="chooseLootConfirm()">Conferma (${lc.selected.length}/${lc.keepN})</button>
     </div>`);
   // rivelazione flip sfalsata (solo alla prima apertura)
-  if(!lc.revealed){ lc.revealed=true; lc.cards.forEach((_,i)=>setTimeout(()=>document.getElementById('clf-'+i)?.classList.add('revealed'),220+i*320)); }
+  if(!lc.revealed){ lc.revealed=true; lc.cards.forEach((it,i)=>setTimeout(()=>{ document.getElementById('clf-'+i)?.classList.add('revealed'); if(it && it.discoSegreto){ try{HXAudio.sample('discoSegreto',3000);}catch(_){} } },220+i*320)); }
   else lc.cards.forEach((_,i)=>document.getElementById('clf-'+i)?.classList.add('revealed'));
 }
 function chooseLootToggle(i){
@@ -5877,8 +5965,11 @@ function showLootDraw(items, title, onDone){
       <button class="btn primary" style="margin-top:12px" onclick="closeLootDraw()">Raccogli e continua</button>
     </div>`);
   _lootOnDone=onDone||null;
-  // rivelazione sfalsata: ogni carta si gira dopo la precedente (il suono parte dal listener globale sul flip CSS)
-  items.forEach((_,i)=>setTimeout(()=>document.getElementById('fc-'+i)?.classList.add('revealed'), 220+i*350));
+  // rivelazione sfalsata: ogni carta si gira dopo la precedente (il fruscio parte dal listener globale sul flip CSS)
+  items.forEach((it,i)=>setTimeout(()=>{
+    document.getElementById('fc-'+i)?.classList.add('revealed');
+    if(it && it.discoSegreto){ try{HXAudio.sample('discoSegreto',3000);}catch(_){} }   // Disco segreto girato → audio ripetuto 3s
+  }, 220+i*350));
 }
 function closeLootDraw(){ const cb=_lootOnDone; _lootOnDone=null; closeModal(); if(cb)cb(); }
 
@@ -6008,26 +6099,39 @@ function onPvpIdleTimeout(kind){
     mpCombatAck();
   }
 }
-function drawEnemy(pool){
-  const e=JSON.parse(JSON.stringify(pool[Math.floor(Math.random()*pool.length)]));
+// Modificatori d'evento (danno/PV/loot) applicati a QUALSIASI incontro.
+function applyEnemyMods(e){
+  if(!e) return e;
   if(state.event?.dmgMod) e.dmg += state.event.dmgMod;
   if(state.event?.pvMod)  e.hp  += state.event.pvMod;
   if(state.event?.lootMod) e.loot = (e.loot||0) + state.event.lootMod;
   return e;
 }
+function enemyById(id){ const b=ENEMY_BY_ID[id]; return b ? applyEnemyMods(JSON.parse(JSON.stringify(b))) : null; }
+// Incontro roaming: pesca (mette "in gioco") dal MAZZO condiviso. La carta esce dal mazzo ma
+// va negli scarti solo se sconfitta (vedi encWinResolve/encAbortResolve alla risoluzione).
+function drawRoamEnemy(){
+  if(!state.encounterDeck) state.encounterDeck=[]; if(!state.encounterDiscard) state.encounterDiscard=[];
+  return enemyById(encTake(state.encounterDeck, state.encounterDiscard));
+}
+// Incontro Fortezza: pesca dal mazzo dei 5 boss (stessa logica).
+function drawFortressEnemy(){
+  if(!state.fortressDeck) state.fortressDeck=[]; if(!state.fortressDiscard) state.fortressDiscard=[];
+  return enemyById(encTake(state.fortressDeck, state.fortressDiscard));
+}
+// Risoluzione dello scontro: individua il mazzo giusto (Fortezza o roaming) e SCARTA (vittoria)
+// oppure RIMETTE la carta nel mazzo in posizione casuale (morte / fuga / pace).
+function encDeckPair(){ return (combat && combat.fortress) ? [state.fortressDeck, state.fortressDiscard] : [state.encounterDeck, state.encounterDiscard]; }
+function encWinResolve(){ if(!combat||!combat.e||combat.e.id==null) return; const [d,disc]=encDeckPair(); if(disc) disc.push(combat.e.id); }
+function encAbortResolve(){ if(!combat||!combat.e||combat.e.id==null) return; const [d]=encDeckPair(); encReturnRandom(d, combat.e.id); }
 function hasVisore(){ const c=state.you.equip.casco; return !!(c && c.visore); }   // Casco con visore notturno equipaggiato
 function startEncounter(){
   const inFortress = state.you.tile.type==="fortezza";
-  let pool = inFortress ? FORTRESS_ENEMIES : [...ENEMIES];
-  if(!inFortress){
-    if(state.event?.addEnemies==="tossici")  pool=[...pool,...TOSSICI_ENEMIES];
-    if(state.event?.addEnemies==="scagnozzi")pool=[...pool,...SCAGNOZZI_ENEMIES];
-    if(state.event?.addEnemies==="dragomir") pool=[...pool,DRAGOMIR_VUK];
-  }
+  // Incontri roaming dal MAZZO condiviso (1 copia per carta); la Fortezza usa il pool boss dedicato.
   // Ricognizione pre-battaglia PvE: Casco visore passivo → auto; Sensore di movimento → modale opt-in
-  if(!inFortress && hasVisore()){ return sensorePreBattle(pool); }
-  if(!inFortress && hasCharges("Sensore di movimento")){ return openSensorePrompt(pool); }
-  const e=drawEnemy(pool);
+  if(!inFortress && hasVisore()){ return sensorePreBattle(); }
+  if(!inFortress && hasCharges("Sensore di movimento")){ return openSensorePrompt(); }
+  const e = inFortress ? drawFortressEnemy() : drawRoamEnemy();
   // Incontro pacifico (Anna Kowalska)
   if(e.peacePossible && !inFortress){
     combat={e, ehp:e.hp, fortress:false, log:[], cardRevealed:false};
@@ -6052,10 +6156,11 @@ function startEncounter(){
 function peacefulAccept(){
   stopCombatIdle();
   state.you.coins+=1; log(`☮ Accetti la pace con <b>${combat.e.name}</b>: ricevi 1 moneta.`,"good");
+  encAbortResolve();   // non sconfitta → la carta torna nel mazzo in posizione casuale
   closeModal(); combat=null; postPvE();
 }
-function sensorePreBattle(pool){
-  const opts=[drawEnemy(pool), drawEnemy(pool)];
+function sensorePreBattle(){
+  const opts=[drawRoamEnemy(), drawRoamEnemy()];   // rivela 2 dal mazzo; la non scelta tornerà in cima (vedi sensorePick)
   state.sensoreOpts=opts;
   const card=(e,i)=>`<div class="pvp-side" style="text-align:center;min-width:150px">
       <div class="stencil" style="color:var(--rust)">${e.name}</div><div class="dim small">${e.epithet||''}</div>
@@ -6069,11 +6174,10 @@ function sensorePreBattle(pool){
       <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">${card(opts[0],0)}${card(opts[1],1)}</div>
     </div>`);
 }
-function openSensorePrompt(pool){
+function openSensorePrompt(){
   const sensore = equippedGadget("Sensore di movimento");
   const charges = sensore ? (sensore.it.charges||0) : 0;
   const maxCharges = sensore ? (sensore.it.maxCharges||5) : 5;
-  state.pendingEncounterPool = pool;
   openModal(`
     <div class="modal-h"><span class="stencil" style="color:var(--gold)">📡 Usa il Sensore di movimento?</span></div>
     <div class="modal-b center">
@@ -6086,13 +6190,10 @@ function openSensorePrompt(pool){
     </div>`);
 }
 function _sensoreYes(){
-  const pool = state.pendingEncounterPool; state.pendingEncounterPool = null;
-  sensorePreBattle(pool);   // la carica viene consumata in sensorePick quando si sceglie il nemico
+  sensorePreBattle();   // la carica viene consumata in sensorePick quando si sceglie il nemico
 }
 function _sensoreNo(){
-  const pool = state.pendingEncounterPool; state.pendingEncounterPool = null;
-  const inFortress = false;
-  const e=drawEnemy(pool);
+  const e=drawRoamEnemy();
   if(e.peacePossible){
     combat={e, ehp:e.hp, fortress:false, log:[], cardRevealed:false};
     openModal(`<div class="modal-h"><span class="stencil" style="color:var(--gold)">🕊 Incontro pacifico</span></div>
@@ -6115,6 +6216,8 @@ function _sensoreNo(){
 }
 function sensorePick(i){
   if(hasCharges("Sensore di movimento")) useCharge("Sensore di movimento");   // il Casco con visore notturno è passivo (non consuma cariche)
+  const other=state.sensoreOpts[1-i];
+  if(other && other.id!=null) encReturnTop(state.encounterDeck, other.id);   // la carta non scelta torna in CIMA al mazzo
   const e=state.sensoreOpts[i]; state.sensoreOpts=null;
   combat={e, ehp:e.hp, fortress:false, log:[], cardRevealed:false};
   renderCombat(`Scegli di affrontare <b>${e.name}</b>.`);
@@ -6141,7 +6244,16 @@ function encounterCardBackHTML(){
 }
 function scheduleEncFlip(){
   combat.cardRevealed = true;
+  encounterSound(combat.e);   // suoni dedicati al giro della carta boss (Dragomir / Arkan Voss)
   setTimeout(()=>document.getElementById('enc-flip')?.classList.add('revealed'), 220);
+}
+// Suoni speciali quando si gira la carta di un boss specifico.
+function encounterSound(e){
+  if(!e) return;
+  try{
+    if(e.id==="inc_eli_dragomir_vuk")      HXAudio.sample('bossBanditi');    // Dragomir Vuk, capo dei banditi
+    else if(e.id==="inc_boss_arkan_voss")  HXAudio.sample('bossFortezza');   // Arkan Voss, boss della Fortezza
+  }catch(_){}
 }
 function encounterCardHTML(e, ehp){
   const tier = e.tipologia==='fortezza' ? 'he-boss' : (e.tipologia==='capo' ? 'he-capo' : '');
@@ -6418,7 +6530,7 @@ function continueCombat(){
     if(o.you) hurtYou(o.you);
     renderHUD();
     if(state.you.hp<=0) return dieEncounter();
-    if(o.flee){ log(`🏃 Fuga riuscita: lasci lo scontro.`); combat=null; return postPvE(); }   // dopo la fuga dal PvE: controlla comunque il PvP
+    if(o.flee){ log(`🏃 Fuga riuscita: lasci lo scontro.`); encAbortResolve(); combat=null; return postPvE(); }   // fuggito (non sconfitto) → la carta torna nel mazzo
     log(`🏃 Fuga fallita: resti nello scontro.`,"bad");
     return renderCombat();                            // resta in combattimento
   }
@@ -6463,6 +6575,7 @@ function tryFlee(){
 }
 function winEncounter(){
   try{HXAudio.fx('win');}catch(e){}
+  encWinResolve();   // sconfitta in PvE → la carta va negli scarti
   stopCombatIdle();
   publishLive("encounter", `ha sconfitto ${combat.e.name}`, { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   const e=combat.e; let bonus="";
@@ -6506,18 +6619,13 @@ function afterWin(){
 function startExtraEncounter(){
   // Come startEncounter ma senza PvP successivo: dopo il combattimento chiama il callback extra
   const inFortress = state.you.tile.type==="fortezza";
-  let pool = inFortress ? FORTRESS_ENEMIES : [...ENEMIES];
-  if(!inFortress){
-    if(state.event?.addEnemies==="tossici")  pool=[...pool,...TOSSICI_ENEMIES];
-    if(state.event?.addEnemies==="scagnozzi")pool=[...pool,...SCAGNOZZI_ENEMIES];
-    if(state.event?.addEnemies==="dragomir") pool=[...pool,DRAGOMIR_VUK];
-  }
-  const e=drawEnemy(pool);
+  const e = inFortress ? drawFortressEnemy() : drawRoamEnemy();
   combat={e, ehp:e.hp, fortress:inFortress, log:[], cardRevealed:false};
   renderCombat(`Incontro aggiuntivo! Appare <b>${e.name}</b> — <em>${e.epithet||''}</em>.`);
 }
 function dieEncounter(){
   try{HXAudio.fx('lose');}catch(e){}
+  encAbortResolve();   // il giocatore muore senza sconfiggere la carta → torna nel mazzo (posizione casuale)
   stopCombatIdle();
   publishLive("encounter", "è caduto in combattimento", { enc:{over:true} });   // FASE B: esito finale + chiude la vista spettatore
   openModal(`
