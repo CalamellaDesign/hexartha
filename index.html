@@ -440,6 +440,11 @@
   .pvp-win-badge{font-size:14px}
   .pvp-combat-row .nm{font-weight:700}
   .pvp-combat-row .dc{min-width:96px;text-align:right;display:flex;gap:6px;align-items:center;justify-content:flex-end}
+  .craft-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .craft-tab{padding:6px 12px;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);
+    color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer;transition:all .12s}
+  .craft-tab:hover{border-color:var(--ochre)}
+  .craft-tab.active{background:var(--ochre);border-color:var(--ochre);color:#161310;font-weight:bold}
   .craft-row{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--bg2)}
   .craft-res{font-size:13px;margin-bottom:6px}
   .craft-variant{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;font-size:11px}
@@ -493,6 +498,9 @@
   .manual-content .m-fig{margin:12px 0 16px;text-align:center}
   .manual-content .m-fig img{max-width:100%;max-height:300px;border:1px solid var(--border2);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.55)}
   .manual-content .m-cap{font-size:10.5px;color:var(--dim);margin-top:6px;letter-spacing:.04em;font-style:italic}
+  /* Segnaposto quando l'immagine HUD non è (ancora) presente */
+  .manual-content .m-fig.m-fig-missing{border:1px dashed var(--border2);border-radius:6px;padding:22px 10px;background:rgba(255,255,255,.02)}
+  .manual-content .m-fig.m-fig-missing::before{content:'📷 immagine da inserire';color:var(--dim);font-size:11px;font-style:italic}
   .manual-content .m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin:10px 0 16px}
   .manual-content .m-thumb{text-align:center;font-size:10px;color:var(--muted)}
   .manual-content .m-thumb img{width:100%;height:80px;object-fit:cover;border:1px solid var(--border2);border-radius:5px;margin-bottom:4px;display:block}
@@ -1880,11 +1888,25 @@ const CRAFTING=[
 function findCard(name){ const all=[...DECK_COMUNE,...DECK_MEDICO,...DECK_MILITARE,...DECK_SPECIALE]; const c=all.find(x=>x.name===name); return c?{...c}:null; }
 // Zaino di partenza: ogni giocatore inizia con 1 Cibo in scatola (setup manuale §regolamento).
 function startingPackCentro(){ const c=findCard("Cibo in scatola"); return c?[c]:[]; }
-function ownedCount(name){ let n=0; packSections().forEach(s=>state.you.pack[s].forEach(it=>{if(it.name===name)n++;})); state.you.deposito.forEach(it=>{if(it.name===name)n++;}); if(state.you?.equip?.tasca?.name===name) n++; return n; }
+function ownedCount(name){
+  let n=0;
+  packSections().forEach(s=>state.you.pack[s].forEach(it=>{if(it.name===name)n++;}));
+  state.you.deposito.forEach(it=>{if(it.name===name)n++;});
+  const e=state.you&&state.you.equip;
+  if(e){ [e.arma,e.armatura,e.casco,e.tasca,...(e.gadget||[])].forEach(it=>{ if(it&&it.name===name) n++; }); }   // conta anche l'equipaggiato (per il craft)
+  return n;
+}
 function recipeSatisfied(rec){ return rec.every(([name,qty])=>ownedCount(name)>=qty); }
 function removeOneByName(name){
   for(const s of packSections()){ const i=state.you.pack[s].findIndex(x=>x.name===name); if(i>=0){ state.you.pack[s].splice(i,1); return true; } }
   const di=state.you.deposito.findIndex(x=>x.name===name); if(di>=0){ state.you.deposito.splice(di,1); return true; }
+  // ingrediente equipaggiato: consumalo dall'equip (zaino/deposito hanno priorità) e ricalcola gli stati
+  const e=state.you.equip;
+  if(e){
+    if(e.tasca&&e.tasca.name===name){ e.tasca=null; recalcStats(); return true; }
+    for(const k of ['arma','armatura','casco']){ if(e[k]&&e[k].name===name){ e[k]=null; recalcStats(); return true; } }
+    const gi=(e.gadget||[]).findIndex(g=>g&&g.name===name); if(gi>=0){ e.gadget[gi]=null; recalcStats(); return true; }
+  }
   return false;
 }
 // Carta loot: colore-accento per categoria e icone (spec: CARTE/CARD-LAYOUT-LOOT.md)
@@ -2557,12 +2579,15 @@ function mpBuildGame(players, gameMode){
   const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
   const riciclaggioDeck=[]; for(let i=0;i<10;i++) riciclaggioDeck.push({...weightedPick(pool),deck:"comune"});
   const storyMissions = STORY_MISSIONS.map(m=>({...m, done:false, claimedBy:null}));
+  // Missioni segrete UNICHE fra i giocatori: distribuzione senza ripetizioni per categoria
+  // (ogni giocatore riceve una missione Medica/Militare/Urbana diversa dagli altri).
+  const dealMed=shuffle([...MISSIONS_MEDICHE]), dealMil=shuffle([...MISSIONS_MILITARI]), dealUrb=shuffle([...MISSIONS_URBANE]);
   const characters = players.map((p,i)=>{
     const pl=i+1, campKey=CAMP_OF[pl]||YOU_CAMP;
     const base=fresh().you;
     return {...base, id:p.id, name:p.name, color:COLORS[i%COLORS.length], player:pl,   // colore FISSO per numero giocatore
       tile: tileMap.get(campKey), campKey, extractKey: EXTRACTION_OF[pl]||YOU_EXTRACTION,
-      missions:[ mpPickMission(MISSIONS_MEDICHE), mpPickMission(MISSIONS_MILITARI), mpPickMission(MISSIONS_URBANE) ],
+      missions:[ {...dealMed[i%dealMed.length],done:false}, {...dealMil[i%dealMil.length],done:false}, {...dealUrb[i%dealUrb.length],done:false} ],
       abandoned:false };
   });
   const startSeat = Math.floor(Math.random()*players.length);   // chi inizia è casuale
@@ -2681,8 +2706,17 @@ function mpCheckDiscoAnnounce(){
   const a=state.discoAnnounce; if(!a||!a.ts) return;
   if(_lastDiscoAnnounceTs===a.ts) return;           // già mostrato questo annuncio
   _lastDiscoAnnounceTs=a.ts;
-  if(a.byId===myId) return;                          // chi l'ha trovato ha già il suo messaggio
+  if(a.byId===myId) return;                          // chi l'ha trovato ha già suono e messaggio
+  try{HXAudio.sample('discoSegreto',3000);}catch(_){}   // suono del Disco segreto anche agli altri (3s)
   log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha trovato il DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--gold)">📡 Disco segreto trovato</span></div>
+    <div class="modal-b center">
+      <div style="font-size:40px;margin-bottom:10px">📡</div>
+      <p style="font-size:14px;margin:0 0 8px"><b>${escapeHtml(a.name||"Un giocatore")}</b> ha trovato il <b>Disco segreto</b>!</p>
+      <p class="muted small" style="margin:0 0 16px;line-height:1.5">È in gioco: chi lo <b>elimina</b> completa la missione di storia. Chi lo tiene ha <b>−1 azione</b> per turno.</p>
+      <button class="btn primary" onclick="closeModal()">Ok</button>
+    </div>`);
 }
 // Spinta IMMEDIATA di un annuncio "missione completata": campo top-level della stanza, così gli avversari
 // vedono il pop-up appena la missione è completata (non a fine turno).
@@ -5878,6 +5912,71 @@ const MANUAL_C10 = `
   <p>La stagione finisce quando qualcuno raggiunge <b>5 fama</b> (vittoria immediata) o allo scadere dei <b>18 giorni</b> (23 in Hardcore). In quel caso si va al <b>calcolo finale</b>: più fama → più missioni → più monete (contano anche metà del valore di inventario e magazzino). Parità su tutto = <b>vittoria condivisa</b>.</p>
   <div class="m-note">🎖️ Ricorda: <b>Hexartha ricorda solo chi consegna.</b> Fatti un nome, estraiti vivo, e comprati una nuova vita lontano da qui.</div>
 `;
+const _hudFig=(file,cap)=>`<div class="m-fig"><img src="${encodeURI('HUD/'+file)}" alt="${cap}" onerror="this.style.display='none';this.parentNode.classList.add('m-fig-missing')"><div class="m-cap">${cap}</div></div>`;
+const MANUAL_C11 = `
+  <h2>L'interfaccia di gioco (HUD)</h2>
+  <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve.</p>
+
+  <h3>🗓️ Plancia</h3>
+  ${_hudFig('hud-plancia.png','La plancia da campo')}
+  <p>In alto a sinistra: riassume la giornata. Mostra il <b>Giorno</b> corrente, la <b>fase</b> in corso (L'inizio · Il declino · La resa dei conti), di chi è il <b>turno</b> e il <b>tempo</b> rimasto (3 minuti). È il tuo punto di riferimento su "a che punto è" la partita.</p>
+
+  <h3>📋 Evento</h3>
+  ${_hudFig('hud-evento.png','La carta Evento del giorno')}
+  <p>Ogni giorno viene girata una <b>carta Evento</b> valida per tutta la giornata: può modificare danni e azioni, far comparire nuovi nemici, distruggere luoghi, avvelenare, dare monete e altro. Il suo effetto resta visibile qui finché il giorno non cambia.</p>
+
+  <h3>🔁 Turni</h3>
+  ${_hudFig('hud-turni.png','Scansione delle fasi del turno')}
+  <p>Indica la <b>progressione del tuo turno</b>: prima il <b>movimento</b> (obbligatorio), poi le <b>azioni</b> (cerca, nasconditi, scassina…), infine il <b>passo finale</b> con l'eventuale incontro. Ti fa capire cosa puoi ancora fare prima di chiudere il turno.</p>
+
+  <h3>🔢 Ordine turno</h3>
+  ${_hudFig('hud-ordineturno.png','La sequenza dei giocatori')}
+  <p>Riquadro sopra la mappa con la <b>sequenza dei giocatori</b>, a partire da chi inizia. Il giocatore attivo è evidenziato con <b>▶</b>; chi è disconnesso o ritirato appare in grigio.</p>
+
+  <h3>🗺️ Mappa</h3>
+  ${_hudFig('hud-mappa.png','La città a settori esagonali')}
+  <p>La città divisa in <b>settori esagonali</b>. Mostra la tua <b>pedina</b> e quelle avversarie, i tipi di zona (urbane, ospedale, militari, riciclaggio, Fortezza, estrazioni) e — durante il movimento — le <b>caselle raggiungibili</b> evidenziate.</p>
+
+  <h3>🎮 Azioni</h3>
+  ${_hudFig('hud-azioni.png','La barra delle azioni')}
+  <p>In basso, le azioni del tuo turno: <b>Muovi</b> (obbligatorio), <b>Cerca</b>, <b>Nasconditi</b>, <b>Scassina</b>, <b>Viaggio</b> in treno e <b>Termina turno / Effettua Incontro</b>. Hai <b>2 azioni</b> per turno (alcuni eventi e oggetti le modificano).</p>
+
+  <h3>🎒 Inventario</h3>
+  ${_hudFig('hud-inventario.png','Equipaggiamento e zaino')}
+  <p><b>Equipaggiamento</b> (arma, armatura, casco, 2 gadget) e <b>Tasca sicura</b> (non si perde alla morte), più lo <b>zaino</b> a tre sezioni (sinistra · centro · destra). Alcuni stati bloccano le tasche laterali. Tocca una carta per il menu: <b>Usa / Equipaggia / Sposta / Scarta</b>.</p>
+
+  <h3>🛠️ Crafting</h3>
+  ${_hudFig('hud-crafting.png','Creazione di oggetti')}
+  <p>Nelle zone sicure crei oggetti combinando i <b>materiali</b> che possiedi (contano zaino, magazzino ed <b>equipaggiati</b>). Le ricette sono divise in <b>categorie</b> (Medici · Armi & Armature · Utility & Gadget): in verde gli ingredienti che hai, "CREA" attivo quando la ricetta è completa.</p>
+
+  <h3>🤝 Commercio</h3>
+  ${_hudFig('hud-commercio.png','Compra e vendi coi ricettatori')}
+  <p>Nelle zone sicure <b>compri</b> dai ricettatori e <b>vendi</b> a Michail (max 3 vendite a turno; armi e armature usate valgono la metà). Qui trasformi il bottino in monete e le monete in equipaggiamento.</p>
+
+  <h3>📜 Missioni</h3>
+  ${_hudFig('hud-missioni.png','Le tue missioni')}
+  <p>Le tue <b>missioni segrete</b> (una Medica, una Militare, una Urbana) più quelle di <b>Storia</b> comuni a tutti. Per ognuna vedi gli <b>oggetti richiesti</b> (in verde quelli che possiedi) e il premio. Si consegnano negli avamposti.</p>
+
+  <h3>🏆 Fama e classifica</h3>
+  ${_hudFig('hud-fama e classifica.png','La classifica della fama')}
+  <p>La <b>fama</b> ★ è la strada per la vittoria (a <b>5</b> vinci subito). La classifica mostra la fama di <b>tutti i giocatori</b> aggiornata in tempo reale: tienila d'occhio per capire chi sta per farcela.</p>
+
+  <h3>🃏 Mazzi e incontri</h3>
+  ${_hudFig('hud-mazzi e incontri.png','I mazzi e gli incontri')}
+  <p>I <b>mazzi</b> di gioco: loot (Comune · Medico · Militare · Speciale), Riciclaggio e <b>Incontri</b>. Quando cerchi peschi il bottino; fuori dalle zone sicure puoi incappare in un <b>incontro</b> (PvE). Ogni carta incontro esce una sola volta finché il mazzo non si rimischia.</p>
+
+  <h3>📖 Cronaca</h3>
+  ${_hudFig('hud-cronaca.png','Il registro del turno')}
+  <p>In basso a sinistra: il <b>registro</b> di tutto ciò che accade (movimenti, pescate, combattimenti, eventi). Si apre e chiude a linguetta; un pallino segnala le voci non ancora lette.</p>
+
+  <h3>💬 Chat</h3>
+  ${_hudFig('hud-chat.png','La chat coi giocatori')}
+  <p>Accanto alla Cronaca (solo online): scrivi agli <b>altri giocatori</b> in tempo reale. Si apre una linguetta alla volta; un pallino segnala i messaggi non letti e arriva un suono discreto a ogni nuovo messaggio.</p>
+
+  <h3>🔊 Audio</h3>
+  ${_hudFig('hud-audio.png','Il controllo audio')}
+  <p>In alto a destra: accendi/spegni l'audio e regoli separatamente <b>musica</b> ed <b>effetti</b>. La musica cambia con la fase della partita, diventando via via più cupa e ansiogena.</p>
+`;
 const MANUAL_CHAPTERS = [
   {title:"Introduzione — Il mondo di Hexartha", html:MANUAL_INTRO},
   {title:"Scopo del gioco", html:MANUAL_C1},
@@ -5890,6 +5989,7 @@ const MANUAL_CHAPTERS = [
   {title:"Loot, oggetti di valore e crafting", html:MANUAL_C8},
   {title:"Ricettatori, commercio e missioni", html:MANUAL_C9},
   {title:"Estrazione, morte e fine partita", html:MANUAL_C10},
+  {title:"L'interfaccia di gioco (HUD)", html:MANUAL_C11},
 ];
 let _manualCh=0;
 function manualIndexHTML(){
@@ -5950,8 +6050,9 @@ function cardMainEffect(it){
   return briefEffect(it.effect||"").toUpperCase();
 }
 function missionRequiredBy(itemName){
-  // Restituisce le missioni attive del giocatore che richiedono questo oggetto nella deliver list
-  return (state?.you?.missions||[]).filter(m=>(m.deliver||[]).includes(itemName));
+  // Missioni ATTIVE (non ancora completate) del giocatore che richiedono questo oggetto:
+  // una missione già consegnata non deve più evidenziare i suoi oggetti come "di missione".
+  return (state?.you?.missions||[]).filter(m=>!m.done && (m.deliver||[]).includes(itemName));
 }
 function lootCardFaceHTML(it){
   const deckCls = it.discoSegreto ? 'hb-speciale' : ('hb-'+(it.deck||'comune'));
@@ -7059,7 +7160,9 @@ function openMissions(){
   if(document.getElementById('overlay').classList.contains('active'))closeModal();
   const catLabel={medica:"Medica",militare:"Militare",urbana:"Urbana",storia:"Storia",secondaria:"Secondaria"};
   const missionRow=(m, story)=>{
-    const items=(m.deliver||[]).map(n=>{const has=hasDeliverable(n);
+    const ownedLeft={}; (m.deliver||[]).forEach(n=>{ if(ownedLeft[n]==null) ownedLeft[n]=ownedCount(n); });   // quanti ne possiedi davvero
+    const items=(m.deliver||[]).map(n=>{
+      const has = ownedLeft[n]>0; if(has) ownedLeft[n]--;   // illumina solo tanti quanti ne hai (es. 1 Kit medico su 2)
       return `<span style="color:${has?'var(--green)':'var(--muted)'}">${n}${has?' ✓':''}</span>`;}).join(", ");
     const catTag=`<span class="tag" style="border-color:var(--ochre);color:var(--ochre)">${catLabel[m.category]||m.category}</span>`;
     const secTag=m.secondary?'<span class="tag" style="border-color:var(--gold);color:var(--gold)">secondaria</span>':'';
@@ -7497,11 +7600,19 @@ function sellItem(sec,i){
 }
 
 // =================== CRAFTING ===================
+// Categoria di un oggetto craftabile (dal mazzo di appartenenza del risultato).
+function craftCatOf(r){ return (findCard(r.result)||{}).deck || 'comune'; }
+const CRAFT_CATS=[{key:'medico',lbl:'🧪 Medici'},{key:'militare',lbl:'🎖️ Armi & Armature'},{key:'comune',lbl:'🔩 Utility & Gadget'},{key:'speciale',lbl:'★ Speciali'}];
+let _craftTab=null;
+function setCraftTab(cat){ _craftTab=cat; openCrafting(); }
 function openCrafting(){
   if(document.getElementById('overlay').classList.contains('active'))closeModal();
   const canAct=mpCanAct();                        // durante il turno altrui: solo consultazione (niente CREA)
   const inSafe=SAFE.has(state.you.tile.type);   // si crea solo in base/avamposto
-  const rows=CRAFTING.map((r,ri)=>{
+  const present=CRAFT_CATS.filter(c=>CRAFTING.some(r=>craftCatOf(r)===c.key));
+  if(!_craftTab || !present.some(c=>c.key===_craftTab)) _craftTab=(present[0]&&present[0].key)||'comune';
+  const tabs=present.map(c=>`<button class="craft-tab${c.key===_craftTab?' active':''}" onclick="setCraftTab('${c.key}')">${c.lbl}</button>`).join("");
+  const rows=CRAFTING.map((r,ri)=>({r,ri})).filter(x=>craftCatOf(x.r)===_craftTab).map(({r,ri})=>{
     const vHTML=r.variants.map((rec,vi)=>{
       const ok=recipeSatisfied(rec);
       const ing=rec.map(([name,qty])=>{
@@ -7517,8 +7628,9 @@ function openCrafting(){
     <div class="modal-h"><span class="stencil">🛠️ Manuale del Crafting</span>
       <span class="dim small">${(inSafe&&canAct)?'Puoi creare qui':(canAct?'Solo consultazione — crea in base/avamposto':'Solo consultazione — non è il tuo turno')}</span></div>
     <div class="modal-b" style="max-height:72vh;overflow:auto">
-      <p class="dim small">Ingredienti da inventario + magazzino. In verde quelli che possiedi. "CREA" attivo se hai tutta la ricetta (solo in safe zone).</p>
-      ${rows}
+      <div class="craft-tabs">${tabs}</div>
+      <p class="dim small">Ingredienti da inventario + magazzino + <b>equipaggiati</b>. In verde quelli che possiedi. "CREA" attivo se hai tutta la ricetta (solo in safe zone).</p>
+      ${rows||'<div class="inv-empty">nessun oggetto craftabile in questa categoria</div>'}
     </div>`,false,closeModal);
 }
 function craftItem(ri,vi){
