@@ -94,7 +94,7 @@
   #game{display:none}
   #game.active{display:block}
   /* Chrome mobile (Fase 1+2+3): nascosto su desktop, attivato nel breakpoint in fondo */
-  #m-topbar,#m-drawer,#m-drawer-scrim,.m-sheet-close,#m-fab-left,#m-fab-right,#m-zoom,#m-rotate{display:none}
+  #m-topbar,#m-drawer,#m-drawer-scrim,.m-sheet-close,#m-fab-left,#m-fab-right,#m-zoom,#m-rotate,#m-malus{display:none}
   /* La mappa riempie l'intero schermo; il padding sposta l'SVG nello spazio libero
      tra i pannelli (destra: plancia · basso: barra azioni). Il fondo CSS prosegue
      la "terra bruciata" del ground SVG fino ai bordi. */
@@ -327,11 +327,15 @@
     #m-topbar .mt-cell{display:flex;flex-direction:column;justify-content:center;min-width:0}
     #m-topbar .mt-lab{font-family:"Arial Narrow","Helvetica Neue",sans-serif;font-weight:800;
       font-size:7px;letter-spacing:.12em;color:var(--concrete);text-transform:uppercase;line-height:1}
-    #m-plancia{background:none;border:none;border-right:1px solid var(--border);color:var(--text);
-      text-align:left;padding:2px 7px 2px 2px;flex:0 0 auto;align-items:flex-start}
+    /* Diario: chip evidentemente cliccabile (bordo oro + tinta + chevron) */
+    #m-plancia{background:rgba(217,164,65,.09);border:1px solid var(--gold);border-radius:8px;color:var(--text);
+      text-align:left;padding:3px 8px;flex:0 0 auto;align-items:flex-start;margin-right:3px}
+    #m-plancia:active{background:rgba(217,164,65,.22)}
+    #m-plancia .mt-lab{color:var(--gold)}
     #m-plancia .mt-day{display:flex;align-items:baseline;gap:3px;line-height:1.05}
     #m-plancia .mt-day b{font-size:17px;color:var(--gold)}
-    #m-plancia #m-period{font-size:8px;color:var(--ochre);max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #m-plancia #m-period{font-size:8px;color:var(--ochre);max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #m-plancia .mt-chev{color:var(--gold);font-size:10px;margin-left:2px}
     .mt-turn{flex:1 1 auto}
     .mt-turn #m-turnof{font-size:12px;color:var(--gold);font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mt-timer{flex:0 0 auto;align-items:center;justify-content:center;padding:0 3px}
@@ -387,6 +391,9 @@
     #m-drawer .md-item .md-ic{font-size:19px;width:24px;text-align:center;flex:none}
     #m-drawer .md-item:active,#m-drawer .md-item:hover{border-color:var(--rust);background:rgba(161,74,42,.12);color:#fff}
     #m-drawer .md-item.danger{border-color:var(--rust-d);color:var(--rust)}
+    #m-drawer .md-cbadge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;
+      background:var(--brace);color:#1a1206;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center}
+    #m-drawer .md-cbadge.zero{display:none}
     #m-drawer .md-sep{height:1px;background:var(--border);margin:6px 2px}
 
     /* --- MAPPA pan/zoom (Fase 3): niente gesti del browser sulla mappa --- */
@@ -416,17 +423,26 @@
       display:flex;align-items:center;justify-content:center;border:2px solid #141210}
     .m-fab-badge.zero{display:none}
 
-    /* --- CRONACA + CHAT: i float sono i launcher; il pannello si apre sopra lo stack destro --- */
+    /* --- CRONACA (dall'hamburger) + CHAT (float): pannello a scomparsa dal basso;
+       mentre è aperto i FAB si nascondono per non sovrapporsi --- */
     .cron-tabs{display:none}
-    .cron{left:auto;right:calc(8px + var(--safe-right));z-index:57;width:min(320px,calc(100% - 16px));
-      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 10px + 52px + 10px + 52px + 12px)}
-    .cron.open{width:min(340px,calc(100% - 16px))}
-    .cron.open .cron-body{height:min(40vh,320px);margin-bottom:0}
+    .cron{left:calc(8px + var(--safe-left));right:calc(8px + var(--safe-right));width:auto;z-index:57;
+      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 10px)}
+    .cron.open .cron-body{height:min(42vh,340px);margin-bottom:0}
     .cron-body .log,.cron .chatbox{box-shadow:0 8px 24px rgba(0,0,0,.72);border-radius:8px}
+    body.m-cron-open #m-fab-left,body.m-cron-open #m-fab-right,body.m-cron-open #m-zoom{display:none}
 
     /* --- ORDINE TURNO (solo MP): in alto a sinistra sotto la top bar --- */
     .turnorder-float{left:calc(8px + var(--safe-left));right:auto;top:calc(var(--safe-top) + var(--m-topbar) + 6px);
-      width:auto;max-width:60vw}
+      width:auto;max-width:56vw}
+    /* --- SCHEDA MALUS: accanto all'ordine turni (posizione fine-tuning via JS), stessa altezza --- */
+    #m-malus{position:fixed;z-index:56;top:calc(var(--safe-top) + var(--m-topbar) + 6px);left:calc(8px + var(--safe-left));
+      gap:6px;padding:4px 9px;align-items:center;
+      background:rgba(14,13,11,.92);border:1px solid var(--border2);border-top:2px solid var(--rust-d);border-radius:6px;
+      box-shadow:0 3px 12px rgba(0,0,0,.5)}
+    #m-malus.m-show{display:flex}
+    #m-malus .mm-ic{font-size:15px;line-height:1;filter:grayscale(1);opacity:.3;transition:.15s}
+    #m-malus .mm-ic.on{filter:none;opacity:1;text-shadow:0 0 7px rgba(179,32,32,.65)}
 
     /* --- PLANCIA / DIARIO: riusa #hud-day come sheet a tutto schermo --- */
     #hud-day{display:none}
@@ -438,9 +454,13 @@
       background:rgba(20,18,15,.96);border:1px solid var(--border2);border-radius:8px;
       color:var(--muted);font-size:13px;letter-spacing:.06em}
 
-    /* --- Attesa turno (mpwatch) sopra la barra azioni --- */
-    #mpwatch{left:calc(8px + var(--safe-left))!important;right:calc(8px + var(--safe-right))!important;
-      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 8px)!important;transform:none!important;width:auto!important;max-width:none!important}
+    /* --- Attesa turno (mpwatch): barra PIENA in basso, al posto della bottom bar
+       (durante i turni degli avversari la barra azioni è nascosta) --- */
+    #mpwatch{left:0!important;right:0!important;top:auto!important;bottom:0!important;transform:none!important;
+      width:auto!important;max-width:none!important;border-radius:0!important;border:none!important;
+      border-top:1px solid var(--gold)!important;
+      padding:8px calc(10px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(10px + var(--safe-left))!important;
+      min-height:calc(var(--m-botbar) + var(--safe-bottom))}
 
     /* --- OVERLAY / MODALI full-screen (Fase 4) --- */
     /* mentre una modale è aperta, il chrome mobile sparisce (la modale copre tutto) */
@@ -1148,9 +1168,9 @@
 <section id="game" class="screen">
   <!-- ===== MOBILE CHROME (Fase 1) — visibile solo sotto 860px ===== -->
   <div id="m-topbar" role="toolbar">
-    <button id="m-plancia" class="mt-cell" onclick="toggleMobilePlancia()" title="Diario / plancia del giorno">
-      <span class="mt-lab">Giorno</span>
-      <span class="mt-day"><b id="m-day">1</b><span id="m-period">L'inizio</span></span>
+    <button id="m-plancia" class="mt-cell" onclick="toggleMobilePlancia()" title="Apri il diario / plancia del giorno">
+      <span class="mt-lab">📖 Diario</span>
+      <span class="mt-day"><b id="m-day">1</b><span id="m-period">L'inizio</span><span class="mt-chev">▾</span></span>
     </button>
     <div class="mt-cell mt-turn">
       <span class="mt-lab">Turno di</span>
@@ -1167,8 +1187,7 @@
   <div id="m-drawer-scrim" onclick="toggleMobileMenu(false)"></div>
   <nav id="m-drawer" aria-label="Funzioni secondarie">
     <div class="md-head"><span class="stencil">Menu</span><button class="md-x" onclick="toggleMobileMenu(false)" aria-label="Chiudi">✕</button></div>
-    <button class="md-item" onclick="mMenu(openCommerce)"><span class="md-ic">🤝</span><span>Commercio</span></button>
-    <button class="md-item" onclick="mMenu(openCrafting)"><span class="md-ic">🛠</span><span>Crafting</span></button>
+    <button class="md-item" onclick="toggleMobileMenu(false);toggleCronaca()"><span class="md-ic">🗒</span><span>Cronaca</span><span class="md-cbadge zero" id="md-cron-badge">0</span></button>
     <button class="md-item" onclick="mMenu(openDeposito)"><span class="md-ic">🗄️</span><span>Magazzino</span></button>
     <button class="md-item" onclick="mMenu(openCardsBrowser)"><span class="md-ic">📚</span><span>Mazzi &amp; incontri</span></button>
     <button class="md-item" onclick="mMenu(openManual)"><span class="md-ic">📖</span><span>Manuale di gioco</span></button>
@@ -1183,8 +1202,14 @@
     <button class="m-fab" onclick="openInventory()" aria-label="Inventario / Equip" title="Inventario / Equip">🎒</button>
   </div>
   <div id="m-fab-right" class="m-fabcol">
+    <button class="m-fab" onclick="openCommerce()" aria-label="Commercio" title="Commercio">🤝</button>
+    <button class="m-fab" onclick="openCrafting()" aria-label="Crafting" title="Crafting">🛠</button>
     <button class="m-fab" id="m-fab-chatbtn" style="display:none" onclick="toggleChat()" aria-label="Chat" title="Chat">💬<span class="m-fab-badge zero" id="m-fab-chat">0</span></button>
-    <button class="m-fab" onclick="toggleCronaca()" aria-label="Cronaca" title="Cronaca">🗒<span class="m-fab-badge zero" id="m-fab-cron">0</span></button>
+  </div>
+  <div id="m-malus" aria-label="Malus attivi">
+    <span class="mm-ic" data-k="emorragia" onclick="showStateInfo('emorragia')" title="Emorragia">🩸</span>
+    <span class="mm-ic" data-k="ossa" onclick="showStateInfo('ossa')" title="Ossa rotte">🦴</span>
+    <span class="mm-ic" data-k="avvelenato" onclick="showStateInfo('avvelenato')" title="Avvelenato">☠️</span>
   </div>
   <div id="m-zoom">
     <button class="mz-btn" onclick="mapZoomStep(0.5)" aria-label="Ingrandisci">＋</button>
@@ -2295,6 +2320,7 @@ function setDrawer(which){
   cronacaOpen=(which==='log'); chatOpen=(which==='chat');
   const c=document.getElementById('cron'); if(!c)return;
   c.classList.toggle('open', which!=null);
+  document.body.classList.toggle('m-cron-open', which!=null);   // mobile: nascondi i FAB mentre cronaca/chat è aperta
   const logEl=document.getElementById('log'); if(logEl) logEl.style.display=(which==='log')?'':'none';
   const chatEl=document.getElementById('chatbox'); if(chatEl) chatEl.style.display=(which==='chat')?'flex':'none';
   const a=document.getElementById('cron-arrow'); if(a) a.textContent=cronacaOpen?'▼':'▲';
@@ -5071,7 +5097,14 @@ function syncMobileHUD(){
   const src=(id,dst)=>{ const a=g(id),b=g(dst); if(a&&b) b.textContent=a.textContent; };
   src('day','m-day'); src('dayperiod','m-period'); src('turnof','m-turnof');
   const tm=g('turntimer'), mt=g('m-time');
-  if(tm&&mt){ mt.textContent=tm.textContent; mt.style.color=tm.style.color||'var(--gold)'; }
+  if(tm&&mt){
+    // Il countdown è "tuo" solo nel tuo turno con timer attivo. Fuori da lì (turno avversario,
+    // post-scontro, zona sicura) il numero resterebbe fermo e sembrerebbe bloccato: lo segnalo.
+    const watching = (typeof mpGame!=='undefined' && mpGame) && (typeof mpMyTurn!=='undefined' && !mpMyTurn);
+    const active   = (typeof turnTimer!=='undefined') && !!turnTimer;
+    if(watching){ mt.textContent='–:––'; mt.style.color='var(--dim)'; mt.style.opacity='.6'; }
+    else { mt.textContent=tm.textContent; mt.style.color = active ? (tm.style.color||'var(--gold)') : 'var(--dim)'; mt.style.opacity = active ? '1' : '.6'; }
+  }
   const y=(typeof state!=='undefined')&&state.you;
   if(y){
     const cv=g('m-coinval'); if(cv) cv.textContent=y.coins;
@@ -5087,6 +5120,7 @@ function syncMobileHUD(){
     const mb=g('m-fab-miss');
     if(mb){ const n=mCompletableCount(); mb.textContent=n; mb.classList.toggle('zero', n<=0); }
   }
+  mMalusSync();
 }
 /* ============================================================
    MAPPA pan/zoom (Fase 3) — solo mobile. Manipola il viewBox di
@@ -5196,10 +5230,25 @@ function mCompletableCount(){
 }
 // Fase 2: rispecchia i badge non-letti sui floating button cronaca/chat
 function mSyncCronBadges(){
-  [['cron-badge','m-fab-cron'],['chat-badge','m-fab-chat']].forEach(([src,dst])=>{
+  // cronaca ora è nell'hamburger (#md-cron-badge); chat resta un float (#m-fab-chat)
+  [['cron-badge','md-cron-badge'],['chat-badge','m-fab-chat']].forEach(([src,dst])=>{
     const a=document.getElementById(src), b=document.getElementById(dst); if(!a||!b) return;
     b.textContent=a.textContent; b.classList.toggle('zero', a.classList.contains('zero'));
   });
+}
+// Scheda malus mobile (in alto, accanto all'ordine turni): mostra le 3 icone, accese se attive.
+function mMalusSync(){
+  const card=document.getElementById('m-malus'); if(!card) return;
+  const st=(typeof state!=='undefined')&&state.you&&state.you.states;
+  const anyOn = st && (st.emorragia||st.ossa||st.avvelenato);
+  card.querySelectorAll('.mm-ic').forEach(ic=>ic.classList.toggle('on', !!(st && st[ic.dataset.k])));
+  card.classList.toggle('m-show', !!anyOn);   // visibile solo se almeno un malus è attivo
+  // posiziona accanto all'ordine turni (se visibile), altrimenti resta all'angolo (CSS)
+  const to=document.getElementById('turnorder-card');
+  if(to && getComputedStyle(to).display!=='none' && to.offsetWidth){
+    const r=to.getBoundingClientRect();
+    card.style.left=(r.right+6)+'px'; card.style.top=r.top+'px';
+  } else { card.style.left=''; card.style.top=''; }
 }
 // Nel turno di base/postEncounter nascondi dalla bottom bar mobile le azioni di sola esplorazione
 function syncMobileActionVis(){
