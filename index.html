@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>HEXARTHA — Prototipo</title>
 <style>
   :root{
@@ -21,6 +21,13 @@
     /* Carte — palette categorie + sfondo illustrazione */
     --cat-comune:#b5482f; --cat-medico:#4fa8c8; --cat-militare:#8a8a3f; --cat-speciale:#d9a441;
     --illus-bg:#ffffff;
+    /* --- Mobile (Fase 0): safe-area notch + altezze barre --- */
+    --safe-top:env(safe-area-inset-top,0px);
+    --safe-bottom:env(safe-area-inset-bottom,0px);
+    --safe-left:env(safe-area-inset-left,0px);
+    --safe-right:env(safe-area-inset-right,0px);
+    --m-topbar:50px;
+    --m-botbar:60px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -86,6 +93,8 @@
   /* ---------- GAME — mappa protagonista a tutto schermo, plancia da campo flottante ---------- */
   #game{display:none}
   #game.active{display:block}
+  /* Chrome mobile (Fase 1+2+3): nascosto su desktop, attivato nel breakpoint in fondo */
+  #m-topbar,#m-drawer,#m-drawer-scrim,.m-sheet-close,#m-fab-left,#m-fab-right,#m-zoom,#m-rotate{display:none}
   /* La mappa riempie l'intero schermo; il padding sposta l'SVG nello spazio libero
      tra i pannelli (destra: plancia · basso: barra azioni). Il fondo CSS prosegue
      la "terra bruciata" del ground SVG fino ai bordi. */
@@ -292,26 +301,173 @@
     font-family:"Arial Narrow","Helvetica Neue",Impact,sans-serif;letter-spacing:.12em}
   .inv-slot{border-left:3px solid var(--border2)}
   .inv-free{border:1px dashed var(--border2);border-radius:4px;min-height:22px;margin-top:4px;opacity:.55}
-  /* --- Breakpoint schermo stretto: mappa in alto, pannelli impilati, barra azioni fissa --- */
+  /* ============================================================
+     LAYOUT MOBILE (Fase 0+1) — mappa a tutto schermo + top bar +
+     bottom bar a icone + hamburger drawer. Sostituisce il vecchio
+     "desktop compresso". Vedi HUD/MOBILE-UI-PROPOSTA.md
+     ============================================================ */
   @media (max-width:860px){
-    #game.active{display:flex;flex-direction:column;overflow-y:auto}
-    .mapwrap{position:relative;inset:auto;flex:none;height:47vh;min-height:260px;padding:4px}
-    #hud-day{position:static;width:auto;margin:8px 8px 0;bottom:auto;overflow-y:visible}
-    #hud-right{position:static;width:auto;bottom:auto;margin:8px 8px 0;overflow:visible;
-      padding-bottom:215px}   /* respiro sopra la barra azioni fissa */
-    .turnbox .tn{max-width:none}
-    .actionsbar{position:fixed;left:8px;right:8px;bottom:8px;transform:none;width:auto;max-width:none}
-    /* barra compatta: azioni affiancate, CTA a tutta larghezza */
-    .actionsbar #phaselabel{font-size:10px}
-    .actionsbar .btn{flex:1 1 22%;justify-content:center;padding:8px 3px;font-size:11px;min-height:42px;gap:4px}
-    .actionsbar #a-end{flex:1 1 100%}
-    #map-legend{top:8px;right:8px;bottom:auto}
-    .turnorder-float{left:8px;top:8px;width:auto;max-width:64vw}
-    #mpwatch{left:8px !important;right:8px !important;bottom:8px !important;transform:none !important;width:auto !important;max-width:none !important}   /* rimpiazza la barra azioni (stessa posizione) */
-    .cron{width:calc(100% - 16px);left:8px}
+    /* --- Mappa a tutto schermo, niente stacking/scroll --- */
+    #game.active{display:block}
+    #phase-stepper,#hud-right,#hx-audio-ctrl,#map-legend{display:none!important}
+    .mapwrap{position:absolute;inset:0;height:auto;flex:none;
+      padding:calc(var(--safe-top) + var(--m-topbar) + 6px) calc(6px + var(--safe-right))
+              calc(var(--safe-bottom) + var(--m-botbar) + 6px) calc(6px + var(--safe-left))}
+
+    /* --- TOP BAR: plancia · turno · tempo · vite · monete · ☰ --- */
+    #m-topbar{display:flex;align-items:stretch;gap:5px;position:fixed;top:0;left:0;right:0;z-index:60;
+      height:calc(var(--safe-top) + var(--m-topbar));padding:var(--safe-top) calc(7px + var(--safe-right)) 0 calc(7px + var(--safe-left));
+      background:linear-gradient(180deg,rgba(18,17,15,.98),rgba(18,17,15,.9));
+      border-bottom:1px solid var(--border2);box-shadow:0 3px 12px rgba(0,0,0,.5)}
+    #m-topbar .mt-cell{display:flex;flex-direction:column;justify-content:center;min-width:0}
+    #m-topbar .mt-lab{font-family:"Arial Narrow","Helvetica Neue",sans-serif;font-weight:800;
+      font-size:7px;letter-spacing:.12em;color:var(--concrete);text-transform:uppercase;line-height:1}
+    #m-plancia{background:none;border:none;border-right:1px solid var(--border);color:var(--text);
+      text-align:left;padding:2px 7px 2px 2px;flex:0 0 auto;align-items:flex-start}
+    #m-plancia .mt-day{display:flex;align-items:baseline;gap:3px;line-height:1.05}
+    #m-plancia .mt-day b{font-size:17px;color:var(--gold)}
+    #m-plancia #m-period{font-size:8px;color:var(--ochre);max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mt-turn{flex:1 1 auto}
+    .mt-turn #m-turnof{font-size:12px;color:var(--gold);font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mt-timer{flex:0 0 auto;align-items:center;justify-content:center;padding:0 3px}
+    .mt-timer #m-time{font-size:15px;font-weight:bold;color:var(--gold);line-height:1}
+    .mt-timer .mt-lab::after{content:"⏱ TEMPO"}
+    .mt-vite{flex:0 0 auto;justify-content:center}
+    #m-hearts{display:flex;gap:1px}
+    #m-hearts .mh{font-size:12px;line-height:1;color:#3a1414}
+    #m-hearts .mh.on{color:var(--blood2);text-shadow:0 0 4px rgba(179,32,32,.55)}
+    #m-hearts .mh.extra{color:#1e2d3a}
+    #m-hearts .mh.extra.on{color:var(--blue);text-shadow:0 0 5px rgba(77,127,168,.65)}
+    .mt-coins{flex:0 0 auto;flex-direction:row;align-items:center;gap:2px;font-size:13px}
+    .mt-coins b{color:var(--gold)}
+    #m-burger{flex:0 0 auto;background:none;border:1px solid var(--border2);border-radius:7px;
+      color:var(--text);font-size:18px;width:40px;display:flex;align-items:center;justify-content:center}
+
+    /* --- BOTTOM BAR azioni: solo icone, contestuale (riusa updateActionUI) --- */
+    .actionsbar{position:fixed;left:0;right:0;bottom:0;top:auto;transform:none;width:auto;max-width:none;z-index:60;
+      border-radius:0;border:none;border-top:1px solid var(--border2);
+      background:linear-gradient(0deg,rgba(18,17,15,.98),rgba(18,17,15,.9));
+      padding:6px calc(8px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(8px + var(--safe-left));
+      box-shadow:0 -3px 12px rgba(0,0,0,.5)}
+    .actionsbar .ab-top{display:none}
+    .actionsbar .ab-btns{display:flex;gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:stretch}
+    .actionsbar .ab-btns .btn{flex:1 1 0;min-width:0;font-size:0;padding:0;min-height:50px;
+      justify-content:center;border-radius:9px}
+    .actionsbar .ab-btns .btn .ic{font-size:23px}
+    .actionsbar #a-end{flex:2.2 1 0;font-size:11px!important;letter-spacing:.03em;gap:0;padding:0 6px;line-height:1.15;text-align:center}
+    /* nel turno di base/postEncounter nascondi le azioni di sola esplorazione */
+    .actionsbar .btn[data-mhide]{display:none}
+
+    /* --- HAMBURGER DRAWER (funzioni secondarie) --- */
+    #m-drawer-scrim{display:block;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.5);
+      opacity:0;pointer-events:none;transition:opacity .2s}
+    #m-drawer-scrim.open{opacity:1;pointer-events:auto}
+    #m-drawer{display:flex;flex-direction:column;gap:3px;position:fixed;top:0;bottom:0;right:0;z-index:71;
+      width:min(82vw,320px);
+      padding:calc(var(--safe-top) + 12px) calc(12px + var(--safe-right)) calc(var(--safe-bottom) + 14px) 14px;
+      background:linear-gradient(180deg,#1b1a17,#141312);border-left:1px solid var(--border2);
+      box-shadow:-6px 0 24px rgba(0,0,0,.6);transform:translateX(100%);transition:transform .22s ease-out;overflow-y:auto}
+    #m-drawer.open{transform:none}
+    #m-drawer .md-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    #m-drawer .md-head .stencil{color:var(--gold);font-size:15px;letter-spacing:.18em}
+    #m-drawer .md-x{background:none;border:none;color:var(--muted);font-size:22px;line-height:1}
+    #m-drawer .md-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+      background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px;
+      color:var(--text);font-size:14px;padding:0 14px;min-height:50px}
+    #m-drawer .md-item .md-ic{font-size:19px;width:24px;text-align:center;flex:none}
+    #m-drawer .md-item:active,#m-drawer .md-item:hover{border-color:var(--rust);background:rgba(161,74,42,.12);color:#fff}
+    #m-drawer .md-item.danger{border-color:var(--rust-d);color:var(--rust)}
+    #m-drawer .md-sep{height:1px;background:var(--border);margin:6px 2px}
+
+    /* --- MAPPA pan/zoom (Fase 3): niente gesti del browser sulla mappa --- */
+    .mapwrap{touch-action:none}
+    #mapsvg{touch-action:none}
+    /* Pulsanti zoom +/− in alto a destra (angolo libero) */
+    #m-zoom{display:flex;flex-direction:column;gap:8px;position:fixed;z-index:56;
+      right:calc(8px + var(--safe-right));top:calc(var(--safe-top) + var(--m-topbar) + 10px)}
+    #m-zoom .mz-btn{width:44px;height:44px;border-radius:10px;font-size:24px;font-weight:bold;line-height:1;
+      background:linear-gradient(180deg,rgba(30,29,26,.92),rgba(18,17,15,.9));
+      border:1px solid var(--border2);color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,.5);
+      display:flex;align-items:center;justify-content:center}
+    #m-zoom .mz-btn:active{border-color:var(--rust);filter:brightness(1.2)}
+
+    /* --- FLOATING BUTTON (Fase 2) --- */
+    #m-fab-left,#m-fab-right{display:flex;flex-direction:column;gap:10px;position:fixed;z-index:56;
+      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 10px)}
+    #m-fab-left{left:calc(8px + var(--safe-left));align-items:flex-start}
+    #m-fab-right{right:calc(8px + var(--safe-right));align-items:flex-end}
+    .m-fab{position:relative;width:52px;height:52px;border-radius:50%;font-size:22px;flex:none;
+      background:linear-gradient(180deg,rgba(43,43,46,.97),rgba(20,19,17,.96));
+      border:1px solid var(--rust);color:var(--text);box-shadow:0 3px 14px rgba(0,0,0,.55);
+      display:flex;align-items:center;justify-content:center;line-height:1}
+    .m-fab:active{filter:brightness(1.25)}
+    .m-fab-badge{position:absolute;top:-4px;right:-4px;min-width:19px;height:19px;padding:0 5px;
+      border-radius:10px;background:var(--brace);color:#1a1206;font-size:11px;font-weight:bold;
+      display:flex;align-items:center;justify-content:center;border:2px solid #141210}
+    .m-fab-badge.zero{display:none}
+
+    /* --- CRONACA + CHAT: i float sono i launcher; il pannello si apre sopra lo stack destro --- */
+    .cron-tabs{display:none}
+    .cron{left:auto;right:calc(8px + var(--safe-right));z-index:57;width:min(320px,calc(100% - 16px));
+      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 10px + 52px + 10px + 52px + 12px)}
+    .cron.open{width:min(340px,calc(100% - 16px))}
+    .cron.open .cron-body{height:min(40vh,320px);margin-bottom:0}
+    .cron-body .log,.cron .chatbox{box-shadow:0 8px 24px rgba(0,0,0,.72);border-radius:8px}
+
+    /* --- ORDINE TURNO (solo MP): in alto a sinistra sotto la top bar --- */
+    .turnorder-float{left:calc(8px + var(--safe-left));right:auto;top:calc(var(--safe-top) + var(--m-topbar) + 6px);
+      width:auto;max-width:60vw}
+
+    /* --- PLANCIA / DIARIO: riusa #hud-day come sheet a tutto schermo --- */
+    #hud-day{display:none}
+    #hud-day.m-open{display:block;position:fixed;inset:0;z-index:80;width:auto;margin:0;border-radius:0;
+      padding:calc(var(--safe-top) + 10px) calc(12px + var(--safe-right)) calc(var(--safe-bottom) + 14px) calc(12px + var(--safe-left));
+      overflow-y:auto;background:rgba(15,14,12,.98)}
+    #hud-day.m-open .m-sheet-close{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+      position:sticky;top:0;margin:-4px 0 8px;padding:11px;min-height:46px;
+      background:rgba(20,18,15,.96);border:1px solid var(--border2);border-radius:8px;
+      color:var(--muted);font-size:13px;letter-spacing:.06em}
+
+    /* --- Attesa turno (mpwatch) sopra la barra azioni --- */
+    #mpwatch{left:calc(8px + var(--safe-left))!important;right:calc(8px + var(--safe-right))!important;
+      bottom:calc(var(--safe-bottom) + var(--m-botbar) + 8px)!important;transform:none!important;width:auto!important;max-width:none!important}
+
+    /* --- OVERLAY / MODALI full-screen (Fase 4) --- */
+    /* mentre una modale è aperta, il chrome mobile sparisce (la modale copre tutto) */
+    .m-modal-open #m-topbar,.m-modal-open .actionsbar,.m-modal-open #m-fab-left,
+    .m-modal-open #m-fab-right,.m-modal-open #m-zoom{display:none!important}
+    .overlay{padding:0}
+    .modal{width:100vw!important;max-width:100vw;min-height:100dvh;max-height:none;border-radius:0;border:none;
+      padding-top:var(--safe-top);padding-bottom:calc(var(--safe-bottom) + 8px)}
+    .modal.wide{width:100vw!important}
+    .modal-x{top:calc(var(--safe-top) + 8px);right:calc(var(--safe-right) + 10px);width:40px;height:40px;font-size:18px}
+    /* Combattimento/PvP: layout in colonna, dadi grandi, CTA grandi in thumb-zone */
+    .combat-grid{grid-template-columns:1fr;gap:10px}
+    #combat-actions{gap:10px;flex-wrap:nowrap}
+    #combat-actions .btn{flex:1 1 0;min-height:52px;font-size:14px;justify-content:center;padding:6px 8px}
+    .die{width:56px;height:56px;font-size:27px}
+
+    /* --- ORDINE TURNO (MP): pallini colorati col numero, senza nome (Fase 5) --- */
+    .turnorder-float{padding:4px 7px}
+    .turnorder-float .flab{display:none}
+    #turnorder-hud{flex-direction:row!important;flex-wrap:wrap;gap:5px!important}
+    #turnorder-hud .pl-row{padding:2px 6px!important;background:rgba(0,0,0,.4)!important;border-radius:11px;gap:4px;align-items:center}
+    #turnorder-hud .pl-row .to-name,#turnorder-hud .pl-row .to-cur{display:none!important}
+    #turnorder-hud .pl-row .to-num{min-width:auto!important;font-size:11px!important}
+
+    /* --- Lobby responsive (ex breakpoint 860) --- */
     .lobby-card{grid-template-columns:1fr}
     .lobby-side{border-left:none;border-top:1px solid var(--border)}
   }
+  /* --- Landscape su telefono: invita a ruotare in verticale (Fase 5) --- */
+  @media (orientation:landscape) and (max-height:500px){
+    #m-rotate{display:flex;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;
+      text-align:center;background:rgba(10,9,8,.97);padding:20px;
+      font-family:"Arial Narrow","Helvetica Neue",sans-serif;text-transform:uppercase;letter-spacing:.12em}
+    #m-rotate .mr-in{font-size:15px;line-height:1.7;color:var(--gold)}
+    #m-rotate .mr-ico{font-size:50px;margin-bottom:12px;animation:mrRot 2.4s ease-in-out infinite}
+  }
+  @keyframes mrRot{0%,55%{transform:rotate(0)}80%,100%{transform:rotate(-90deg)}}
   /* Carta Evento = bollettino del giorno — stile giornale stracciato */
   .evt-card{position:relative;border:1px solid rgba(88,76,56,.55);border-top:none;border-radius:0 0 2px 2px;padding:32px 22px 20px;margin-bottom:16px;
     background:linear-gradient(170deg,#dcd5c0 0%,#cdc4ac 55%,#c2b99f 100%);color:var(--ink);text-align:center;
@@ -963,6 +1119,51 @@
 
 <!-- ============ GAME ============ -->
 <section id="game" class="screen">
+  <!-- ===== MOBILE CHROME (Fase 1) — visibile solo sotto 860px ===== -->
+  <div id="m-topbar" role="toolbar">
+    <button id="m-plancia" class="mt-cell" onclick="toggleMobilePlancia()" title="Diario / plancia del giorno">
+      <span class="mt-lab">Giorno</span>
+      <span class="mt-day"><b id="m-day">1</b><span id="m-period">L'inizio</span></span>
+    </button>
+    <div class="mt-cell mt-turn">
+      <span class="mt-lab">Turno di</span>
+      <span id="m-turnof">—</span>
+    </div>
+    <div class="mt-cell mt-timer">
+      <span class="mt-lab"></span>
+      <span id="m-time">3:00</span>
+    </div>
+    <div class="mt-cell mt-vite" title="Vite (max 5: 3 base + 2 extra)"><div id="m-hearts"></div></div>
+    <div class="mt-cell mt-coins" title="Monete">🪙<b id="m-coinval">3</b></div>
+    <button id="m-burger" class="mt-cell" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
+  </div>
+  <div id="m-drawer-scrim" onclick="toggleMobileMenu(false)"></div>
+  <nav id="m-drawer" aria-label="Funzioni secondarie">
+    <div class="md-head"><span class="stencil">Menu</span><button class="md-x" onclick="toggleMobileMenu(false)" aria-label="Chiudi">✕</button></div>
+    <button class="md-item" onclick="mMenu(openCommerce)"><span class="md-ic">🤝</span><span>Commercio</span></button>
+    <button class="md-item" onclick="mMenu(openCrafting)"><span class="md-ic">🛠</span><span>Crafting</span></button>
+    <button class="md-item" onclick="mMenu(openDeposito)"><span class="md-ic">🗄️</span><span>Magazzino</span></button>
+    <button class="md-item" onclick="mMenu(openCardsBrowser)"><span class="md-ic">📚</span><span>Mazzi &amp; incontri</span></button>
+    <button class="md-item" onclick="mMenu(openManual)"><span class="md-ic">📖</span><span>Manuale di gioco</span></button>
+    <div class="md-sep"></div>
+    <button class="md-item" id="md-audio" onclick="mToggleAudio()"><span class="md-ic">🔊</span><span>Audio: attivo</span></button>
+    <div class="md-sep"></div>
+    <button class="md-item danger" onclick="toggleMobileMenu(false);abandonGame()"><span class="md-ic">🚪</span><span>Abbandona partita</span></button>
+  </nav>
+  <!-- Floating button (Fase 2). Sinistra: missioni sopra, equip sotto. Destra: chat e cronaca separati. -->
+  <div id="m-fab-left" class="m-fabcol">
+    <button class="m-fab" onclick="openMissions()" aria-label="Missioni" title="Missioni">📜<span class="m-fab-badge zero" id="m-fab-miss">0</span></button>
+    <button class="m-fab" onclick="openInventory()" aria-label="Inventario / Equip" title="Inventario / Equip">🎒</button>
+  </div>
+  <div id="m-fab-right" class="m-fabcol">
+    <button class="m-fab" id="m-fab-chatbtn" style="display:none" onclick="toggleChat()" aria-label="Chat" title="Chat">💬<span class="m-fab-badge zero" id="m-fab-chat">0</span></button>
+    <button class="m-fab" onclick="toggleCronaca()" aria-label="Cronaca" title="Cronaca">🗒<span class="m-fab-badge zero" id="m-fab-cron">0</span></button>
+  </div>
+  <div id="m-zoom">
+    <button class="mz-btn" onclick="mapZoomStep(0.5)" aria-label="Ingrandisci">＋</button>
+    <button class="mz-btn" onclick="mapZoomStep(-0.5)" aria-label="Rimpicciolisci">－</button>
+  </div>
+  <div id="m-rotate"><div class="mr-in"><div class="mr-ico">📱</div>HEXARTHA si gioca in verticale.<br>Ruota il telefono.</div></div>
   <!-- Attesa del proprio turno (Tappa 2.2): targhetta NON bloccante (puoi navigare l'HUD) -->
   <div id="mpwatch" style="position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:13;background:var(--panel);border:1px solid var(--gold);border-radius:8px;padding:10px 12px;display:none;pointer-events:none;box-shadow:0 3px 12px rgba(0,0,0,.55);text-align:center;width:max-content;max-width:min(740px,calc(100% - 640px))">
     <div class="stencil" style="color:var(--gold);font-size:13px;letter-spacing:.04em">👁️ Stai guardando il turno di <span id="mpwatch-name">—</span></div>
@@ -1022,6 +1223,7 @@
 
   <!-- PLANCIA DA CAMPO · alto-sinistra: giorno, turno di, timer, evento del giorno -->
   <div class="fpanel" id="hud-day">
+    <button type="button" class="m-sheet-close" onclick="toggleMobilePlancia(false)">✕ Chiudi diario</button>
     <div class="hd-top">
       <div class="daybox"><div class="flab">Giorno</div>
         <div class="n"><span id="day">1</span><span class="dim" id="total-days">/18</span></div>
@@ -2058,6 +2260,7 @@ function cronacaNotify(entry){
     const b=document.getElementById('cron-badge');
     if(b){ b.textContent=cronUnread>99?'99+':cronUnread; b.classList.remove('zero'); }
   }
+  mSyncCronBadges();
 }
 // Un solo pannello aperto alla volta (CRONACA oppure CHAT); which = 'log' | 'chat' | null
 let chatOpen=false, chatUnread=0;
@@ -2081,12 +2284,14 @@ function setDrawer(which){
     const box=document.getElementById('chatlog'); if(box) box.scrollTop=box.scrollHeight;
     setTimeout(()=>document.getElementById('chatinput')?.focus(),50);
   }
+  mSyncCronBadges();
 }
 function toggleCronaca(){ setDrawer(cronacaOpen?null:'log'); }
 function toggleChat(){ setDrawer(chatOpen?null:'chat'); }
 
 // ---------- Chat di partita (solo online): messaggi via broadcast sul canale Supabase ----------
-function showChatTab(on){ const t=document.getElementById('tab-chat'); if(t) t.style.display=on?'':'none'; }
+function showChatTab(on){ const t=document.getElementById('tab-chat'); if(t) t.style.display=on?'':'none';
+  const f=document.getElementById('m-fab-chatbtn'); if(f) f.style.display=on?'':'none'; }   // mobile: float chat solo online
 function chatAppend(name, text, color, mine, sys){
   const box=document.getElementById('chatlog'); if(!box) return;
   const d=document.createElement('div');
@@ -2671,10 +2876,10 @@ function mpRenderTurnOrder(){
     const isCur=(idx===mpGame.seat), isMe=(idx===mySeatIndex), ab=!!c.abandoned;
     const off = !ab && !isMe && _presenceSeenMultiple && !onlinePlayers.has(c.id);   // offline (solo se la presence è affidabile)
     html+=`<div class="pl-row" style="${isCur?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}${(ab||off)?'opacity:.5;':''}">
-      <span class="dim" style="min-width:14px;font-size:11px">${pos+1}.</span>
+      <span class="dim to-num" style="min-width:14px;font-size:11px">${pos+1}.</span>
       <span class="pdot2" style="background:${c.color};color:${c.color}"></span>
-      <span style="${isCur?'color:var(--gold);font-weight:700':''}">${escapeHtml(c.name)}${isMe?' (tu)':''}${ab?' — ritirato':off?' — <span style="color:var(--rust)">offline</span>':''}</span>
-      ${isCur?'<span style="margin-left:auto;color:var(--gold)">▶</span>':''}
+      <span class="to-name" style="${isCur?'color:var(--gold);font-weight:700':''}">${escapeHtml(c.name)}${isMe?' (tu)':''}${ab?' — ritirato':off?' — <span style="color:var(--rust)">offline</span>':''}</span>
+      ${isCur?'<span class="to-cur" style="margin-left:auto;color:var(--gold)">▶</span>':''}
     </div>`;
   }
   box.innerHTML=html;
@@ -4087,6 +4292,7 @@ function buildMap(){
   const pad=30;
   const X0=minX-pad, Y0=minY-pad, W=maxX-minX+pad*2, H=maxY-minY+pad*2;
   svg.setAttribute("viewBox",`${X0} ${Y0} ${W} ${H}`);
+  mapHome={x:X0,y:Y0,w:W,h:H};   // Fase 3: viewBox "home" per pan/zoom mobile
   const fort=tileMap.get("4,6");
   // fondo terra bruciata + bagliori (rosso solo sulla Fortezza, braci sui campi)
   svg.innerHTML = mapDefsHTML()
@@ -4141,6 +4347,8 @@ function buildMap(){
   buildLegend();
   markExtractions();
   drawPawn();
+  mapInitGestures();   // Fase 3: pan/zoom mobile (una sola volta)
+  mapApply();          // applica viewBox (home su desktop, vista corrente su mobile)
 }
 // Legenda tipologie: pannello sovrapposto alla mappa, collassabile col click sull'intestazione
 function buildLegend(){
@@ -4772,6 +4980,7 @@ function beginYourTurn(){
   }
   publishLive(state.phase==="base"?"safe":"start", "");   // FASE A: snapshot iniziale (posizione + equip + HP) per gli spettatori
   startTurnTimer();
+  mapAutoCenterOnMe();   // Fase 3: all'inizio del tuo turno la mappa si centra sulla tua pedina (mobile)
 }
 
 // ----- Timer di turno (3 minuti) -----
@@ -4794,6 +5003,177 @@ function updateTimerUI(){
   const m=Math.floor(Math.max(0,timeLeft)/60), s=Math.max(0,timeLeft)%60;
   el.textContent=`${m}:${String(s).padStart(2,'0')}`;
   el.style.color = timeLeft<=30 ? 'var(--rust)' : 'var(--gold)';
+  syncMobileHUD();   // rispecchia il timer nella top bar mobile
+}
+
+/* ============================================================
+   MOBILE CHROME (Fase 1) — top bar, hamburger, bottom bar, plancia sheet.
+   Rispecchia i dati esistenti senza toccare la logica di gioco.
+   ============================================================ */
+function toggleMobileMenu(force){
+  const d=document.getElementById('m-drawer'), s=document.getElementById('m-drawer-scrim');
+  if(!d) return;
+  const open = (force===undefined) ? !d.classList.contains('open') : !!force;
+  d.classList.toggle('open',open); if(s) s.classList.toggle('open',open);
+  if(open) mSyncAudioLabel();
+}
+function mMenu(fn){ toggleMobileMenu(false); try{ fn(); }catch(e){ console.warn(e); } }
+function mToggleAudio(){ try{ HXAudio.toggleMute(); }catch(e){} mSyncAudioLabel(); }
+function mSyncAudioLabel(){
+  const el=document.getElementById('md-audio'); if(!el) return;
+  const b=document.getElementById('hx-audio-btn');
+  const muted = b ? (b.textContent==='🔇') : false;
+  el.innerHTML=`<span class="md-ic">${muted?'🔇':'🔊'}</span><span>Audio: ${muted?'muto':'attivo'}</span>`;
+}
+function toggleMobilePlancia(force){
+  const p=document.getElementById('hud-day'); if(!p) return;
+  const open = (force===undefined) ? !p.classList.contains('m-open') : !!force;
+  p.classList.toggle('m-open',open);
+}
+function syncMobileHUD(){
+  const g=id=>document.getElementById(id);
+  const bar=g('m-topbar'); if(!bar) return;
+  const src=(id,dst)=>{ const a=g(id),b=g(dst); if(a&&b) b.textContent=a.textContent; };
+  src('day','m-day'); src('dayperiod','m-period'); src('turnof','m-turnof');
+  const tm=g('turntimer'), mt=g('m-time');
+  if(tm&&mt){ mt.textContent=tm.textContent; mt.style.color=tm.style.color||'var(--gold)'; }
+  const y=(typeof state!=='undefined')&&state.you;
+  if(y){
+    const cv=g('m-coinval'); if(cv) cv.textContent=y.coins;
+    // Vite: max 5 cuori — i primi maxhp (3) rossi, gli ultimi 2 azzurri (extra temporanei)
+    const hEl=g('m-hearts');
+    if(hEl){
+      let h='';
+      for(let i=0;i<(y.maxhp||3);i++) h+=`<span class="mh ${i<y.hp?'on':'off'}">❤</span>`;
+      for(let i=0;i<2;i++)           h+=`<span class="mh extra ${i<(y.tempHp||0)?'on':''}">❤</span>`;
+      hEl.innerHTML=h;
+    }
+    // Badge FAB missioni: quante missioni sono consegnabili con gli oggetti in mano
+    const mb=g('m-fab-miss');
+    if(mb){ const n=mCompletableCount(); mb.textContent=n; mb.classList.toggle('zero', n<=0); }
+  }
+}
+/* ============================================================
+   MAPPA pan/zoom (Fase 3) — solo mobile. Manipola il viewBox di
+   #mapsvg (home calcolato in buildMap). tap vs drag: se trascini
+   oltre soglia, il click sulla tessera viene soppresso.
+   ============================================================ */
+let mapHome=null;                    // {x,y,w,h} viewBox "home" (tutta la mappa)
+let mapView={cx:0,cy:0,zoom:1};      // centro (coord svg) + zoom
+const MAP_ZMIN=1, MAP_ZMAX=2.5;
+let _mapDragged=false, _mapGesturesInit=false;
+function mapIsMobile(){ return window.matchMedia('(max-width:860px)').matches; }
+function mapCurrentBox(){
+  const w=mapHome.w/mapView.zoom, h=mapHome.h/mapView.zoom;
+  const minCx=mapHome.x+w/2, maxCx=mapHome.x+mapHome.w-w/2;
+  const minCy=mapHome.y+h/2, maxCy=mapHome.y+mapHome.h-h/2;
+  mapView.cx=Math.min(Math.max(mapView.cx,minCx),maxCx);
+  mapView.cy=Math.min(Math.max(mapView.cy,minCy),maxCy);
+  return {x:mapView.cx-w/2, y:mapView.cy-h/2, w, h};
+}
+function mapApply(){
+  const svg=document.getElementById('mapsvg'); if(!svg||!mapHome) return;
+  if(!mapIsMobile()){ svg.setAttribute('viewBox',`${mapHome.x} ${mapHome.y} ${mapHome.w} ${mapHome.h}`); return; }
+  const b=mapCurrentBox(); svg.setAttribute('viewBox',`${b.x} ${b.y} ${b.w} ${b.h}`);
+}
+function mapResetHome(){ if(!mapHome) return; mapView={cx:mapHome.x+mapHome.w/2, cy:mapHome.y+mapHome.h/2, zoom:1}; mapApply(); }
+function _mapScale(svg){ const m=svg.getScreenCTM(); return (m&&m.a)?m.a:1; }
+function _mapScreenToSvg(svg,px,py){ const m=svg.getScreenCTM(); if(!m) return null; const pt=svg.createSVGPoint(); pt.x=px; pt.y=py; return pt.matrixTransform(m.inverse()); }
+function mapZoomAt(newZoom, clientX, clientY){
+  const svg=document.getElementById('mapsvg'); if(!svg||!mapHome) return;
+  newZoom=Math.min(Math.max(newZoom,MAP_ZMIN),MAP_ZMAX);
+  const focal=_mapScreenToSvg(svg,clientX,clientY); if(!focal){ mapView.zoom=newZoom; mapApply(); return; }
+  const b=mapCurrentBox();
+  const fx=(focal.x-b.x)/b.w, fy=(focal.y-b.y)/b.h;
+  mapView.zoom=newZoom;
+  const w=mapHome.w/newZoom, h=mapHome.h/newZoom;
+  mapView.cx=(focal.x-fx*w)+w/2; mapView.cy=(focal.y-fy*h)+h/2;
+  mapApply();
+}
+function mapZoomStep(delta){
+  const svg=document.getElementById('mapsvg'); if(!svg) return;
+  const r=svg.getBoundingClientRect();
+  mapZoomAt((mapView.zoom||1)+delta, r.left+r.width/2, r.top+r.height/2);
+}
+function mapPanScreen(dx,dy){
+  const svg=document.getElementById('mapsvg'); if(!svg) return;
+  const s=_mapScale(svg)||1; mapView.cx-=dx/s; mapView.cy-=dy/s; mapApply();
+}
+function mapAutoCenterOnMe(){
+  if(!mapIsMobile()||!mapHome) return;
+  const t=(typeof state!=='undefined')&&state.you&&state.you.tile; if(!t||t._x==null) return;
+  mapView.zoom=Math.min(MAP_ZMAX,1.9); mapView.cx=t._x; mapView.cy=t._y; mapApply();
+}
+function mapInitGestures(){
+  if(_mapGesturesInit) return;
+  const wrap=document.querySelector('.mapwrap'), svg=document.getElementById('mapsvg');
+  if(!wrap||!svg) return;
+  _mapGesturesInit=true;
+  const pts=new Map(); let last=null, startDist=0, startZoom=1, moved=0;
+  wrap.addEventListener('pointerdown',e=>{
+    if(!mapIsMobile()) return;
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); _mapDragged=false; moved=0;
+    if(pts.size===1) last={x:e.clientX,y:e.clientY};
+    if(pts.size===2){ const a=[...pts.values()]; startDist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1; startZoom=mapView.zoom; }
+    try{ wrap.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  wrap.addEventListener('pointermove',e=>{
+    if(!mapIsMobile()||!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size>=2){
+      const a=[...pts.values()];
+      const dist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1;
+      mapZoomAt(startZoom*(dist/startDist),(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);
+      _mapDragged=true;
+    } else if(last){
+      const dx=e.clientX-last.x, dy=e.clientY-last.y; moved+=Math.abs(dx)+Math.abs(dy);
+      mapPanScreen(dx,dy); last={x:e.clientX,y:e.clientY};
+      if(moved>8) _mapDragged=true;
+    }
+  });
+  const up=e=>{ pts.delete(e.pointerId); if(pts.size<2) startDist=0;
+    if(pts.size===1){ const p=[...pts.values()][0]; last={x:p.x,y:p.y}; } if(pts.size===0) last=null; };
+  wrap.addEventListener('pointerup',up); wrap.addEventListener('pointercancel',up);
+  // Sopprime il click sulla tessera se stavo trascinando/pinchando (capture, prima del click sul polygon)
+  svg.addEventListener('click',e=>{ if(_mapDragged){ e.stopPropagation(); e.preventDefault(); _mapDragged=false; } }, true);
+  window.addEventListener('resize',()=>{ try{ mapApply(); }catch(_){} });
+}
+
+// Fase 5: quante missioni hanno gli oggetti richiesti già in mano (badge FAB missioni)
+function mCompletableCount(){
+  if(typeof state==='undefined'||!state.you) return 0;
+  const y=state.you, e=y.equip, pool=[];
+  try{
+    packSections().forEach(s=>y.pack[s].forEach(it=>pool.push(it.name)));
+    if(e.tasca) pool.push(e.tasca.name);
+    if(e.arma) pool.push(e.arma.name);
+    if(e.armatura) pool.push(e.armatura.name);
+    if(e.casco) pool.push(e.casco.name);
+    (e.gadget||[]).forEach(g=>{ if(g) pool.push(g.name); });
+    (y.deposito||[]).forEach(it=>pool.push(it.name));
+  }catch(_){ return 0; }
+  const canMeet=deliver=>{ if(!deliver||!deliver.length) return false;
+    const avail=pool.slice(); for(const nm of deliver){ const i=avail.indexOf(nm); if(i<0) return false; avail.splice(i,1); } return true; };
+  let n=0;
+  (y.missions||[]).forEach(m=>{ if(!m.done && !m.actionMission && canMeet(m.deliver)) n++; });
+  (state.storyMissions||[]).forEach(m=>{ if(!m.done && canMeet(m.deliver)) n++; });
+  return n;
+}
+// Fase 2: rispecchia i badge non-letti sui floating button cronaca/chat
+function mSyncCronBadges(){
+  [['cron-badge','m-fab-cron'],['chat-badge','m-fab-chat']].forEach(([src,dst])=>{
+    const a=document.getElementById(src), b=document.getElementById(dst); if(!a||!b) return;
+    b.textContent=a.textContent; b.classList.toggle('zero', a.classList.contains('zero'));
+  });
+}
+// Nel turno di base/postEncounter nascondi dalla bottom bar mobile le azioni di sola esplorazione
+function syncMobileActionVis(){
+  if(typeof state==='undefined'||!state.phase) return;
+  const hideExplor = (state.phase==='base'||state.phase==='postEncounter');
+  ['a-move','a-search','a-hide','a-lock'].forEach(id=>{
+    const b=document.getElementById(id); if(!b) return;
+    if(hideExplor) b.setAttribute('data-mhide',''); else b.removeAttribute('data-mhide');
+  });
 }
 
 // ----- Azioni -----
@@ -5364,6 +5744,7 @@ function updateActionUI(){
     ['a-move','a-search','a-hide','a-lock'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
     ['a-end','a-store','a-trade','a-deliver'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   }
+  syncMobileActionVis();   // mobile: nascondi le azioni di esplorazione nel turno di base
 }
 function updateStepper(){
   const d=state.day||1;
@@ -5630,10 +6011,11 @@ function openModal(html,wide,closeFn){
   // Le modali "forzate" (voto/prep/scontro/saccheggio/eventi…) non hanno _modalCloseFn → il click fuori non fa nulla.
   ov.onclick=(e)=>{ if(e.target===ov && window._modalCloseFn) dismissModal(); };
   ov.classList.add('active');
+  document.body.classList.add('m-modal-open');   // mobile: nasconde il chrome mentre la modale è a schermo intero
   setTimeout(initEffModal,0);
 }
 function dismissModal(){ const fn=window._modalCloseFn; window._modalCloseFn=null; (typeof fn==='function'?fn:closeModal)(); }
-function closeModal(){document.getElementById('overlay').classList.remove('active');window._modalCloseFn=null;}
+function closeModal(){document.getElementById('overlay').classList.remove('active');document.body.classList.remove('m-modal-open');window._modalCloseFn=null;}
 
 // ============ MANUALE DI GIOCO ============
 // Manuale a capitoli: indice a sinistra + contenuto scrollabile, navigabile con ◂/▸.
@@ -7731,6 +8113,7 @@ function renderHUD(){
   renderMissionsCount();
   renderRanking();
   updateCCBadges();
+  syncMobileHUD();   // rispecchia vite/monete/giorno nella top bar mobile
 }
 function renderRanking(){
   const card=document.getElementById('ranking-card');
