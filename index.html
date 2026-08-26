@@ -244,6 +244,11 @@
   /* --- Drag & drop inventario --- */
   .inv-card[draggable=true]{cursor:grab}
   .inv-card[draggable=true]:active{cursor:grabbing}
+  /* "fantasma" della carta che segue il dito nel drag touch (mobile) */
+  .inv-drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:.92;
+    transform:translate(-50%,-50%) scale(1.04);box-shadow:0 10px 26px rgba(0,0,0,.7);
+    outline:2px solid var(--gold);border-radius:6px}
+  .inv-card{touch-action:none}   /* il dito sulla carta trascina, non scrolla la modale */
   .inv-slot.dd-valid{border-color:var(--teal) !important;box-shadow:0 0 8px rgba(79,168,154,.35)}
   .inv-slot.dd-over{border-color:var(--gold) !important;background:rgba(217,164,65,.1);box-shadow:0 0 14px rgba(217,164,65,.45)}
   .inv-slot.dd-blocked{opacity:.28;pointer-events:none}
@@ -8386,7 +8391,7 @@ function selInv(loc){ state.invSel = (state.invSel===loc?null:loc); state.invMsg
 
 function invCardHTML(loc,item){
   const sel = state.invSel===loc ? ' sel':'';
-  return `<button class="inv-card${sel}" draggable="true"
+  return `<button class="inv-card${sel}" draggable="true" data-loc="${loc}"
       ondragstart="invDragStart(event,'${loc}')"
       ondragend="invDragEnd()"
       onclick="selInv('${loc}')">${item.name}
@@ -8463,6 +8468,68 @@ function invDragEnd(){
   document.querySelectorAll('[data-invslot]').forEach(el=>{
     el.classList.remove('dd-valid','dd-blocked','dd-over');
   });
+}
+
+// ---- DRAG & DROP TOUCH (mobile) — riusa lo stesso motore (invDrag/canDropOnSlot/doDragDrop) ----
+// Gli eventi HTML5 drag non scattano col dito: qui un layer touch fa la stessa cosa.
+let _invTouch=null;
+function initInvTouchDrag(){
+  if(window._invTouchInit) return; window._invTouchInit=true;
+  const THRESH=10;
+  document.addEventListener('touchstart', ev=>{
+    if(ev.touches.length!==1) return;
+    const card=ev.target.closest && ev.target.closest('.inv-card[data-loc]');
+    if(!card) return;
+    const t=ev.touches[0];
+    _invTouch={loc:card.dataset.loc, card, x0:t.clientX, y0:t.clientY, moved:false, ghost:null};
+  }, {passive:true});
+
+  document.addEventListener('touchmove', ev=>{
+    if(!_invTouch || ev.touches.length!==1) return;
+    const t=ev.touches[0];
+    if(!_invTouch.moved){
+      if(Math.hypot(t.clientX-_invTouch.x0, t.clientY-_invTouch.y0)<THRESH) return;   // sotto soglia: forse è un tap → non trascinare
+      const item=locGet(_invTouch.loc);
+      if(!item){ _invTouch=null; return; }
+      _invTouch.moved=true;
+      invDrag={loc:_invTouch.loc, item};
+      highlightDragTargets(item, _invTouch.loc);
+      const g=_invTouch.card.cloneNode(true);
+      g.classList.add('inv-drag-ghost'); g.removeAttribute('draggable');
+      g.style.width=_invTouch.card.getBoundingClientRect().width+'px';
+      document.body.appendChild(g); _invTouch.ghost=g;
+    }
+    ev.preventDefault();   // trascinando NON si scrolla
+    const g=_invTouch.ghost; if(g){ g.style.left=t.clientX+'px'; g.style.top=t.clientY+'px'; }
+    // auto-scroll ai bordi della modale per raggiungere slot fuori schermo
+    const ov=document.getElementById('overlay');
+    if(ov){ if(t.clientY<90) ov.scrollTop-=14; else if(t.clientY>window.innerHeight-90) ov.scrollTop+=14; }
+    // evidenzia lo slot valido sotto il dito
+    document.querySelectorAll('[data-invslot].dd-over').forEach(el=>el.classList.remove('dd-over'));
+    const under=document.elementFromPoint(t.clientX,t.clientY);
+    const slot=under && under.closest && under.closest('[data-invslot]');
+    if(slot && invDrag && canDropOnSlot(invDrag.item, invDrag.loc, slot.dataset.invslot)) slot.classList.add('dd-over');
+  }, {passive:false});
+
+  const endFn=ev=>{
+    if(!_invTouch) return;
+    const it=_invTouch; _invTouch=null;
+    if(it.ghost) it.ghost.remove();
+    if(!it.moved) return;    // tap semplice: lascia scattare selInv (onclick)
+    ev.preventDefault();     // evita il click sintetico dopo il trascinamento
+    const t=(ev.changedTouches&&ev.changedTouches[0])||null;
+    let slotKey=null;
+    if(t){
+      const under=document.elementFromPoint(t.clientX,t.clientY);
+      const slot=under && under.closest && under.closest('[data-invslot]');
+      if(slot && invDrag && canDropOnSlot(invDrag.item, invDrag.loc, slot.dataset.invslot)) slotKey=slot.dataset.invslot;
+    }
+    const src=invDrag ? invDrag.loc : it.loc;
+    invDragEnd();
+    if(slotKey) doDragDrop(src, slotKey);
+  };
+  document.addEventListener('touchend', endFn, {passive:false});
+  document.addEventListener('touchcancel', ()=>{ if(_invTouch){ if(_invTouch.ghost) _invTouch.ghost.remove(); _invTouch=null; invDragEnd(); } }, {passive:true});
 }
 
 function invDragOver(e, el){
@@ -8581,6 +8648,7 @@ function doDragDrop(srcLoc, dstKey){
 }
 
 function renderInventory(){
+  initInvTouchDrag();   // abilita il drag & drop col dito (una sola volta, delegato su document)
   const y=state.you;
   // slot vuoti disegnati (capienza visibile a colpo d'occhio)
   const freeSlots=n=>Array.from({length:Math.max(0,n)},()=>`<div class="inv-free"></div>`).join("");
