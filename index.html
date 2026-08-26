@@ -94,7 +94,7 @@
   #game{display:none}
   #game.active{display:block}
   /* Chrome mobile (Fase 1+2+3): nascosto su desktop, attivato nel breakpoint in fondo */
-  #m-topbar,#m-drawer,#m-drawer-scrim,.m-sheet-close,#m-fab-left,#m-fab-right,#m-zoom,#m-rotate,#m-malus{display:none}
+  #m-topbar,#m-drawer,#m-drawer-scrim,.m-sheet-close,#m-fab-left,#m-fab-right,#m-zoom,#m-rotate,#m-malus,.m-days-left{display:none}
   /* La mappa riempie l'intero schermo; il padding sposta l'SVG nello spazio libero
      tra i pannelli (destra: plancia · basso: barra azioni). Il fondo CSS prosegue
      la "terra bruciata" del ground SVG fino ai bordi. */
@@ -453,6 +453,9 @@
       position:sticky;top:0;margin:-4px 0 8px;padding:11px;min-height:46px;
       background:rgba(20,18,15,.96);border:1px solid var(--border2);border-radius:8px;
       color:var(--muted);font-size:13px;letter-spacing:.06em}
+    #hud-day.m-open .m-days-left{display:block;margin:0 0 10px;padding:9px 12px;border-radius:8px;
+      background:rgba(217,164,65,.1);border:1px solid var(--gold);color:var(--gold);
+      font-size:13px;font-weight:bold;text-align:center;letter-spacing:.03em}
 
     /* --- Attesa turno (mpwatch): barra PIENA in basso, al posto della bottom bar
        (durante i turni degli avversari la barra azioni è nascosta) --- */
@@ -1170,7 +1173,7 @@
   <div id="m-topbar" role="toolbar">
     <button id="m-plancia" class="mt-cell" onclick="toggleMobilePlancia()" title="Apri il diario / plancia del giorno">
       <span class="mt-lab">📖 Diario</span>
-      <span class="mt-day"><b id="m-day">1</b><span id="m-period">L'inizio</span><span class="mt-chev">▾</span></span>
+      <span class="mt-day"><b id="m-day">1</b><span class="dim" id="m-total">/18</span><span id="m-period">L'inizio</span><span class="mt-chev">▾</span></span>
     </button>
     <div class="mt-cell mt-turn">
       <span class="mt-lab">Turno di</span>
@@ -1276,6 +1279,7 @@
   <!-- PLANCIA DA CAMPO · alto-sinistra: giorno, turno di, timer, evento del giorno -->
   <div class="fpanel" id="hud-day">
     <button type="button" class="m-sheet-close" onclick="toggleMobilePlancia(false)">✕ Chiudi diario</button>
+    <div class="m-days-left" id="m-days-left"></div>
     <div class="hd-top">
       <div class="daybox"><div class="flab">Giorno</div>
         <div class="n"><span id="day">1</span><span class="dim" id="total-days">/18</span></div>
@@ -5095,7 +5099,17 @@ function syncMobileHUD(){
   const g=id=>document.getElementById(id);
   const bar=g('m-topbar'); if(!bar) return;
   const src=(id,dst)=>{ const a=g(id),b=g(dst); if(a&&b) b.textContent=a.textContent; };
-  src('day','m-day'); src('dayperiod','m-period'); src('turnof','m-turnof');
+  src('day','m-day'); src('dayperiod','m-period'); src('turnof','m-turnof'); src('total-days','m-total');
+  // Giorni rimanenti (nel diario): totale − giorno corrente
+  const td=g('total-days'), dl=g('m-days-left');
+  if(dl){
+    const total=parseInt((td&&td.textContent||'').replace(/\D/g,''),10);
+    const day=(typeof state!=='undefined'&&state.day)|| (g('day')?parseInt(g('day').textContent,10):0);
+    if(total && day){
+      const left=Math.max(0, total-day);
+      dl.textContent = left>0 ? `⏳ Giorno ${day} di ${total} — mancano ${left} giorn${left===1?'o':'i'}` : `⏳ Ultimo giorno (${day} di ${total})`;
+    }
+  }
   const tm=g('turntimer'), mt=g('m-time');
   if(tm&&mt){
     // Il countdown è "tuo" solo nel tuo turno con timer attivo. Fuori da lì (turno avversario,
