@@ -1099,7 +1099,7 @@
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #8</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #9</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1311,7 +1311,7 @@
         <span class="eqscore-big" title="Punteggio Equipaggiamento">⚔ <b id="equipscore">3</b></span></h3>
       <div class="slots">
         <div class="slot" id="slot-arma"><span class="lab">🗡 ARMA</span><div class="it">Arma base<br>(+1)</div></div>
-        <div class="slot" id="slot-armatura"><span class="lab">🛡 ARMATURA</span><div class="it">Base (+1)</div></div>
+        <div class="slot" id="slot-armatura"><span class="lab">🛡 ARMATURA</span><div class="it">Base (+2)</div></div>
         <div class="slot" id="slot-casco"><span class="lab">⛑ CASCO</span><div class="it">Base (+1)</div></div>
         <div class="slot" id="slot-gadget"><span class="lab">🔧 GADGET</span><div class="it muted">vuoto</div></div>
         <div class="slot" id="slot-tasca" style="grid-column:span 2"><span class="lab">🔒 TASCA SICURA</span><div class="it muted">vuoto</div></div>
@@ -2455,7 +2455,7 @@ const SLOT_ICON  ={arma:"🔫", armatura:"🛡️", casco:"⛑️", gadget:"🔧
 const FOOD_NAMES = new Set(["Acqua potabile","Energy drink","Cibo in scatola"]);
 function isFood(it){ return !!it && (it.slot==="cibo" || FOOD_NAMES.has(it.name)); }
 // Punteggio Equipaggiamento (§6.2): armi/armature/caschi danno +X · base per slot vuoti
-const BASE_EQUIP={arma:1, armatura:1, casco:1};
+const BASE_EQUIP={arma:1, armatura:2, casco:1};   // armatura base +2 (le altre +1) → equipScore base = 4
 function itemEquip(it){ if(!it) return 0; if(it.maxWear!=null && (it.wear||0)<=0) return BASE_EQUIP.arma; return (it.equip ?? it.atk ?? it.red ?? 0); }   // arma scarica (usura 0) = vale come arma base (+1)
 // Stati negativi
 const STATE_LABEL={emorragia:"Emorragia", ossa:"Ossa rotte", avvelenato:"Avvelenato"};
@@ -2509,7 +2509,7 @@ const EVENT_DECK_ROSSO=[
   {id:"delivery_task",     t:"Delivery Task",        eff:"Missioni completabili fuori dagli Avamposti (zaino e deposito validi)",                                                                              d:"Le rotte verso gli avamposti sono bloccate. Le consegne si fanno strada per strada, di mano in mano, dove capita.",                                  color:"rosso", deliveryAnywhere:true,        noHide:true, noFlee:true, dmgMod:2},
   {id:"giornata_buia",     t:"Giornata buia",        eff:"Azione Cerca bloccata per tutto il giorno",                                                                                                         d:"Non si vede abbastanza. Non si sente abbastanza. Quello che troveresti, oggi, non è lì.",                                                           color:"rosso", noSearch:true,                noHide:true, noFlee:true, dmgMod:2},
   {id:"corsa_provviste",   t:"Corsa alle provviste", eff:"4 azioni disponibili · incontro extra obbligatorio a fine turno",                                                                                   d:"Chi si muove più in fretta porta a casa qualcosa. Chi si ferma, incontra chi arriva da dietro.",                                                     color:"rosso", actionsBonus:1, extraEncounter:true, noHide:true, noFlee:true, dmgMod:2},
-  {id:"giornata_svendite", t:"Giornata di svendite", eff:"Elvira e Derrick rinnovano tutta la merce · commercio consentito ovunque",                                                                          d:"Elvira e Derrick svuotano le riserve. Non è generosità: stanno alleggerendo il peso prima di chiudere i battenti.",                                  color:"rosso", shopAnywhere:true,            noHide:true, noFlee:true, dmgMod:2},
+  {id:"giornata_svendite", t:"Giornata di svendite", eff:"Elvira e Derrick rinnovano tutta la merce · commercio consentito ovunque",                                                                          d:"Elvira e Derrick svuotano le riserve. Non è generosità: stanno alleggerendo il peso prima di chiudere i battenti.",                                  color:"rosso", shopAnywhere:true, refreshShop:true, noHide:true, noFlee:true, dmgMod:2},
   {id:"scorie_tossiche",   t:"Scorie tossiche",      eff:"Tutti i giocatori → Avvelenati (esclusi quelli nella propria base)",                                                                                d:"Il vento ha portato qualcosa dai settori del nord. Non si vede, non si annusa. Si sente dopo — quando è già troppo tardi.",                         color:"rosso", allPoison:true,               noHide:true, noFlee:true, dmgMod:2},
 ];
 // EVENTS alias per compatibilità con showEventCard/log esistente
@@ -2552,7 +2552,7 @@ function fresh(){
     you:{name:"Tu", player:YOU_PLAYER, tile:tileMap.get(YOU_CAMP),
          campKey:YOU_CAMP, extractKey:YOU_EXTRACTION,
          hp:3, maxhp:3, tempHp:0, dmgPenalty:0, coins:3, fama:0,   // tempHp: vite extra temporanee (fino a fine turno); dmgPenalty: malus al danno (es. Spinello)
-         armaName:"Arma base", equipScore:3, hidden:false,
+         armaName:"Arma base", equipScore:4, hidden:false,   // base = arma 1 + armatura 2 + casco 1
          safeTurnPending:false,
          reviveEquipPending:false,                                  // dopo la morte: fase di RIARMO prima del turno di movimento (niente turno di gestione perso)
          pack:{sx:[],centro:startingPackCentro(),dx:[]},            // zaino a sezioni — parte con 1 Cibo in scatola
@@ -3585,7 +3585,7 @@ function mpKillChar(char){
   char.equip={arma:null,armatura:null,casco:null,tasca:tasca||null,gadget:[null,null]};
   char.states={emorragia:false,ossa:false,avvelenato:false};
   char.emorragiaArmed=false; char.hidden=false; char.tempHp=0;
-  char.hp=char.maxhp||3; char.tile=tileMap.get(char.campKey); char.equipScore=3;
+  char.hp=char.maxhp||3; char.tile=tileMap.get(char.campKey); char.equipScore=4;   // equip base (armatura +2)
   char.safeTurnPending=false;        // niente turno di gestione sprecato
   char.reviveEquipPending=true;      // al prossimo turno rientra con la fase di RIARMO, poi si muove
 }
@@ -3606,8 +3606,8 @@ function mpBeginCombat(){
   parts.forEach(id=>{
     const ch=mpGame.characters.find(c=>c.id===id);
     if(id===myId){ hp[id]=state.you.hp; maxhp[id]=state.you.maxhp; equipScore[id]=state.you.equipScore; }
-    else if(ch){ hp[id]=ch.hp; maxhp[id]=ch.maxhp||3; equipScore[id]=(ch.equipScore!=null?ch.equipScore:3); }
-    else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; equipScore[id]=f?(f.equipScore||3):3; }
+    else if(ch){ hp[id]=ch.hp; maxhp[id]=ch.maxhp||3; equipScore[id]=(ch.equipScore!=null?ch.equipScore:4); }
+    else { const f=(state.pvp.foes||[]).find(x=>x.id===id); hp[id]=f?f.hp:3; maxhp[id]=f?(f.maxhp||3):3; equipScore[id]=f?(f.equipScore||4):4; }
   });
   const combat={ participants:parts, hp, maxhp, equipScore, round:1, rolls:{}, ack:{}, result:null,
     phase:'rolling', winnerId:null, loserIds:[], loot:null,
@@ -4260,6 +4260,7 @@ function mpAdvanceDay(){
   }
   mpGame.event=deck.shift();
   encAddFromEvent(w.encounterDeck, mpGame.event);   // eventi che aggiungono nemici → nel mazzo condiviso
+  if(mpGame.event && mpGame.event.refreshShop) w.shop=mpFreshShop();   // «Giornata di svendite»: Elvira e Derrick rinnovano i 3 slot (per tutti)
   if(mpGame.event && mpGame.event.drop) mpPlaceDropWorld(w, mpGame.event.drop, mpGame.day);
   if(mpGame.event && mpGame.event.coinsForAll) mpActiveCharacters().forEach(c=>c.coins+=mpGame.event.coinsForAll);
   // Zona evacuata (destroyLocations): distruzione CONDIVISA e deterministica dei luoghi + morte di chi vi si trovava.
@@ -6552,7 +6553,7 @@ const MANUAL_C2 = `
     <li><b>1 pedina</b> nel tuo <b>accampamento</b>, l'angolo della mappa che ti è assegnato.</li>
     <li><b>Vita:</b> 3 cuori base (più fino a 2 <b>vite extra</b> temporanee, ottenibili con certi oggetti).</li>
     <li><b>3 monete 🪙</b> e <b>1 carta "Cibo in scatola"</b> (cura +1 vita, solo fuori dalla battaglia).</li>
-    <li><b>Equipaggiamento base:</b> arma, armatura e casco "base" (+1 ciascuno).</li>
+    <li><b>Equipaggiamento base:</b> arma e casco "base" (+1 ciascuno) e <b>armatura base +2</b> → Punteggio Equipaggiamento di partenza <b>+4</b>.</li>
     <li><b>Zaino e magazzino vuoti.</b></li>
     <li><b>3 missioni segrete:</b> una da ciascun ricettatore: Elvira, Derrick Vos e Michail.</li>
   </ul>
@@ -8501,7 +8502,8 @@ function openCrafting(){
   const present=CRAFT_CATS.filter(c=>CRAFTING.some(r=>craftCatOf(r)===c.key));
   if(!_craftTab || !present.some(c=>c.key===_craftTab)) _craftTab=(present[0]&&present[0].key)||'comune';
   const tabs=present.map(c=>`<button class="craft-tab${c.key===_craftTab?' active':''}" onclick="setCraftTab('${c.key}')">${c.lbl}</button>`).join("");
-  const rows=CRAFTING.map((r,ri)=>({r,ri})).filter(x=>craftCatOf(x.r)===_craftTab).map(({r,ri})=>{
+  const rows=CRAFTING.map((r,ri)=>({r,ri})).filter(x=>craftCatOf(x.r)===_craftTab)
+    .sort((a,b)=>a.r.result.localeCompare(b.r.result,'it')).map(({r,ri})=>{
     const vHTML=r.variants.map((rec,vi)=>{
       const ok=recipeSatisfied(rec);
       const ing=rec.map(([name,qty])=>{
@@ -8568,7 +8570,7 @@ function renderHUD(){
         + wearDotsHTML(y.equip.arma)
       : "Arma base<br>(+1)",
     !!y.equip.arma);
-  setSlot('slot-armatura', y.equip.armatura? `${y.equip.armatura.name}<br>(+${itemEquip(y.equip.armatura)})` : "Base (+1)",         !!y.equip.armatura);
+  setSlot('slot-armatura', y.equip.armatura? `${y.equip.armatura.name}<br>(+${itemEquip(y.equip.armatura)})` : "Base (+2)",         !!y.equip.armatura);
   setSlot('slot-casco',    y.equip.casco?    `${y.equip.casco.name}<br>(+${itemEquip(y.equip.casco)})`       : "Base (+1)",         !!y.equip.casco);
   document.getElementById('equipscore').textContent = y.equipScore;
   renderStatesHUD();
@@ -9132,7 +9134,7 @@ function renderInventory(){
     + invSlotHTML("🔧 Gadget 2", y.equip.gadget[1]?"1/1":"0/1", y.equip.gadget[1]? invCardHTML("equip.gadget.1",y.equip.gadget[1]) : freeSlots(1)+`<div class="inv-empty">vuoto</div>`, "equip.gadget.1");
   const eqCol =
       invSlotHTML("🗡 Arma","+"+(y.equip.arma?itemEquip(y.equip.arma):1), y.equip.arma? invCardHTML("equip.arma",y.equip.arma) : `<div class="inv-empty">Arma base (+1)</div>`, "equip.arma")
-    + invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):1), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+1)</div>`, "equip.armatura")
+    + invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):BASE_EQUIP.armatura), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+${BASE_EQUIP.armatura})</div>`, "equip.armatura")
     + invSlotHTML("⛑ Casco","+"+(y.equip.casco?itemEquip(y.equip.casco):1), y.equip.casco? invCardHTML("equip.casco",y.equip.casco) : `<div class="inv-empty">Base (+1)</div>`, "equip.casco");
   const msg = state.invMsg? `<div class="inv-msg">⚠ ${state.invMsg}</div>` : "";
   const rev = !!(state.you && state.you.reviveEquipPending) && mpCanAct(); // fase di RIARMO (rientro dopo la morte) — SOLO nel proprio turno (durante il turno altrui l'inventario è di sola consultazione)
