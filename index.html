@@ -1099,7 +1099,7 @@
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #7</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #8</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -6760,7 +6760,7 @@ const MANUAL_C9 = `
     <li><b>Segrete</b> (1 medica + 1 militare + 1 urbana a inizio partita): <b>2 fama</b> ciascuna, più eventuali bonus.</li>
     <li><b>Secondarie</b>: si pescano dai drop «Drop missione»; <b>1 fama</b> ciascuna.</li>
   </ul>
-  <p>Le missioni si <b>consegnano negli avamposti</b> (o ovunque con l'evento «Delivery Task»): porti gli oggetti richiesti e incassi la fama. Anche gli oggetti in <b>Tasca sicura</b> contano per la consegna.</p>
+  <p>Le missioni si <b>consegnano negli avamposti</b> (o ovunque con l'evento «Delivery Task»): porti gli oggetti richiesti e incassi la fama. Contano gli oggetti nell'<b>inventario</b> (zaino, Tasca sicura ed equipaggiati); quelli nel <b>magazzino non sono consegnabili</b> (vanno prima prelevati, cosa possibile solo in Base).</p>
 `;
 const MANUAL_C10 = `
   <h2>Estrazione, morte e fine partita</h2>
@@ -8026,7 +8026,7 @@ function openMissions(){
   if(document.getElementById('overlay').classList.contains('active'))closeModal();
   const catLabel={medica:"Medica",militare:"Militare",urbana:"Urbana",storia:"Storia",secondaria:"Secondaria"};
   const missionRow=(m, story)=>{
-    const ownedLeft={}; (m.deliver||[]).forEach(n=>{ if(ownedLeft[n]==null) ownedLeft[n]=ownedCount(n); });   // quanti ne possiedi davvero
+    const ownedLeft={}; (m.deliver||[]).forEach(n=>{ if(ownedLeft[n]==null) ownedLeft[n]=carriedCount(n); });   // quanti ne hai NELL'INVENTARIO (il magazzino non è consegnabile)
     const items=(m.deliver||[]).map(n=>{
       const has = ownedLeft[n]>0; if(has) ownedLeft[n]--;   // illumina solo tanti quanti ne hai (es. 1 Kit medico su 2)
       return `<span style="color:${has?'var(--green)':'var(--muted)'}">${n}${has?' ✓':''}</span>`;}).join(", ");
@@ -8061,7 +8061,8 @@ function tryDeliver(m){
   if(e.armatura) pool.push({it:e.armatura, equipKey:'armatura'});
   if(e.casco)    pool.push({it:e.casco,    equipKey:'casco'});
   (e.gadget||[]).forEach((g,gi)=>{ if(g) pool.push({it:g, equipKey:'gadget', gi}); });
-  y.deposito.forEach(it=>pool.push({it, arr:y.deposito}));
+  // NB: il MAGAZZINO non entra nel pool: gli oggetti delle missioni vanno consegnati dall'INVENTARIO
+  // (zaino + Tasca sicura + equipaggiati). Ciò che è nel magazzino non è consegnabile.
 
   const claimed=new Set(), picks=[];
   for(const nm of m.deliver){
@@ -8428,8 +8429,8 @@ function openSellModal(){
   _sellItems=[];
   // zaino
   packSections().forEach(sec=>state.you.pack[sec].forEach((it,i)=>{ if(!it.discoSegreto) _sellItems.push({src:'pack',sec,i,it}); }));
-  // magazzino
-  state.you.deposito.forEach((it,i)=>{ if(!it.discoSegreto) _sellItems.push({src:'dep',i,it}); });
+  // magazzino: vendibile SOLO nella propria Base (accampamento). In avamposto il magazzino non è accessibile.
+  if(inOwnBase()) state.you.deposito.forEach((it,i)=>{ if(!it.discoSegreto) _sellItems.push({src:'dep',i,it}); });
   // tasca sicura
   if(state.you.equip.tasca && !state.you.equip.tasca.discoSegreto) _sellItems.push({src:'tasca',it:state.you.equip.tasca});
   if(!_sellItems.length){
@@ -8481,7 +8482,15 @@ function sellItem(sec,i){
 
 // =================== CRAFTING ===================
 // Categoria di un oggetto craftabile (dal mazzo di appartenenza del risultato).
-function craftCatOf(r){ return (findCard(r.result)||{}).deck || 'comune'; }
+function craftCatOf(r){
+  // La categoria del risultato si ricava dal mazzo di origine (le carte nei mazzi non portano il campo
+  // `deck`, quindi non ci si può basare su findCard(...).deck: farebbe finire tutto in "comune" = un solo tab).
+  const n=r.result;
+  if(DECK_MEDICO.some(c=>c.name===n)) return 'medico';
+  if(DECK_MILITARE.some(c=>c.name===n)) return 'militare';
+  if(DECK_SPECIALE.some(c=>c.name===n)) return 'speciale';
+  return 'comune';   // urbana / utility / gadget e tutto il resto
+}
 const CRAFT_CATS=[{key:'medico',lbl:'🧪 Medici'},{key:'militare',lbl:'🎖️ Armi & Armature'},{key:'comune',lbl:'🔩 Utility & Gadget'},{key:'speciale',lbl:'★ Speciali'}];
 let _craftTab=null;
 function setCraftTab(cat){ _craftTab=cat; openCrafting(); }
@@ -8810,6 +8819,7 @@ function allCarried(){
   return out;
 }
 function hasItem(name){ return allCarried().some(i=>i.name===name); }
+function carriedCount(name){ return allCarried().filter(i=>i && i.name===name).length; }   // solo inventario (zaino+equip+tasca), NON il magazzino: usato per la consegna missioni
 function recalcStats(){
   const e=state.you.equip;
   state.you.armaName = e.arma? e.arma.name : "Arma base";
