@@ -5346,7 +5346,13 @@ function doMove(t, first){
   if(first){ state.movedFirst=true; log(`➡ Ti sposti in <b>${t.name}</b> <span class="dim">(${TYPE_LABEL[t.type]})</span> — movimento obbligatorio completato.`); }
   else     { state.actionsLeft--; log(`➡ Azione Spostamento → <b>${t.name}</b>.`); }
   state.phase="actions"; updateActionUI();
-  publishLive("move", `si sposta in ${t.name}`);   // FASE A: pedina live + feed per gli spettatori
+  // I movimenti che TERMINANO il turno entrando in zona sicura (estrazione propria o avamposto) NON pubblicano
+  // lo snapshot "move" intermedio: verrebbe salvato con phase=actions e safeTurnPending=false e, se un suo
+  // tentativo di scrittura in ritardo arriva DOPO lo stato "safe", cancellerebbe safeTurnPending → il turno di
+  // gestione salterebbe e a fine round partirebbe un incontro indesiderato. Per questi casi scrive solo il
+  // "safe" autorevole (più avanti). Gli altri movimenti pubblicano normalmente (pedina live per gli spettatori).
+  const _terminalSafe = (t.type==="estrazione" && k_isMyExtraction(t)) || t.type==="avamposto";
+  if(!_terminalSafe) publishLive("move", `si sposta in ${t.name}`);   // FASE A: pedina live + feed per gli spettatori
   // Estrazione propria → il turno termina subito e torni al tuo accampamento
   if(t.type==="estrazione" && k_isMyExtraction(t)){
     stopTurnTimer(); state.you.safeTurnPending=true;
