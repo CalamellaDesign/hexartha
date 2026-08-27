@@ -5721,11 +5721,17 @@ function cancelEnterFortress(){
 function doSearch(){
   if(!canAct())return;
   disarmMove();
-  if(state.event?.noSearch){ log(`🔎 Evento <b>${state.event.t}</b>: l'azione Cerca è bloccata oggi.`,"bad"); return; }
   const t=state.you.tile;
-  if(SAFE.has(t.type)){log(`🔎 Non puoi cercare in una zona sicura.`,"bad");return;}
-  if(t.type==="militare" && state.milSearchCount>=1){
-    log(`🔎 In <b>Zona militare</b> puoi cercare <b>una sola volta</b> per turno. Usa l'altra azione per spostarti, nasconderti o scassinare.`,"bad");
+  // Regola "posso cercare qui?" delegata al motore (HXEngine.canSearch); i messaggi specifici restano per l'utente.
+  const _srchCtx={noSearch:!!state.event?.noSearch, searchBonus:state.event?.searchBonus||0};
+  const _canSrch=(typeof HXEngine!=="undefined")
+    ? HXEngine.canSearch(t.type, state.milSearchCount||0, _srchCtx)
+    : !(state.event?.noSearch || SAFE.has(t.type) || (t.type==="militare"&&state.milSearchCount>=1));
+  if(!_canSrch){
+    if(state.event?.noSearch) log(`🔎 Evento <b>${state.event.t}</b>: l'azione Cerca è bloccata oggi.`,"bad");
+    else if(SAFE.has(t.type)) log(`🔎 Non puoi cercare in una zona sicura.`,"bad");
+    else if(t.type==="militare" && state.milSearchCount>=1) log(`🔎 In <b>Zona militare</b> puoi cercare <b>una sola volta</b> per turno. Usa l'altra azione per spostarti, nasconderti o scassinare.`,"bad");
+    else log(`🔎 Non puoi cercare qui.`,"bad");
     return;
   }
   // Se la Torcia è equipaggiata nello slot gadget con cariche rimaste → chiedi prima di cercare
@@ -5755,13 +5761,24 @@ function _executeSearch(useTorch){
   const deckKey=deckForZone(t.type);
   const deckName = isRic ? `Riciclaggio (${(state.riciclaggioDeck||[]).length})`
                  : {comune:"Comune", medico:"Medico", militare:"Militare"}[deckKey];
-  let drawCount=1, keep=1;
-  if(isRic){ drawCount=2; keep=1; }   // riciclaggio: pesca +1
-  if(state.event?.searchBonus){ drawCount+=state.event.searchBonus; keep+=state.event.searchBonus; }
-  if(useTorch){ useCharge("Torcia"); drawCount++; }   // Torcia confermata: consuma 1 carica, +1 carta vista
+  // Economia della Cerca (quante carte peschi/tieni + riciclaggio/torcia/bonus + conteggio militare)
+  // delegata al motore testato (HXEngine.planSearch); fallback all'inline se non caricato.
+  const _sb=state.event?.searchBonus||0;
+  let drawCount, keep;
+  if(typeof HXEngine!=="undefined"){
+    const plan=HXEngine.planSearch(t.type, state.milSearchCount||0, {useTorch:!!useTorch, searchBonus:_sb});
+    drawCount=plan.drawCount; keep=plan.keep;
+    if(useTorch) useCharge("Torcia");            // effetto collaterale (consuma 1 carica), separato dal calcolo
+    state.milSearchCount=plan.nextMilSearchCount;
+  } else {
+    drawCount=1; keep=1;
+    if(isRic){ drawCount=2; keep=1; }
+    if(_sb){ drawCount+=_sb; keep+=_sb; }
+    if(useTorch){ useCharge("Torcia"); drawCount++; }
+    if(t.type==="militare") state.milSearchCount++;
+  }
   // pesca
   const drawn=[]; for(let i=0;i<drawCount;i++) drawn.push(isRic ? drawRiciclaggio() : drawFrom(deckKey));
-  if(t.type==="militare") state.milSearchCount++;   // il limite "1 Cerca" conta SOLO le ricerche in zona militare, non quelle in altre zone
   spend();
   // le trappole scattano subito (infliggono il malus) ma poi si tengono, tranne quelle "non si raccoglie" (Buca trappola)
   const keepable=[];
