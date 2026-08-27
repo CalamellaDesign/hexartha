@@ -5339,11 +5339,25 @@ function beginYourTurn(){
       applyState("avvelenato");   // popup + svuotamento tasche laterali
     }
   }
-  const inSafe = SAFE.has(state.you.tile.type);   // accampamento o avamposto
-  if(inSafe && state.you.safeTurnPending){
+  const discoMalus = hasItem("Disco segreto") ? 1 : 0;   // Disco segreto: −1 azione per turno finché lo tieni
+  const evBonus = (state.event && state.event.actionsBonus) ? state.event.actionsBonus : 0;
+  // Tipo di turno (gestione vs esterno) e stato risultante (fase/azioni/safeTurnPending) dal motore
+  // testato (HXEngine.resolveTurnStart); fallback all'inline se non caricato. Gli effetti collaterali
+  // (reset merce/vendite, UI, log specifici) restano qui sotto, ramificati per tipo di turno.
+  let _kind, _phase, _actions, _safePending;
+  if(typeof HXEngine!=="undefined"){
+    const ts=HXEngine.resolveTurnStart(
+      {tile:state.you.tile, safeTurnPending:!!state.you.safeTurnPending, phase:state.phase,
+       actionsLeft:state.actionsLeft, hidden:!!state.you.hidden, campId:"", extractId:""},
+      evBonus - discoMalus);
+    _kind=ts.kind; _phase=ts.player.phase; _actions=ts.player.actionsLeft; _safePending=ts.player.safeTurnPending;
+  } else {
+    if(SAFE.has(state.you.tile.type) && state.you.safeTurnPending){ _kind="management"; _phase="base"; _actions=0; _safePending=false; }
+    else { _kind="external"; _phase="move"; _actions=2-discoMalus+evBonus; _safePending=!!state.you.safeTurnPending; }
+  }
+  state.you.safeTurnPending=_safePending; state.phase=_phase; state.actionsLeft=_actions;
+  if(_kind==="management"){
     // Turno di GESTIONE safe zone: sicuro, azioni illimitate, si esce il turno successivo
-    state.you.safeTurnPending=false;   // consumato: il prossimo turno sarà un turno esterno (uscita)
-    state.phase="base"; state.actionsLeft=0;
     if(!mpGame) state.shop=null;       // solo in locale la merce si rigenera per turno; in rete è condivisa (rinnovata a inizio giornata)
     soldThisTurn=0;                    // resetta il conteggio vendite del turno
     updateActionUI(); highlightReach(false);
@@ -5351,15 +5365,10 @@ function beginYourTurn(){
     log(`Sei in <b>${state.you.tile.name}</b> (safe zone). Turno di gestione: 🗄️ deposito · 🤝 commercio${isAv?' · 📦 consegna missioni':''}. <b>Uscirai il prossimo turno.</b>`);
   }else{
     // Turno esterno (incluso il turno 1 e il turno di uscita dalla base): movimento obbligatorio
-    const discoMalus = hasItem("Disco segreto") ? 1 : 0;   // Disco segreto: −1 azione per turno finché lo tieni
-    state.phase="move"; state.actionsLeft=2-discoMalus;
-    // Bonus azioni dell'evento (es. «Giornata lunga»): vale in OGNI turno di movimento,
-    // anche quando si esce dalla base/avamposto (la gestione safe è il ramo if, con 0 azioni).
-    if(state.event && state.event.actionsBonus) state.actionsLeft += state.event.actionsBonus;
     updateActionUI(); highlightReach(true);
     log(`È il tuo turno. Ti trovi in <b>${state.you.tile.name}</b>. <b>Movimento obbligatorio</b>: scegli una casella evidenziata.`);
     if(discoMalus) log(`💿 Porti il <b>Disco segreto</b>: hai <b>1 azione in meno</b> questo turno (azioni: ${state.actionsLeft}).`,"bad");
-    if(state.event?.actionsBonus) log(`⚡ Evento <b>${state.event.t}</b>: +${state.event.actionsBonus} azioni extra (totale: ${state.actionsLeft}).`,"evt");
+    if(evBonus) log(`⚡ Evento <b>${state.event.t}</b>: +${evBonus} azioni extra (totale: ${state.actionsLeft}).`,"evt");
   }
   publishLive(state.phase==="base"?"safe":"start", "");   // FASE A: snapshot iniziale (posizione + equip + HP) per gli spettatori
   startTurnTimer();
@@ -5641,10 +5650,17 @@ function doMove(t, first){
   if(!_terminalSafe) publishLive("move", `si sposta in ${t.name}`);   // FASE A: pedina live + feed per gli spettatori
   // Estrazione propria → il turno termina subito e torni al tuo accampamento
   if(t.type==="estrazione" && k_isMyExtraction(t)){
-    stopTurnTimer(); state.you.safeTurnPending=true;
+    stopTurnTimer();
     const camp=tileMap.get(state.you.campKey);
+    // Transizione di stato del rientro (fase/azioni/safeTurnPending) dal motore (HXEngine.applyMove);
+    // casella (camp) ed effetti collaterali restano inline. Fallback all'inline se non caricato.
+    const _mv=(typeof HXEngine!=="undefined")
+      ? HXEngine.applyMove({tile:{id:key(t.col,t.v),type:"estrazione"}, extractId:key(t.col,t.v), campId:state.you.campKey,
+          phase:state.phase, actionsLeft:state.actionsLeft, hidden:!!state.you.hidden, safeTurnPending:!!state.you.safeTurnPending},
+          {id:key(t.col,t.v),type:"estrazione"}, {id:state.you.campKey,type:"accampamento"}, !!first).player
+      : {phase:"base", actionsLeft:0, safeTurnPending:true};
     state.you.tile=camp;                        // rientro IMMEDIATO in base: stato coerente da subito (il prossimo turno sarà di gestione)
-    state.phase="base"; state.actionsLeft=0;
+    state.you.safeTurnPending=_mv.safeTurnPending; state.phase=_mv.phase; state.actionsLeft=_mv.actionsLeft;
     healAtBase();                               // cura subito, così lo stato coerente si può persistere adesso
     updateActionUI(); drawPawn(); renderHUD();
     log(`🚪 Raggiungi la <b>${t.name}</b>: ti estrai, torni alla base e ti curi (3 vita, stati rimossi). Il turno termina.`,"good");
@@ -5655,8 +5671,14 @@ function doMove(t, first){
   // Avamposto: entrarci TERMINA SUBITO il turno (come l'estrazione), ma resti sull'avamposto e NON ti curi.
   // Il turno dopo è di gestione safe zone: niente movimento, ma commercio · consegna missioni · craft.
   if(t.type==="avamposto"){
-    stopTurnTimer(); state.you.safeTurnPending=true;
-    state.phase="base"; state.actionsLeft=0; clearReach(); updateActionUI();   // nessuna altra azione in questo turno
+    stopTurnTimer();
+    const _mv=(typeof HXEngine!=="undefined")
+      ? HXEngine.applyMove({tile:{id:key(t.col,t.v),type:"avamposto"}, extractId:state.you.extractKey, campId:state.you.campKey,
+          phase:state.phase, actionsLeft:state.actionsLeft, hidden:!!state.you.hidden, safeTurnPending:!!state.you.safeTurnPending},
+          {id:key(t.col,t.v),type:"avamposto"}, {id:state.you.campKey,type:"accampamento"}, !!first).player
+      : {phase:"base", actionsLeft:0, safeTurnPending:true};
+    state.you.safeTurnPending=_mv.safeTurnPending; state.phase=_mv.phase; state.actionsLeft=_mv.actionsLeft;
+    clearReach(); updateActionUI();   // nessuna altra azione in questo turno
     log(`🏳️ Entri nell'<b>${t.name}</b>: il turno termina subito. Il prossimo turno resti qui (non ti muovi) e potrai <b>commerciare</b>, <b>consegnare missioni</b> e <b>craftare</b>.`,"good");
     publishLive("safe","");                     // persiste SUBITO (safeTurnPending+base): un reload ora non salta il turno di gestione
     setTimeout(()=>{renderHUD();concludeTurn();},600);
