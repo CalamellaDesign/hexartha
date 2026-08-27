@@ -2820,6 +2820,8 @@ let mpGame=null, mySeatIndex=-1, mpMyTurn=false;
 let onlinePlayers=new Set();          // id dei giocatori attualmente connessi (via Supabase Presence)
 let _watchdogSince=null, _watchdogInterval=null, _presenceSeenMultiple=false, _pvpForceSince=null;
 const WATCHDOG_GRACE_MS=25000;        // attesa prima di saltare il turno di un giocatore offline (~25s)
+let _lastAutoResync=0;                 // ultima ri-sincronizzazione automatica (rete anti-freeze)
+const AUTO_RESYNC_MS=8000;             // ogni ~8s, mentre osservo il turno altrui, rileggo lo stato autorevole dal DB
 
 function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; return {...m, done:false}; }
 
@@ -3736,6 +3738,20 @@ async function mpSoftRefresh(){
   if(btn){ setTimeout(()=>{ btn.disabled=false; btn.textContent='🔄 Aggiorna'; }, 500); }
 }
 
+// Rete anti-freeze: ri-sincronizzazione automatica e SILENZIOSA mentre si osserva il turno altrui.
+// Rilegge lo stato autorevole direttamente dal DB (bypassa il canale realtime se è caduto) e riapplica
+// SOLO se la revisione è più recente di quella locale — cioè quando ho perso un aggiornamento. È sola
+// lettura: non scrive nulla e non altera il turno di nessuno, quindi non può peggiorare una partita sana.
+async function mpAutoResync(){
+  try{
+    if(!roomChannel) subscribeRoom();                 // riapre il canale realtime se era caduto
+    const cur=await fetchRoom(roomCode);
+    if(!cur||!cur.state) return;
+    const freshRev=cur.state.rev||0, curRev=(net&&net.rev)||0;
+    if(freshRev>curRev){ net=cur.state; applyRoomState(); }   // avevo perso un aggiornamento → riallineo e mi sblocco
+  }catch(e){ /* best-effort: se la rete fa i capricci, riprovo al tick successivo */ }
+}
+
 // ============ FASE A — VISTA SPETTATORE IN TEMPO REALE ============
 // Il giocatore attivo trasmette un piccolo "snapshot live" a ogni azione (posizione, azione,
 // equipaggiamento, HP). MAI lo zaino né le carte in chiaro. Best-effort: se la rete fa i capricci
@@ -3987,7 +4003,12 @@ function watchdogArbiterId(){
 }
 // Controllo periodico: se il giocatore di turno è offline da troppo, l'arbitro ne salta il turno.
 function watchdogTick(){
-  if(!mpGame || !net || net.phase!=="playing"){ _watchdogSince=null; _pvpForceSince=null; return; }
+  if(!mpGame || !net || net.phase!=="playing"){ _watchdogSince=null; _pvpForceSince=null; _lastAutoResync=Date.now(); return; }
+  // Rete anti-freeze (sola lettura): mentre osservo il turno altrui rileggo periodicamente lo stato
+  // autorevole, così un messaggio realtime perso non mi lascia bloccato in attesa all'infinito.
+  if(!mpMyTurn && !net.pvp){
+    if(Date.now()-_lastAutoResync >= AUTO_RESYNC_MS){ _lastAutoResync=Date.now(); mpAutoResync(); }
+  } else { _lastAutoResync=Date.now(); }   // durante il mio turno o un PvP non serve (e non devo auto-rileggere)
   if(!_presenceSeenMultiple){ _watchdogSince=null; _pvpForceSince=null; return; }   // presence non ancora affidabile → non intervengo
   if(net.pvp){ _watchdogSince=null; return pvpWatchdogTick(); }   // durante il PvP → watchdog dedicato (forza gli offline / annulla se il mover è sparito)
   _pvpForceSince=null;
