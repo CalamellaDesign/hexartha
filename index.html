@@ -3818,8 +3818,15 @@ function mpCombatResolveRound(){
   // Valore di confronto: 6+6 (crit) batte sempre tutti (0 danni), 1+1 (fumble) perde sempre (a prescindere dal totale).
   const CRIT=1e6, FUMB=-1e6;
   const cmp={}; alive.forEach(id=>{ const r=c.rolls[id]||{}; cmp[id]= r.crit?CRIT : r.fumble?FUMB : eff[id]; });
-  const dmg={};
-  alive.forEach(meId=>{ dmg[meId]=alive.filter(oId=>oId!==meId && cmp[oId]>=cmp[meId]).length; });
+  // Danni del round delegati al motore testato (HXEngine.resolveRoundDamage): 6+6 vince sempre,
+  // 1+1 perde sempre, in parità entrambi −1 PV. Fallback all'inline se il motore non fosse caricato.
+  let dmg;
+  if(typeof HXEngine!=="undefined"){
+    const rolls={}; alive.forEach(id=>{ const r=c.rolls[id]||{}; rolls[id]={total:r.total||0, crit:!!r.crit, fumble:!!r.fumble, stun:deb[id]||0}; });
+    dmg=HXEngine.resolveRoundDamage(rolls);
+  } else {
+    dmg={}; alive.forEach(meId=>{ dmg[meId]=alive.filter(oId=>oId!==meId && cmp[oId]>=cmp[meId]).length; });
+  }
   const ordered=[...alive].sort((a,b)=>cmp[b]-cmp[a]);
   const text=ordered.map(id=>{ const nm=escapeHtml(names[id]||'?'); const r=c.rolls[id]||{};
     const st=deb[id]?` <span class="dim">(−${deb[id]} stordito)</span>`:'';
