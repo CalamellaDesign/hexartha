@@ -8352,7 +8352,8 @@ function buildVendorPanel(tab){
     const key=tab==='derrick'?'derrick':'elvira';
     slotsHTML=state.shop[key].map((it,i)=>{
       if(!it) return `<div class="vendor-slot"><div class="slot-empty">Esaurito</div></div>`;
-      const price=(it.val||0)+1; const can=state.you.coins>=price && packTotalFree()>0 && !_tradeViewOnly;
+      // Si può comprare anche a zaino pieno: in base va in magazzino, in avamposto si sceglie cosa scartare.
+      const price=(it.val||0)+1; const can=state.you.coins>=price && !_tradeViewOnly;
       return `<div class="vendor-slot">
         ${lootCardFaceHTML(it)}
         <button class="btn${can?' primary':''}" ${can?'':'disabled'} onclick="buyItem('${key}',${i})">Compra 🪙${price}</button>
@@ -8391,13 +8392,25 @@ function showVendorTab(tab){
 function buyItem(vendor,i){
   if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
   const it=state.shop[vendor][i]; if(!it) return; const price=(it.val||0)+1;
-  if(state.you.coins<price || packTotalFree()<=0) return;
+  if(state.you.coins<price) return;
+  const deck=vendor==='derrick'?'militare':'medico';
   state.you.coins-=price;
-  packAdd({...it, deck:vendor==='derrick'?'militare':'medico'});
-  // NB: lo slot NON viene rifornito: la merce dei ricettatori resta fissa per tutta la fase (uguale per tutti);
-  // cambia solo a inizio nuova fase (giorno 7 e 14). Comprare non sostituisce la carta esposta.
-  log(`🤝 Compri <b>${it.name}</b> da ${vendor==='derrick'?'Derrick Vos':'Elvira'} per ${price} monete.`);
-  renderHUD(); openCommerce();
+  const card={...it, deck};
+  // Mercato condiviso: la carta comprata sparisce e lo slot è rifornito SUBITO con una nuova carta random dal mazzo
+  // (Militare per Derrick, Medico per Elvira). La merce di base cambia solo a inizio fase; qui cambia solo lo slot comprato.
+  state.shop[vendor][i]=drawFrom(deck);
+  log(`🤝 Compri <b>${card.name}</b> da ${vendor==='derrick'?'Derrick Vos':'Elvira'} per ${price} monete.`);
+  const finish=()=>{ recalcStats(); renderHUD(); mpTouch(); openCommerce(); };
+  // Destinazione della carta comprata:
+  if(packAdd(card)){ log(`🎒 <b>${card.name}</b> → zaino.`,"good"); finish(); return; }
+  // Zaino pieno → in BASE (accampamento) va in magazzino automatico; in AVAMPOSTO si sceglie cosa scartare.
+  if(inOwnBase() && (state.you.deposito||[]).length<15){
+    state.you.deposito.push(card);
+    log(`🗄️ Zaino pieno: <b>${card.name}</b> → magazzino.`,"good");
+    finish(); return;
+  }
+  if(inOwnBase()) log(`🎒 Zaino e magazzino pieni: gestisci lo spazio.`,"bad");
+  stowLoot([card], finish);   // avamposto (o base+magazzino pieno): flusso overflow (scarta/tasca), poi torna al commercio
 }
 function buyFromMichail(i){
   if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
