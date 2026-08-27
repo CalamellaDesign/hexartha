@@ -4244,13 +4244,13 @@ function mpAdvanceDay(){
   if(!w.encounterDiscard) w.encounterDiscard=[];
   if(!w.fortressDeck) w.fortressDeck=shuffle(FORTRESS_IDS.slice());
   if(!w.fortressDiscard) w.fortressDiscard=[];
-  w.shop=mpFreshShop();   // nuova giornata: Elvira e Derrick rinnovano la merce, uguale per tutti
   if(period!==periodOfDay(mpGame.day-1)){
     const keep=(w.riciclaggioDeck||[]).filter(c=>c&&c.crafted);
     const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
     const rd=[]; for(let i=0;i<10;i++) rd.push({...weightedPick(pool),deck:"comune"}); keep.forEach(c=>rd.push(c)); w.riciclaggioDeck=rd;
     encReshuffle(w.encounterDeck, w.encounterDiscard);   // nuova fase → mazzi INCONTRI rimischiati (mazzo+scarti)
     encReshuffle(w.fortressDeck, w.fortressDiscard);
+    w.shop=mpFreshShop();   // SOLO a inizio nuova fase (giorno 7 e 14) Elvira e Derrick rinnovano la merce; nel resto della fase è fissa e uguale per tutti
   }
   let deck = period==="L'inizio"?w.eventDeckVerde : period==="Il declino"?w.eventDeckMarrone : w.eventDeckRosso;
   if(!deck||!deck.length){
@@ -5664,7 +5664,9 @@ function doMove(t, first){
     healAtBase();                               // cura subito, così lo stato coerente si può persistere adesso
     updateActionUI(); drawPawn(); renderHUD();
     log(`🚪 Raggiungi la <b>${t.name}</b>: ti estrai, torni alla base e ti curi (3 vita, stati rimossi). Il turno termina.`,"good");
-    publishLive("safe","");                     // persiste SUBITO (safeTurnPending+base): un reload ora non salta il turno di gestione
+    // NIENTE publishLive("safe") qui: era una scrittura che poteva arrivare DOPO la fine-turno e riportare
+    // il turno a te (freeze + doppio turno). concludeTurn→mpEndMyTurn è l'unica scrittura autorevole
+    // (persiste safeTurnPending e avanza il seat in un colpo solo).
     setTimeout(()=>{concludeTurn();},700);
     return;
   }
@@ -5680,7 +5682,7 @@ function doMove(t, first){
     state.you.safeTurnPending=_mv.safeTurnPending; state.phase=_mv.phase; state.actionsLeft=_mv.actionsLeft;
     clearReach(); updateActionUI();   // nessuna altra azione in questo turno
     log(`🏳️ Entri nell'<b>${t.name}</b>: il turno termina subito. Il prossimo turno resti qui (non ti muovi) e potrai <b>commerciare</b>, <b>consegnare missioni</b> e <b>craftare</b>.`,"good");
-    publishLive("safe","");                     // persiste SUBITO (safeTurnPending+base): un reload ora non salta il turno di gestione
+    // NIENTE publishLive("safe") qui (vedi ramo estrazione): evita la corsa che riportava il turno indietro.
     setTimeout(()=>{renderHUD();concludeTurn();},600);
     return;
   }
@@ -8392,7 +8394,8 @@ function buyItem(vendor,i){
   if(state.you.coins<price || packTotalFree()<=0) return;
   state.you.coins-=price;
   packAdd({...it, deck:vendor==='derrick'?'militare':'medico'});
-  state.shop[vendor][i]=drawFrom(vendor==='derrick'?'militare':'medico');  // rifornisce lo slot (condiviso in rete)
+  // NB: lo slot NON viene rifornito: la merce dei ricettatori resta fissa per tutta la fase (uguale per tutti);
+  // cambia solo a inizio nuova fase (giorno 7 e 14). Comprare non sostituisce la carta esposta.
   log(`🤝 Compri <b>${it.name}</b> da ${vendor==='derrick'?'Derrick Vos':'Elvira'} per ${price} monete.`);
   renderHUD(); openCommerce();
 }
