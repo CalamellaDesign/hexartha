@@ -468,7 +468,7 @@
     /* --- OVERLAY / MODALI full-screen (Fase 4) --- */
     /* mentre una modale è aperta, il chrome mobile sparisce (la modale copre tutto) */
     .m-modal-open #m-topbar,.m-modal-open .actionsbar,.m-modal-open #m-fab-left,
-    .m-modal-open #m-fab-right,.m-modal-open #m-zoom{display:none!important}
+    .m-modal-open #m-fab-right,.m-modal-open #m-zoom,.m-modal-open #m-malus{display:none!important}
     /* NB: le regole base .overlay/.modal stanno più in basso nel file, quindi qui
        serve specificità maggiore (.overlay.active …) per vincere l'ordine sorgente.
        Modale = foglio a schermo intero; l'overlay scrolla, così i pulsanti in fondo
@@ -2262,7 +2262,7 @@ const SECONDARY_MISSIONS=[
 let state=null;
 let turnTimer=null, timeLeft=0;   // timer di turno (3 minuti)
 const TURN_SECONDS=180;
-let shop=null, soldThisTurn=0, _tradeViewOnly=false;    // commercio del turno in safe zone
+let soldThisTurn=0, _tradeViewOnly=false;    // commercio del turno in safe zone (lo stock ricettatori vive in state.shop / world.shop)
 let _sellItems=[], currentVendorTab='derrick';
 const YOU_PLAYER=1;                 // in questo mockup impersoni P1 (Accampamento popolare)
 const YOU_CAMP="7,3";               // accampamento di P1
@@ -2833,6 +2833,12 @@ function mpPlaceDropWorld(w, kind, day){
   const t=cand[Math.floor(Math.random()*cand.length)];
   (w.drops||(w.drops=[])).push({key:key(t.col,t.v), kind, day});
 }
+// Stock CONDIVISO dei ricettatori (Derrick/Elvira): 3 carte a testa, uguali per tutti i giocatori.
+// Vive nel mondo (game.world.shop) e si rinnova a inizio giornata, così ogni device vede la stessa merce.
+function mpFreshShop(){
+  return { derrick:Array.from({length:3},()=>drawFrom('militare')),
+           elvira: Array.from({length:3},()=>drawFrom('medico')) };
+}
 function mpBuildGame(players, gameMode){
   const eventDeckVerde   = shuffle([...EVENT_DECK_VERDE]);
   const eventDeckMarrone = shuffle([...EVENT_DECK_MARRONE]);
@@ -2859,7 +2865,7 @@ function mpBuildGame(players, gameMode){
     order: players.map((_,i)=>i), event:null, characters,
     world:{ eventDeckVerde, eventDeckMarrone, eventDeckRosso, riciclaggioDeck,
             encounterDeck, encounterDiscard:[], fortressDeck, fortressDiscard:[],
-            destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[],
+            destroyedTiles:new Set(), drops:[], storyMissions, michailSlots:[], shop:mpFreshShop(),
             discoSegretoInPlay:false, discoSegretoEliminated:false, discoAnnounce:null,
             extraEncounterAfterTurn:false, zonaEvacuataTargets:null } };
   game.event = game.world.eventDeckVerde.shift();
@@ -2888,6 +2894,8 @@ function mpHydrate(game){
   state.fortressDeck=w.fortressDeck; state.fortressDiscard=w.fortressDiscard;
   state.destroyedTiles=(w.destroyedTiles instanceof Set)?w.destroyedTiles:new Set(w.destroyedTiles||[]);
   state.drops=w.drops||[]; state.storyMissions=w.storyMissions||[]; state.michailSlots=w.michailSlots||[];
+  if(!w.shop) w.shop=mpFreshShop();   // partite iniziate prima di questo fix
+  state.shop=w.shop;                  // stesso riferimento condiviso: la merce è identica per tutti
   state.discoSegretoInPlay=!!w.discoSegretoInPlay; state.discoSegretoEliminated=!!w.discoSegretoEliminated;
   state.discoAnnounce=w.discoAnnounce||null;
   state.extraEncounterAfterTurn=!!w.extraEncounterAfterTurn; state.zonaEvacuataTargets=w.zonaEvacuataTargets||null;
@@ -3874,6 +3882,7 @@ function mpWriteBack(){
   w.destroyedTiles=state.destroyedTiles; w.drops=state.drops;
   w.eventDeckVerde=state.eventDeckVerde; w.eventDeckMarrone=state.eventDeckMarrone; w.eventDeckRosso=state.eventDeckRosso;
   w.riciclaggioDeck=state.riciclaggioDeck; w.storyMissions=state.storyMissions; w.michailSlots=state.michailSlots;
+  if(state.shop) w.shop=state.shop;   // stock ricettatori condiviso (acquisti/rifornimenti restano nel mondo)
   w.discoSegretoInPlay=state.discoSegretoInPlay; w.discoSegretoEliminated=state.discoSegretoEliminated;
   w.discoAnnounce=state.discoAnnounce||null;
   // Mazzi INCONTRI (roaming + Fortezza): scritti sempre nel mondo condiviso, così pescate/scarti/
@@ -3933,6 +3942,7 @@ function mpAdvanceDay(){
   if(!w.encounterDiscard) w.encounterDiscard=[];
   if(!w.fortressDeck) w.fortressDeck=shuffle(FORTRESS_IDS.slice());
   if(!w.fortressDiscard) w.fortressDiscard=[];
+  w.shop=mpFreshShop();   // nuova giornata: Elvira e Derrick rinnovano la merce, uguale per tutti
   if(period!==periodOfDay(mpGame.day-1)){
     const keep=(w.riciclaggioDeck||[]).filter(c=>c&&c.crafted);
     const pool=DECK_COMUNE.filter(c=>c.name!=="Cassaforte"&&!c.discoSegreto);
@@ -5027,7 +5037,8 @@ function beginYourTurn(){
     // Turno di GESTIONE safe zone: sicuro, azioni illimitate, si esce il turno successivo
     state.you.safeTurnPending=false;   // consumato: il prossimo turno sarà un turno esterno (uscita)
     state.phase="base"; state.actionsLeft=0;
-    shop=null; soldThisTurn=0;         // resetta il commercio del turno
+    if(!mpGame) state.shop=null;       // solo in locale la merce si rigenera per turno; in rete è condivisa (rinnovata a inizio giornata)
+    soldThisTurn=0;                    // resetta il conteggio vendite del turno
     updateActionUI(); highlightReach(false);
     const isAv = state.you.tile.type==="avamposto";
     log(`Sei in <b>${state.you.tile.name}</b> (safe zone). Turno di gestione: 🗄️ deposito · 🤝 commercio${isAv?' · 📦 consegna missioni':''}. <b>Uscirai il prossimo turno.</b>`);
@@ -5609,6 +5620,11 @@ function doLock(){
   if(!enemyCampTile){log(`🔓 Nessun deposito avversario nelle vicinanze.`,"bad");return;}
   const enemyKey=key(enemyCampTile.col,enemyCampTile.v);
   const foe=(state.opponents||[]).find(o=>o.campKey===enemyKey)||null;
+  // Non si scassina una base occupata dal suo proprietario: se l'avversario è dentro il proprio accampamento, il colpo salta.
+  if(foe && foe.tile && key(foe.tile.col,foe.tile.v)===enemyKey){
+    log(`🔒 <b>${foe.name}</b> è nel suo accampamento: non puoi scassinare una base occupata dal proprietario.`,"bad");
+    return;
+  }
   spend();
   removeLockpick();
   log(`🗝 Usi il Grimaldello per scassinare il deposito di <b>${foe?foe.name:"un avversario"}</b>!`,"good");
@@ -6125,23 +6141,23 @@ function closeModal(){document.getElementById('overlay').classList.remove('activ
 // e verranno compilati uno alla volta.
 const MANUAL_INTRO = `
   <h2>Il mondo di Hexartha</h2>
-  <div class="m-fig"><img src=".ref/manuale-cover.png" alt="HEXARTHA"><div class="m-cap">Hexartha — la città che non è morta abbastanza.</div></div>
+  <div class="m-fig"><img src=".ref/manuale-cover.png" alt="HEXARTHA"><div class="m-cap">Hexartha: la città che non è morta abbastanza.</div></div>
   <p class="lead"><b>COMBATTI · SOPRAVVIVI · ESTRAI.</b> Non esistono percorsi obbligati. Ma ogni errore ha conseguenze.</p>
   <h3>La città che non è morta abbastanza</h3>
-  <p>Hexartha era una città di provincia divisa in <b>settori esagonali</b>. Poi è arrivata <b>la Caduta</b>: i varchi sbarrati, i treni fermi sui binari, l'esercito che a un certo punto ha smesso di ricevere ordini. La città non è stata distrutta in un giorno — è stata <b>abbandonata a bruciare lentamente</b>. È ancora lì: un cadavere pieno di cose preziose, sotto un cielo color piombo.</p>
+  <p>Hexartha era una città di provincia divisa in <b>settori esagonali</b>. Poi è arrivata <b>la Caduta</b>: i varchi sbarrati, i treni fermi sui binari, l'esercito che a un certo punto ha smesso di ricevere ordini. La città non è stata distrutta in un giorno, è stata <b>abbandonata a bruciare lentamente</b>. È ancora lì: un cadavere pieno di cose preziose, sotto un cielo color piombo.</p>
   <h3>Perché si entra</h3>
-  <p>Fuori dal perimetro si sopravvive a stento. Dentro, la città è un magazzino da saccheggiare: medicine sigillate nell'ospedale, armi nei depositi militari, oro e attrezzi nelle case evacuate in fretta. I <b>ricettatori</b> — Elvira, Derrick Vos e Michail — pagano ciò che porti fuori e affidano <b>incarichi</b> a chi ha il fegato di entrare.</p>
-  <p>Chi consegna si fa un <b>nome</b>: negli accampamenti la <b>fama</b> vale più dell'oro, perché l'oro si ruba e il nome no. Ma la città non regala niente: chi resta dentro troppo a lungo incontra i tossici, i banditi, o qualcosa di peggio. E chi muore dentro, dentro rimane — con tutto lo zaino.</p>
+  <p>Fuori dal perimetro si sopravvive a stento. Dentro, la città è un magazzino da saccheggiare: medicine sigillate nell'ospedale, armi nei depositi militari, oro e attrezzi nelle case evacuate in fretta. I <b>ricettatori</b> (Elvira, Derrick Vos e Michail) pagano ciò che porti fuori e affidano <b>incarichi</b> a chi ha il fegato di entrare.</p>
+  <p>Chi consegna si fa un <b>nome</b>: negli accampamenti la <b>fama</b> vale più dell'oro, perché l'oro si ruba e il nome no. Ma la città non regala niente: chi resta dentro troppo a lungo incontra i tossici, i banditi, o qualcosa di peggio. E chi muore dentro, dentro rimane, con tutto lo zaino.</p>
   <div class="m-note">🎯 <b>Il ciclo del gioco:</b> esci dal tuo accampamento · attraversa la città · arraffa · consegna · raggiungi la zona d'estrazione <b>dal lato opposto</b> · torna a casa vivo.</div>
   <h3>La Fortezza Rossa</h3>
-  <p>Al centro esatto della città, l'unico edificio che la Caduta non ha piegato. Dentro comanda <b>il Sovrano</b> con l'ultima guarnigione rimasta. <b>Si entra solo con una chiave</b>, e dentro non ci si nasconde e non si scappa — ma il bottino del Sovrano è il più ricco di Hexartha.</p>
+  <p>Al centro esatto della città, l'unico edificio che la Caduta non ha piegato. Dentro comanda <b>il Sovrano</b> con l'ultima guarnigione rimasta. <b>Si entra solo con una chiave</b>, e dentro non ci si nasconde e non si scappa, ma il bottino del Sovrano è il più ricco di Hexartha.</p>
   <h3>La stagione</h3>
   <p>La finestra buona dura <b>18 giorni</b> (23 in modalità Hardcore). Ogni giorno che passa, Hexartha peggiora: prima i disperati, poi i <b>tossici</b> che scendono dalle zone contaminate, poi le <b>bande</b> organizzate. Più resti, più la città si riempie di gente peggiore di te.</p>
   <div class="m-note">📖 Usa l'<b>indice a sinistra</b> o le frecce <b>◂ Precedente / Successivo ▸</b> in basso per sfogliare i capitoli.</div>
 `;
 const MANUAL_C1 = `
   <h2>Scopo del gioco</h2>
-  <p class="lead">Ad Hexartha nessuno resta per scelta. Farsi un <b>nome</b> presso i <b>ricettatori</b> è l'unica moneta che conta davvero: chi accumula <b>più fama</b> degli altri si guadagna il biglietto per <b>lasciare questa città in malora</b> — e con esso la sola cosa che qui non si trova, la possibilità di <b>una nuova vita</b> altrove. La fama si conquista in un solo modo: <b>completando missioni</b> e tornando vivo per raccontarlo.</p>
+  <p class="lead">Ad Hexartha nessuno resta per scelta. Farsi un <b>nome</b> presso i <b>ricettatori</b> è l'unica moneta che conta davvero: chi accumula <b>più fama</b> degli altri si guadagna il biglietto per <b>lasciare questa città in malora</b>, e con esso la sola cosa che qui non si trova, la possibilità di <b>una nuova vita</b> altrove. La fama si conquista in un solo modo: <b>completando missioni</b> e tornando vivo per raccontarlo.</p>
   <h3>Come si vince</h3>
   <ul>
     <li><b>Vittoria immediata:</b> il primo giocatore che raggiunge <b>5 punti fama 🎖️</b> vince all'istante e la partita finisce.</li>
@@ -6159,12 +6175,12 @@ const MANUAL_C1 = `
   <p>Ogni giocatore ripete la stessa spina dorsale, ma le rotte sono libere:</p>
   <ul>
     <li><b>1 · Esci</b> dal tuo accampamento verso la città.</li>
-    <li><b>2 · Arraffa</b> — cerca loot, apri i drop, affronta o evita i pericoli.</li>
+    <li><b>2 · Arraffa</b>: cerca loot, apri i drop, affronta o evita i pericoli.</li>
     <li><b>3 · Consegna</b> le missioni negli <b>avamposti</b>: è così che sale la fama.</li>
-    <li><b>4 · Estrai</b> — raggiungi la tua zona d'estrazione, <b>sul lato opposto</b> della mappa, e torna a casa vivo.</li>
+    <li><b>4 · Estrai</b>: raggiungi la tua zona d'estrazione, <b>sul lato opposto</b> della mappa, e torna a casa vivo.</li>
   </ul>
   <div class="m-fig"><img src="Mappa/Luoghi Hexartha/Avamposto popolare.png" alt="Avamposto"><div class="m-cap">Gli avamposti: qui si consegnano le missioni e il bottino diventa fama.</div></div>
-  <p>Si gioca in <b>2–4 giocatori</b>. Ogni giorno che passa la città diventa più pericolosa: non puoi rimandare all'infinito. <b>Morire significa perdere tutto lo zaino</b> — la sopravvivenza è parte della strategia.</p>
+  <p>Si gioca in <b>2–4 giocatori</b>. Ogni giorno che passa la città diventa più pericolosa: non puoi rimandare all'infinito. <b>Morire significa perdere tutto lo zaino</b>. La sopravvivenza è parte della strategia.</p>
 `;
 const MANUAL_C2 = `
   <h2>Preparazione della partita</h2>
@@ -6176,7 +6192,7 @@ const MANUAL_C2 = `
     <li><b>3 monete 🪙</b> e <b>1 carta "Cibo in scatola"</b> (cura +1 vita, solo fuori dalla battaglia).</li>
     <li><b>Equipaggiamento base:</b> arma, armatura e casco "base" (+1 ciascuno).</li>
     <li><b>Zaino e magazzino vuoti.</b></li>
-    <li><b>3 missioni segrete:</b> una da ciascun ricettatore — Elvira, Derrick Vos e Michail.</li>
+    <li><b>3 missioni segrete:</b> una da ciascun ricettatore: Elvira, Derrick Vos e Michail.</li>
   </ul>
   <div class="m-fig"><img src="Mappa/Luoghi Hexartha/Accampamento fortificato.png" alt="Accampamento"><div class="m-cap">Il tuo accampamento: zona sicura di partenza, agli angoli della mappa.</div></div>
   <h3>Sul tavolo (comune a tutti)</h3>
@@ -6189,29 +6205,29 @@ const MANUAL_C2 = `
   <h3>Modalità di gioco</h3>
   <p>Prima di iniziare, nella lobby scegli la modalità:</p>
   <ul>
-    <li><b>Classica</b> — <b>18 giorni</b>, con <b>5</b> eventi finali «Resa dei conti» (rossi) estratti a caso.</li>
-    <li><b>Hardcore</b> — <b>23 giorni</b>, con <b>tutti e 10</b> gli eventi rossi: più lunga e più spietata.</li>
+    <li><b>Classica</b>: <b>18 giorni</b>, con <b>5</b> eventi finali «Resa dei conti» (rossi) estratti a caso.</li>
+    <li><b>Hardcore</b>: <b>23 giorni</b>, con <b>tutti e 10</b> gli eventi rossi: più lunga e più spietata.</li>
   </ul>
   <h3>Chi inizia</h3>
   <p>Si gioca in <b>2–4 giocatori</b>, un turno alla volta in <b>senso orario</b>. A ogni nuovo giorno la prima mossa passa al giocatore successivo, così il vantaggio di iniziare ruota tra tutti.</p>
-  <div class="m-note">🏕️ <b>Il primo turno è speciale:</b> parti dalla base ma funziona come un turno esterno — sei costretto a <b>muoverti subito</b> in una zona adiacente (dettagli nel cap. «Struttura del turno»).</div>
+  <div class="m-note">🏕️ <b>Il primo turno è speciale:</b> parti dalla base ma funziona come un turno esterno: sei costretto a <b>muoverti subito</b> in una zona adiacente (dettagli nel cap. «Struttura del turno»).</div>
 `;
 const _L="Mappa/Luoghi Hexartha/";
 const MANUAL_C3 = `
   <h2>La mappa e le zone</h2>
-  <p class="lead">Vista dall'alto, Hexartha è <b>un bersaglio di rovine</b>: al centro il cuore oscuro — la Fortezza Rossa; attorno, anelli di città sempre più pericolosi man mano che ci si avvicina; ai margini il verde che si riprende tutto, con i piccoli fuochi degli accampamenti agli angoli.</p>
+  <p class="lead">Vista dall'alto, Hexartha è <b>un bersaglio di rovine</b>: al centro il cuore oscuro, la Fortezza Rossa; attorno, anelli di città sempre più pericolosi man mano che ci si avvicina; ai margini il verde che si riprende tutto, con i piccoli fuochi degli accampamenti agli angoli.</p>
   <div class="m-fig"><img src="${_L}Fortezza rossa.png" alt="Fortezza Rossa"><div class="m-cap">La Fortezza Rossa domina il centro: più ti avvicini, più il colore muore e il rischio cresce.</div></div>
   <h3>Come si legge la mappa</h3>
   <ul>
     <li><b>Rosso</b> = Fortezza e pericolo · <b>bordo verde</b> = zone sicure · il resto degrada dal cemento del centro al verde marcio dei margini.</li>
     <li>Ci si sposta tra <b>esagoni adiacenti</b>. Non esistono percorsi obbligati, ma ogni giorno la città è più affollata di gente peggiore di te.</li>
   </ul>
-  <h3>🟢 Zone sicure — nessun incontro</h3>
+  <h3>🟢 Zone sicure: nessun incontro</h3>
   <ul>
-    <li><b>Accampamento</b> — la tua base, agli angoli. Commerci, crafti e gestisci inventario/magazzino <b>senza limiti di azioni</b>. Ci si entra <b>solo dalla propria estrazione</b> e si esce il turno successivo.</li>
-    <li><b>Avamposto</b> (Armato, Doganale) — sull'asse centrale: commercio, crafting e <b>consegna delle missioni</b>. Nessun incontro. <span class="dim">(Il magazzino, però, si sposta solo nella tua base.)</span></li>
+    <li><b>Accampamento</b>: la tua base, agli angoli. Commerci, crafti e gestisci inventario/magazzino <b>senza limiti di azioni</b>. Ci si entra <b>solo dalla propria estrazione</b> e si esce il turno successivo.</li>
+    <li><b>Avamposto</b> (Armato, Doganale): sull'asse centrale: commercio, crafting e <b>consegna delle missioni</b>. Nessun incontro. <span class="dim">(Il magazzino, però, si sposta solo nella tua base.)</span></li>
   </ul>
-  <h3>⚠️ Zone esterne — qui si arraffa… e si rischia</h3>
+  <h3>⚠️ Zone esterne: qui si arraffa… e si rischia</h3>
   <p>In ogni zona esterna puoi <b>Cercare</b> loot e, a fine turno, rischi un <b>incontro</b>. Ogni tipo di zona pesca da un mazzo diverso:</p>
   <div class="m-grid">
     <div class="m-thumb"><img src="${_L}Quartiere fantasma.png" alt="Zona urbana">Urbana → loot Comune</div>
@@ -6221,15 +6237,15 @@ const MANUAL_C3 = `
     <div class="m-thumb"><img src="${_L}Stazione nord.png" alt="Stazione">Stazione → viaggio rapido</div>
   </div>
   <ul>
-    <li><b>Zona urbana</b> — loot <b>Comune</b> (attrezzi, materiali, oggetti di valore).</li>
-    <li><b>Zona ospedaliera</b> — le quattro ali dell'ospedale: loot <b>Medico</b>.</li>
-    <li><b>Zona militare</b> (Caserma, Armeria) — loot <b>Militare</b>, ma puoi <b>Cercare una sola volta</b> e <b>non puoi nasconderti</b>.</li>
-    <li><b>Zona riciclaggio</b> (Discarica, Mercato, Parco dei rottami, Area magazzini) — gli scarti di tutti: peschi <b>2 carte e ne tieni 1</b>.</li>
-    <li><b>Stazione</b> — conta come zona urbana per gli incontri; in più puoi pagare <b>1 moneta</b> per il <b>viaggio rapido</b> verso un'altra stazione.</li>
+    <li><b>Zona urbana</b>: loot <b>Comune</b> (attrezzi, materiali, oggetti di valore).</li>
+    <li><b>Zona ospedaliera</b>: le quattro ali dell'ospedale: loot <b>Medico</b>.</li>
+    <li><b>Zona militare</b> (Caserma, Armeria): loot <b>Militare</b>, ma puoi <b>Cercare una sola volta</b> e <b>non puoi nasconderti</b>.</li>
+    <li><b>Zona riciclaggio</b> (Discarica, Mercato, Parco dei rottami, Area magazzini): gli scarti di tutti: peschi <b>2 carte e ne tieni 1</b>.</li>
+    <li><b>Stazione</b>: conta come zona urbana per gli incontri; in più puoi pagare <b>1 moneta</b> per il <b>viaggio rapido</b> verso un'altra stazione.</li>
   </ul>
   <h3>🔴 La Fortezza Rossa</h3>
   <p>Il cuore della città e il covo del <b>Sovrano</b>. Si entra <b>solo con la Chiave Fortezza Rossa</b>; dentro <b>non ci si nasconde e non si fugge</b>, e si affrontano gli incontri del mazzo Fortezza (boss). Ma le sue ricompense sono le più ricche di Hexartha.</p>
-  <h3>🚪 Estrazione — la regola del lato opposto</h3>
+  <h3>🚪 Estrazione: la regola del lato opposto</h3>
   <p>Le due uscite dalla città sono le zone d'estrazione <b>Alpha</b> e <b>Beta</b>. <b>La tua estrazione è sempre sul lato opposto al tuo accampamento</b>: attraversare la mappa è un viaggio, non una passeggiata. Entrando nella <b>tua</b> zona d'estrazione il turno termina e torni al tuo accampamento; ne riparti il turno dopo.</p>
   <div class="m-note">🧭 Come ci si muove, quante azioni hai e quando scatta l'incontro sono spiegati nel prossimo capitolo, «Struttura del turno».</div>
 `;
@@ -6242,27 +6258,27 @@ const MANUAL_C4 = `
   <h3>Il tuo turno in zona esterna</h3>
   <p>Sempre tre passi, in quest'ordine:</p>
   <ul>
-    <li><b>1 · Movimento obbligatorio</b> — il gioco evidenzia le caselle adiacenti raggiungibili: <b>devi</b> spostarti in una di esse (non puoi restare fermo).</li>
-    <li><b>2 · 2 azioni a scelta</b> — si sbloccano <b>dopo</b> il movimento. Alcuni eventi/oggetti possono darne di più o di meno.</li>
-    <li><b>3 · Termina turno</b> — puoi chiudere quando vuoi; diventa l'unico pulsante quando hai speso tutte le azioni. Poi scatta l'<b>incontro</b>.</li>
+    <li><b>1 · Movimento obbligatorio</b>: il gioco evidenzia le caselle adiacenti raggiungibili: <b>devi</b> spostarti in una di esse (non puoi restare fermo).</li>
+    <li><b>2 · 2 azioni a scelta</b>: si sbloccano <b>dopo</b> il movimento. Alcuni eventi/oggetti possono darne di più o di meno.</li>
+    <li><b>3 · Termina turno</b>: puoi chiudere quando vuoi; diventa l'unico pulsante quando hai speso tutte le azioni. Poi scatta l'<b>incontro</b>.</li>
   </ul>
   <p>Le azioni a scelta sono:</p>
   <ul>
-    <li><b>➡️ Spostati</b> — un'altra casella adiacente (ripetibile entro le tue azioni).</li>
-    <li><b>🔎 Cerca</b> — peschi il loot del luogo. Fino a <b>2 volte</b>; in <b>Zona militare</b> una <b>sola</b> volta.</li>
-    <li><b>🌑 Nascondi</b> — <b>niente incontro</b> (né PvE né PvP) a fine turno; chiude la fase azioni. La tua pedina appare "nascosta" fino al tuo prossimo turno.</li>
-    <li><b>🗝 Scassina</b> — solo se sei <b>adiacente alla base di un avversario</b> e hai un <b>Grimaldello</b>: lo consumi per saccheggiare il suo magazzino.</li>
+    <li><b>➡️ Spostati</b>: un'altra casella adiacente (ripetibile entro le tue azioni).</li>
+    <li><b>🔎 Cerca</b>: peschi il loot del luogo. Fino a <b>2 volte</b>; in <b>Zona militare</b> una <b>sola</b> volta.</li>
+    <li><b>🌑 Nascondi</b>: <b>niente incontro</b> (né PvE né PvP) a fine turno; chiude la fase azioni. La tua pedina appare "nascosta" fino al tuo prossimo turno.</li>
+    <li><b>🗝 Scassina</b>: solo se sei <b>adiacente alla base di un avversario</b>, hai un <b>Grimaldello</b> e il proprietario <b>non è dentro il proprio accampamento</b>: lo consumi per saccheggiare il suo magazzino. Una base occupata dal suo proprietario non si può scassinare.</li>
   </ul>
   <div class="m-fig"><img src="${_L}Stazione nord.png" alt="Stazione"><div class="m-cap">Sulle stazioni puoi pagare 1 moneta per il viaggio rapido verso un'altra stazione, senza spendere un'azione.</div></div>
   <h3>🟢 Turno in zona sicura (base o avamposto)</h3>
-  <p>Se il turno <b>inizia</b> in una zona sicura è un <b>turno di gestione</b>: azioni senza limiti (compra, vendi, crafta, sistema l'inventario e — solo in base — il magazzino), <b>nessun incontro</b>. Però <b>esci solo il turno successivo</b>.</p>
-  <h3>Il passo finale — l'Incontro</h3>
-  <p>A fine turno, se <b>non</b> ti sei nascosto e <b>non</b> sei in zona sicura, affronti un incontro: prima <b>PvE</b> (contro un nemico del luogo — fuggi o combatti, poi raccogli il loot), poi <b>PvP</b> se sulla tua casella c'è un altro giocatore. Tutto il combattimento è nel capitolo dedicato.</p>
-  <div class="m-note">🏕️ <b>Primo turno di partita:</b> parti dalla base ma funziona come un turno esterno — sei costretto a muoverti subito in una zona adiacente.</div>
+  <p>Se il turno <b>inizia</b> in una zona sicura è un <b>turno di gestione</b>: azioni senza limiti (compra, vendi, crafta, sistema l'inventario e, solo in base, il magazzino), <b>nessun incontro</b>. Però <b>esci solo il turno successivo</b>.</p>
+  <h3>Il passo finale: l'Incontro</h3>
+  <p>A fine turno, se <b>non</b> ti sei nascosto e <b>non</b> sei in zona sicura, affronti un incontro: prima <b>PvE</b> (contro un nemico del luogo: fuggi o combatti, poi raccogli il loot), poi <b>PvP</b> se sulla tua casella c'è un altro giocatore. Tutto il combattimento è nel capitolo dedicato.</p>
+  <div class="m-note">🏕️ <b>Primo turno di partita:</b> parti dalla base ma funziona come un turno esterno: sei costretto a muoverti subito in una zona adiacente.</div>
 `;
 const MANUAL_C5 = `
   <h2>Eventi e le tre fasi</h2>
-  <p class="lead">Ogni giorno si apre con un <b>Evento</b>: una carta che il gioco gira per tutti e il cui effetto vale <b>fino al turno successivo</b>. Gli eventi scandiscono il tempo — e col tempo Hexartha peggiora.</p>
+  <p class="lead">Ogni giorno si apre con un <b>Evento</b>: una carta che il gioco gira per tutti e il cui effetto vale <b>fino al turno successivo</b>. Gli eventi scandiscono il tempo, e col tempo Hexartha peggiora.</p>
   <h3>Le tre fasi della stagione</h3>
   <div class="m-grid">
     <div class="m-thumb"><img src="${_L}Bosco delle rovine.png" alt="L'inizio">🌱 L'inizio · g1–6</div>
@@ -6270,19 +6286,19 @@ const MANUAL_C5 = `
     <div class="m-thumb"><img src="${_L}Zona evacuata.png" alt="La resa dei conti">💀 La resa dei conti · g14+</div>
   </div>
   <ul>
-    <li><b>🌱 L'inizio (g1–6)</b> — «I varchi sono ancora aperti. La città aspetta.» Eventi perlopiù neutri o favorevoli: drop di aiuti e di missioni, giornate lunghe.</li>
-    <li><b>⚠ Il declino (g7–13)</b> — «Le rotte si assottigliano. Ogni giorno si prende meno.» Arrivano tossici e bande; gli incontri picchiano più forte (nemici con <b>+1 danno</b> e simili).</li>
-    <li><b>💀 La resa dei conti (g14+)</b> — «Hexartha non perdona chi è rimasto troppo a lungo.» Il periodo più letale: nemici con <b>+2 danno</b>, spesso <b>vietato nascondersi e fuggire</b>, luoghi che vengono distrutti — e negli scontri tra giocatori <b>si combatte sempre</b> (niente pace).</li>
+    <li><b>🌱 L'inizio (g1–6)</b>: «I varchi sono ancora aperti. La città aspetta.» Eventi perlopiù neutri o favorevoli: drop di aiuti e di missioni, giornate lunghe.</li>
+    <li><b>⚠ Il declino (g7–13)</b>: «Le rotte si assottigliano. Ogni giorno si prende meno.» Arrivano tossici e bande; gli incontri picchiano più forte (nemici con <b>+1 danno</b> e simili).</li>
+    <li><b>💀 La resa dei conti (g14+)</b>: «Hexartha non perdona chi è rimasto troppo a lungo.» Il periodo più letale: nemici con <b>+2 danno</b>, spesso <b>vietato nascondersi e fuggire</b>, luoghi che vengono distrutti, e negli scontri tra giocatori <b>si combatte sempre</b> (niente pace).</li>
   </ul>
   <h3>Cosa può fare un Evento</h3>
   <ul>
-    <li><b>Dare o togliere azioni</b> — es. «Giornata lunga»: +1 azione a scelta.</li>
-    <li><b>Piazzare un drop</b> sulla mappa — di <b>aiuti</b> (armi/medicine/cibo) o di <b>missioni</b> (una nuova missione secondaria): lo prende il primo che <b>termina il turno</b> su quella casella.</li>
-    <li><b>Alzare il pericolo</b> — più danno o più PV a tutti i nemici del giorno, o nemici extra.</li>
-    <li><b>Imporre divieti</b> — niente Nascondi, niente fuga, niente Cerca.</li>
-    <li><b>Cambiare le regole del giorno</b> — Fortezza aperta senza chiave, commercio o consegne ovunque, svendite, monete per tutti, luoghi distrutti (chi vi si trova muore).</li>
+    <li><b>Dare o togliere azioni</b>: es. «Giornata lunga»: +1 azione a scelta.</li>
+    <li><b>Piazzare un drop</b> sulla mappa: di <b>aiuti</b> (armi/medicine/cibo) o di <b>missioni</b> (una nuova missione secondaria): lo prende il primo che <b>termina il turno</b> su quella casella.</li>
+    <li><b>Alzare il pericolo</b>: più danno o più PV a tutti i nemici del giorno, o nemici extra.</li>
+    <li><b>Imporre divieti</b>: niente Nascondi, niente fuga, niente Cerca.</li>
+    <li><b>Cambiare le regole del giorno</b>: Fortezza aperta senza chiave, commercio o consegne ovunque, svendite, monete per tutti, luoghi distrutti (chi vi si trova muore).</li>
   </ul>
-  <div class="m-note">🎮 <b>Classica vs Hardcore.</b> Nella fase finale la Classica usa <b>5</b> eventi rossi estratti a caso; l'Hardcore <b>tutti e 10</b> — e la stagione dura <b>23 giorni</b> invece di 18.</div>
+  <div class="m-note">🎮 <b>Classica vs Hardcore.</b> Nella fase finale la Classica usa <b>5</b> eventi rossi estratti a caso; l'Hardcore <b>tutti e 10</b>, e la stagione dura <b>23 giorni</b> invece di 18.</div>
   <p class="dim" style="font-size:11.5px">💡 Puoi consultare l'elenco completo degli eventi durante la partita dal pannello «MAZZI E INCONTRI» → scheda <b>EVENTI</b>.</p>
 `;
 const MANUAL_C6 = `
@@ -6298,21 +6314,21 @@ const MANUAL_C6 = `
     <li>Chi ha il totale <b>più basso perde 1 PV</b>. In <b>parità</b>, <b>entrambi</b> perdono 1 PV.</li>
   </ul>
   <div class="m-fig"><img src="CARTE/Carte incontri/_imm incontri/Dragomir Vuk.png" alt="Nemico"><div class="m-cap">Ogni carta Incontro mostra il valore DANNO del nemico e i suoi punti vita.</div></div>
-  <div class="m-note">☠️ <b>La tua morte ha priorità:</b> se arrivi a <b>0 PV</b> muori subito e non si svolge alcun saccheggio — anche se nello stesso tiro il nemico andava a 0.</div>
+  <div class="m-note">☠️ <b>La tua morte ha priorità:</b> se arrivi a <b>0 PV</b> muori subito e non si svolge alcun saccheggio, anche se nello stesso tiro il nemico andava a 0.</div>
   <h3>Colpo critico e fumble</h3>
   <ul>
-    <li><b>CRIT (6+6):</b> il colpo va <b>sempre</b> a segno — il nemico perde 1 PV.</li>
-    <li><b>FUMBLE (1+1):</b> il colpo lo <b>subisci sempre</b> — perdi 1 PV.</li>
+    <li><b>CRIT (6+6):</b> il colpo va <b>sempre</b> a segno: il nemico perde 1 PV.</li>
+    <li><b>FUMBLE (1+1):</b> il colpo lo <b>subisci sempre</b>: perdi 1 PV.</li>
   </ul>
   <h3>Armi e caschi speciali (dado effetto)</h3>
   <p>Alcune armi e caschi tirano un <b>dado effetto</b> insieme all'attacco, con esiti che cambiano a ogni tiro: il <b>Fucile di precisione</b> tira 3 dadi e tieni i 2 migliori; il <b>Fucile d'assalto</b> può <b>incepparsi</b>; la <b>Pistola silenziata</b> può fare un colpo mortale (−2 PV); il <b>Casco forato</b> a volte non protegge.</p>
   <h3>🏃 Fuga (solo PvE)</h3>
   <p>Puoi tentare la fuga tirando <b>1 dado</b>: <b>1</b> = fallita (−1 PV, resti); <b>2–3</b> = fuggi ma −1 PV; <b>4–6</b> = fuggi senza danni. La <b>Granata fumogena</b> fa fuggire <b>automaticamente</b>, anche in PvP.</p>
-  <h3>⚔ PvP — scontro tra giocatori</h3>
+  <h3>⚔ PvP: scontro tra giocatori</h3>
   <p>Se finisci il turno sulla <b>stessa casella</b> di un avversario, a fine turno scatta il PvP. Le uniche scelte sono:</p>
   <ul>
-    <li><b>☮ Pace</b> — se <b>entrambi</b> la scelgono non si combatte: vi lasciate passare (nessuno scambio di carte).</li>
-    <li><b>⚔ Lotta</b> — se <b>almeno uno</b> sceglie Lotta, si combatte con le stesse regole del PvE.</li>
+    <li><b>☮ Pace</b>: se <b>entrambi</b> la scelgono non si combatte: vi lasciate passare (nessuno scambio di carte).</li>
+    <li><b>⚔ Lotta</b>: se <b>almeno uno</b> sceglie Lotta, si combatte con le stesse regole del PvE.</li>
     <li><b>💀 Nella «Resa dei conti» (dal g14) non c'è tregua: si combatte sempre.</b></li>
   </ul>
   <p>Chi vince <b>saccheggia tutto l'inventario</b> del perdente, <b>tranne la Tasca sicura</b>.</p>
@@ -6324,18 +6340,18 @@ const MANUAL_C7 = `
   <h3>Gli spazi</h3>
   <ul>
     <li><b>Equipaggiamento:</b> Arma · Armatura · Casco. Ogni slot vuoto vale la sua <b>base +1</b>; pezzi migliori alzano il Punteggio Equipaggiamento.</li>
-    <li><b>Tasca sicura</b> (1 carta) — <b>protetta in caso di morte</b>: l'unica cosa che non perdi mai.</li>
-    <li><b>2 slot Gadget</b> — carte scoperte, usabili anche in battaglia (granate, consumabili equipaggiati…).</li>
-    <li><b>Zaino</b> — 6 carte coperte in 3 sezioni: laterale sx (1) · centrale (4) · laterale dx (1).</li>
+    <li><b>Tasca sicura</b> (1 carta): <b>protetta in caso di morte</b>: l'unica cosa che non perdi mai.</li>
+    <li><b>2 slot Gadget</b>: carte scoperte, usabili anche in battaglia (granate, consumabili equipaggiati…).</li>
+    <li><b>Zaino</b>: 6 carte coperte in 3 sezioni: laterale sx (1) · centrale (4) · laterale dx (1).</li>
   </ul>
   <div class="m-note">🚫 <b>Non sono gadget e non si equipaggiano:</b> Cibo in scatola (si mangia solo fuori dalla battaglia), Chiave cassaforte e Chiave Fortezza Rossa (si portano e si consumano da sole).</div>
   <h3>Vita e vite extra</h3>
   <p>Hai <b>3 cuori base</b>. Le cure normali (Garza, Kit medico, Cibo…) non vanno oltre 3. Alcuni stimolanti danno <b>vite extra temporanee</b> (fino a +2, totale 5) che durano <b>solo fino a fine turno</b>: Adrenalina +2, Antidolorifico +1, Spinello +2 (ma −2 al tuo danno per il turno). Il danno consuma <b>prima</b> le vite extra.</p>
   <h3>Stati negativi (malus)</h3>
   <ul>
-    <li><b>🩸 Emorragia</b> — perdi 1 PV a fine turno finché non curi. Cura: <b>Cerotto</b>.</li>
-    <li><b>🦴 Ossa rotte</b> — <b>−2</b> in combattimento e tasche laterali dello zaino bloccate. Cura: <b>Stecca</b>.</li>
-    <li><b>☠ Avvelenato</b> — non puoi curarti la vita e tasche laterali bloccate. Cura: <b>Antidoto</b>.</li>
+    <li><b>🩸 Emorragia</b>: perdi 1 PV a fine turno finché non curi. Cura: <b>Cerotto</b>.</li>
+    <li><b>🦴 Ossa rotte</b>: <b>−2</b> in combattimento e tasche laterali dello zaino bloccate. Cura: <b>Stecca</b>.</li>
+    <li><b>☠ Avvelenato</b>: non puoi curarti la vita e tasche laterali bloccate. Cura: <b>Antidoto</b>.</li>
   </ul>
   <p>Il <b>Kit medico</b> rimuove tutti gli stati e cura tutta la vita. Un <b>turno in zona sicura</b> ripristina i 3 PV e toglie tutti gli stati.</p>
   <div class="m-note">⚠️ Occhio alle <b>carte Trappola</b>: se le peschi nel loot scattano su di te (Lametta → Emorragia, Siringa usata → Avvelenato). Dettagli nel capitolo Loot.</div>
@@ -6347,19 +6363,19 @@ const MANUAL_C8 = `
   <p>Con l'azione <b>Cerca</b> e <b>dopo ogni incontro vinto</b> peschi dal mazzo della zona: urbana/stazione → <b>Comune</b>, ospedaliera → <b>Medico</b>, militare → <b>Militare</b>, riciclaggio → mazzo scarti (<b>pesca 2, tieni 1</b>).</p>
   <h3>Tipi di oggetto</h3>
   <ul>
-    <li><b>Equipaggiamento</b> (armi, armature, caschi) — alza il Punteggio Equipaggiamento.</li>
-    <li><b>Consumabili</b> (medicine, cibo, stimolanti) — usati una volta.</li>
-    <li><b>Gadget</b> (granate, torcia, sensore, grimaldello…) — strumenti dai vari usi.</li>
-    <li><b>Oggetti di valore</b> — non servono in battaglia ma valgono monete (e contano nel calcolo finale).</li>
-    <li><b>Materiali</b> — ingredienti per il crafting.</li>
-    <li><b>⭐ Oggetti speciali</b> (bordo dorato) — rari e potenti: sempre scoperti, 1 copia alla volta, mai in Tasca sicura, spesso drop da boss e banditi.</li>
+    <li><b>Equipaggiamento</b> (armi, armature, caschi): alza il Punteggio Equipaggiamento.</li>
+    <li><b>Consumabili</b> (medicine, cibo, stimolanti): usati una volta.</li>
+    <li><b>Gadget</b> (granate, torcia, sensore, grimaldello…): strumenti dai vari usi.</li>
+    <li><b>Oggetti di valore</b>: non servono in battaglia ma valgono monete (e contano nel calcolo finale).</li>
+    <li><b>Materiali</b>: ingredienti per il crafting.</li>
+    <li><b>⭐ Oggetti speciali</b> (bordo dorato): rari e potenti: sempre scoperti, 1 copia alla volta, mai in Tasca sicura, spesso drop da boss e banditi.</li>
   </ul>
   <h3>⚠️ Trappole</h3>
   <p>Alcune carte sono <b>trappole</b>: pescandole scattano su di te. <i>Lametta</i> → Emorragia, <i>Siringa usata</i> → Avvelenato (poi la carta si tiene). La <i>Buca trappola</i> scatta solo cercando (Ossa rotte) e viene scartata.</p>
   <h3>🗄️ Magazzino</h3>
   <p>Puoi conservare fino a <b>15 carte</b> nel magazzino: <b>non si perdono in caso di morte</b>. Lo consulti ovunque, ma <b>depositi e prelevi solo nella tua base</b>.</p>
   <h3>🛠️ Crafting</h3>
-  <p>Nelle <b>zone sicure</b> puoi <b>craftare</b>: consumando i materiali giusti (da inventario e magazzino) crei nuovi oggetti — armature e caschi migliori, kit medici, munizioni. Il manuale di crafting è sempre consultabile e alcune ricette hanno una variante.</p>
+  <p>Nelle <b>zone sicure</b> puoi <b>craftare</b>: consumando i materiali giusti (da inventario e magazzino) crei nuovi oggetti: armature e caschi migliori, kit medici, munizioni. Il manuale di crafting è sempre consultabile e alcune ricette hanno una variante.</p>
 `;
 const MANUAL_C9 = `
   <h2>Ricettatori, commercio e missioni</h2>
@@ -6370,17 +6386,17 @@ const MANUAL_C9 = `
     <div class="m-thumb"><img src="CARTE/Immagini Contrabbandieri/MICHAIL.png" alt="Michail">Michail · mercante</div>
   </div>
   <ul>
-    <li><b>Elvira — il medico.</b> Vende medikit e stimolanti; affida le missioni <b>mediche</b>.</li>
-    <li><b>Derrick Vos — l'armiere.</b> Vende armi e corazze; affida le missioni <b>militari</b>. Non compra usato.</li>
-    <li><b>Michail — il mercante.</b> Compra ciò che gli porti (e lo rivende a chiunque, anche ai tuoi rivali); affida le missioni <b>urbane</b>.</li>
+    <li><b>Elvira, il medico.</b> Vende medikit e stimolanti; affida le missioni <b>mediche</b>.</li>
+    <li><b>Derrick Vos, l'armiere.</b> Vende armi e corazze; affida le missioni <b>militari</b>. Non compra usato.</li>
+    <li><b>Michail, il mercante.</b> Compra ciò che gli porti (e lo rivende a chiunque, anche ai tuoi rivali); affida le missioni <b>urbane</b>.</li>
   </ul>
   <h3>Commercio</h3>
   <p>Nelle zone sicure puoi <b>comprare</b> dai ricettatori e <b>vendere</b> a Michail (max <b>3 vendite a turno</b>; armi e armature usate valgono la metà). È tutto nel pannello <b>Commercio &amp; Crafting</b>.</p>
-  <h3>Missioni — la sola fonte di fama</h3>
+  <h3>Missioni: la sola fonte di fama</h3>
   <ul>
-    <li><b>Storia</b> (3, uguali per tutti) — il premio va al <b>primo</b> che la completa; richiedono oggetti-chiave lasciati da nemici specifici.</li>
-    <li><b>Segrete</b> (1 medica + 1 militare + 1 urbana a inizio partita) — <b>2 fama</b> ciascuna, più eventuali bonus.</li>
-    <li><b>Secondarie</b> — si pescano dai drop «Drop missione»; <b>1 fama</b> ciascuna.</li>
+    <li><b>Storia</b> (3, uguali per tutti): il premio va al <b>primo</b> che la completa; richiedono oggetti-chiave lasciati da nemici specifici.</li>
+    <li><b>Segrete</b> (1 medica + 1 militare + 1 urbana a inizio partita): <b>2 fama</b> ciascuna, più eventuali bonus.</li>
+    <li><b>Secondarie</b>: si pescano dai drop «Drop missione»; <b>1 fama</b> ciascuna.</li>
   </ul>
   <p>Le missioni si <b>consegnano negli avamposti</b> (o ovunque con l'evento «Delivery Task»): porti gli oggetti richiesti e incassi la fama. Anche gli oggetti in <b>Tasca sicura</b> contano per la consegna.</p>
 `;
@@ -6419,7 +6435,7 @@ const MANUAL_C11 = `
 
   <h3>🗺️ Mappa</h3>
   ${_hudFig('hud-mappa.png','La città a settori esagonali')}
-  <p>La città divisa in <b>settori esagonali</b>. Mostra la tua <b>pedina</b> e quelle avversarie, i tipi di zona (urbane, ospedale, militari, riciclaggio, Fortezza, estrazioni) e — durante il movimento — le <b>caselle raggiungibili</b> evidenziate.</p>
+  <p>La città divisa in <b>settori esagonali</b>. Mostra la tua <b>pedina</b> e quelle avversarie, i tipi di zona (urbane, ospedale, militari, riciclaggio, Fortezza, estrazioni) e, durante il movimento, le <b>caselle raggiungibili</b> evidenziate.</p>
 
   <h3>🎮 Azioni</h3>
   ${_hudFig('hud-azioni.png','La barra delle azioni')}
@@ -6466,7 +6482,7 @@ const MANUAL_C11 = `
   <p>In alto a destra: accendi/spegni l'audio e regoli separatamente <b>musica</b> ed <b>effetti</b>. La musica cambia con la fase della partita, diventando via via più cupa e ansiogena.</p>
 `;
 const MANUAL_CHAPTERS = [
-  {title:"Introduzione — Il mondo di Hexartha", html:MANUAL_INTRO},
+  {title:"Introduzione: Il mondo di Hexartha", html:MANUAL_INTRO},
   {title:"Scopo del gioco", html:MANUAL_C1},
   {title:"Preparazione della partita", html:MANUAL_C2},
   {title:"La mappa e le zone", html:MANUAL_C3},
@@ -7943,7 +7959,7 @@ function openCommerce(){
   // Durante l'INGRESSO in zona sicura (safeTurnPending: turno che si sta chiudendo) → solo consultazione.
   const entering = state.phase==="base" && !!state.you.safeTurnPending;
   _tradeViewOnly = !mpCanAct() || entering || !(state.phase==="base" || !!(state.event?.shopAnywhere));
-  if(!shop) shop={derrick:Array.from({length:3},()=>drawFrom('militare')), elvira:Array.from({length:3},()=>drawFrom('medico'))};
+  if(!state.shop) state.shop=mpFreshShop();
   currentVendorTab = currentVendorTab || 'derrick';
   const tabs=['derrick','elvira','michail'];
   const tabLabels={derrick:'Derrick Vos',elvira:'Elvira',michail:'Michail'};
@@ -7972,7 +7988,7 @@ function buildVendorPanel(tab){
   let slotsHTML='';
   if(tab==='derrick'||tab==='elvira'){
     const key=tab==='derrick'?'derrick':'elvira';
-    slotsHTML=shop[key].map((it,i)=>{
+    slotsHTML=state.shop[key].map((it,i)=>{
       if(!it) return `<div class="vendor-slot"><div class="slot-empty">Esaurito</div></div>`;
       const price=(it.val||0)+1; const can=state.you.coins>=price && packTotalFree()>0 && !_tradeViewOnly;
       return `<div class="vendor-slot">
@@ -8012,11 +8028,11 @@ function showVendorTab(tab){
 }
 function buyItem(vendor,i){
   if(!mpCanAct()||_tradeViewOnly){ if(!mpCanAct()) mpDeny(); return; }
-  const it=shop[vendor][i]; if(!it) return; const price=(it.val||0)+1;
+  const it=state.shop[vendor][i]; if(!it) return; const price=(it.val||0)+1;
   if(state.you.coins<price || packTotalFree()<=0) return;
   state.you.coins-=price;
   packAdd({...it, deck:vendor==='derrick'?'militare':'medico'});
-  shop[vendor][i]=drawFrom(vendor==='derrick'?'militare':'medico');  // rifornisce lo slot
+  state.shop[vendor][i]=drawFrom(vendor==='derrick'?'militare':'medico');  // rifornisce lo slot (condiviso in rete)
   log(`🤝 Compri <b>${it.name}</b> da ${vendor==='derrick'?'Derrick Vos':'Elvira'} per ${price} monete.`);
   renderHUD(); openCommerce();
 }
