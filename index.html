@@ -1393,6 +1393,285 @@
 <!-- ============ OVERLAY / MODAL ============ -->
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 
+<!-- HX_ENGINE_START — motore di gioco (GENERATO da engine/build.mjs, non modificare a mano) -->
+<script>
+/* GENERATO da engine/build.mjs — NON modificare a mano. Sorgente: engine/src/*.ts */
+(function (root) {
+  "use strict";
+
+  // ===== types.ts =====
+// Tipi di dominio del motore di Hexartha.
+// Qui vivono solo i "fatti" del gioco: nessuna dipendenza dalla grafica, dal DOM o dalla rete.
+// Questo permette alle STESSE regole di girare nel browser oggi e, in futuro, dentro una
+// Edge Function di Supabase (autorità server) senza modifiche.
+
+                      
+                                               
+                                                                                    
+
+                       
+             
+                 
+ 
+
+// Zone sicure: nessun incontro, si gestisce inventario/commercio/consegne (= insieme SAFE nel prototipo).
+const SAFE_TYPES                        = new Set          (["accampamento", "avamposto"]);
+const isSafe = (t      )          => SAFE_TYPES.has(t.type);
+
+// Fasi del turno di un giocatore.
+                                                                  
+
+// Stato del giocatore rilevante per il CICLO DI TURNO (versione minima, senza inventario/combattimento).
+
+  // ===== rng.ts =====
+// Generatore di numeri casuali DETERMINISTICO (seminato): stesso seme → stessa sequenza.
+// Serve perché in rete la casualità dev'essere riproducibile: due dispositivi (o, in futuro, il
+// server) che partono dallo stesso seme ottengono gli stessi dadi e le stesse pescate. Così non
+// possono "divergere". mulberry32: piccolo, veloce e più che sufficiente per un gioco a turni.
+// (Sostituisce gli sparsi Math.random() del prototipo, che non erano riproducibili.)
+
+                      
+                                    
+ 
+
+function createRng(seed        )      {
+  let a = seed >>> 0;
+  return {
+    next() {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+  };
+}
+
+// Un dado da 6 facce (1..6). Equivale a d6() nel prototipo, ma seminabile.
+function rollDie(rng     )         {
+  return 1 + Math.floor(rng.next() * 6);
+}
+
+function roll2d6(rng     )                                          {
+  const d1 = rollDie(rng);
+  const d2 = rollDie(rng);
+  return { d1, d2, sum: d1 + d2 };
+}
+
+  // ===== loot.ts =====
+// Regole di CERCA/loot come funzioni pure (equivalgono a deckForZone + doSearch/_executeSearch).
+// Qui decidiamo solo "da che mazzo, quante carte, quante ne tieni, si può cercare?": la pescata
+// vera e propria (che carta esce) la fa il chiamante col RNG seminato, così resta testabile.
+
+                                           
+
+                                                                       
+
+// Da quale mazzo pesca una zona.
+// urbana/stazione → Comune · ospedaliera → Medico · militare/fortezza → Militare · riciclaggio → Riciclaggio.
+function deckForZone(type          )          {
+  if (type === "riciclaggio") return "riciclaggio";
+  if (type === "militare" || type === "fortezza") return "militare";
+  if (type === "ospedaliera") return "medico";
+  return "comune";
+}
+
+// Dove è ammesso Cerca (le zone sicure sono escluse).
+const SEARCHABLE                        = new Set          ([
+  "urbana", "ospedaliera", "militare", "riciclaggio", "stazione", "fortezza",
+]);
+
+                                
+                                                           
+                                                         
+ 
+
+// Puoi cercare qui e ora? (equivale ai controlli in doSearch.)
+function canSearch(type          , milSearchCount        , ctx                = {})          {
+  if (ctx.noSearch) return false;
+  if (!SEARCHABLE.has(type)) return false;                      // niente Cerca in zona sicura
+  if (type === "militare" && milSearchCount >= 1) return false; // in Zona militare si cerca una sola volta
+  return true;
+}
+
+                             
+                
+                                                   
+                                               
+                                                                       
+ 
+
+// Quante carte pescare/tenere (equivale a _executeSearch). Riciclaggio: pesca 2, tieni 1.
+// Torcia: +1 pescata. Evento searchBonus: +N sia a pescate che a tenute.
+// NB: il limite "1 Cerca" conta SOLO le ricerche in Zona militare.
+function planSearch(
+  type          ,
+  milSearchCount        ,
+  opts                                               = {},
+)             {
+  const deck = deckForZone(type);
+  const isRic = deck === "riciclaggio";
+  let drawCount = 1;
+  let keep = 1;
+  if (isRic) { drawCount = 2; keep = 1; }
+  const bonus = opts.searchBonus ?? 0;
+  if (bonus) { drawCount += bonus; keep += bonus; }
+  if (opts.useTorch) drawCount += 1; // la torcia mostra +1 carta
+  const nextMilSearchCount = type === "militare" ? milSearchCount + 1 : milSearchCount;
+  return { deck, drawCount, keep, nextMilSearchCount };
+}
+
+  // ===== combat.ts =====
+// Combattimento come funzioni pure. Vale sia per il PvE (nemico con DANNO fisso) sia per il PvP
+// (più giocatori). È la stessa risoluzione che nel prototipo sta in mpComputeMyRoll +
+// mpCombatResolveRound, isolata e testabile — proprio dove vivevano bug come "6+6 non vinceva".
+
+                                    
+
+// Modificatori del tiro di un giocatore.
+                           
+                                                                            
+                                                                  
+                                                                            
+                                                                                                 
+ 
+
+                             
+                
+                                                      
+                                             
+             
+             
+ 
+
+// Tira 2d6 e applica i modificatori (parte deterministica di mpComputeMyRoll).
+function playerRoll(rng     , m          )             {
+  const { d1, d2, sum } = roll2d6(rng);
+  const total = Math.max(0, sum + m.equipScore - (m.ossaRotte ? 2 : 0) - (m.dmgPenalty ?? 0) + (m.gearDelta ?? 0));
+  return { total, crit: d1 === 6 && d2 === 6, fumble: d1 === 1 && d2 === 1, d1, d2 };
+}
+
+// Un combattente nel round: chi tira (giocatore) oppure chi ha valore fisso (nemico PvE = DANNO).
+                            
+                
+                 
+                   
+                                                                                
+ 
+
+const CRIT = 1e6;
+const FUMBLE = -1e6;
+
+// Cuore del combattimento: dati i tiri di tutti, quanti PV perde ciascuno in QUESTO round.
+// Regole (con precedenza): 6+6 batte sempre tutti · 1+1 perde sempre · in parità entrambi −1 PV.
+// Perdi 1 PV per ogni avversario che ti pareggia o ti supera.
+function resolveRoundDamage(rolls                           )                         {
+  const ids = Object.keys(rolls);
+  const cmp                         = {};
+  for (const id of ids) {
+    const r = rolls[id];
+    const eff = Math.max(0, (r.total || 0) - (r.stun ?? 0));
+    cmp[id] = r.crit ? CRIT : r.fumble ? FUMBLE : eff;
+  }
+  const dmg                         = {};
+  for (const me of ids) {
+    dmg[me] = ids.filter((o) => o !== me && cmp[o] >= cmp[me]).length;
+  }
+  return dmg;
+}
+
+// Fuga (solo PvE), 1 dado: 1 = fallita (resti, −1 PV) · 2–3 = fuggi ma −1 PV · 4–6 = fuggi illeso.
+function resolveFlee(die        )                                   {
+  if (die <= 1) return { fled: false, hpLoss: 1 };
+  if (die <= 3) return { fled: true, hpLoss: 1 };
+  return { fled: true, hpLoss: 0 };
+}
+
+  // ===== turn.ts =====
+// Ciclo di turno di Hexartha come FUNZIONI PURE: ricevono uno stato, ne restituiscono uno nuovo,
+// senza mai mutare l'input e senza toccare grafica/rete. È la versione "blindata e testabile"
+// della logica che nel prototipo è sparsa tra beginYourTurn / doMove / concludeTurn.
+
+                                                        
+
+// Azioni base per un turno esterno (alcuni eventi/oggetti le modificano).
+const BASE_ACTIONS = 2;
+
+                                                 
+
+                            
+                 
+                          
+ 
+
+// Decide il TIPO di turno all'inizio del turno (equivale a beginYourTurn).
+// Regola: se inizi in zona sicura E avevi appena estratto/entrato (safeTurnPending),
+// è un TURNO DI GESTIONE e il flag si consuma. Altrimenti è un turno esterno (movimento obbligatorio).
+function resolveTurnStart(p                 , actionsBonus = 0)            {
+  if (isSafe(p.tile) && p.safeTurnPending) {
+    return {
+      kind: "management",
+      player: { ...p, safeTurnPending: false, phase: "base", actionsLeft: 0 },
+    };
+  }
+  return {
+    kind: "external",
+    player: { ...p, phase: "move", actionsLeft: Math.max(0, BASE_ACTIONS + actionsBonus) },
+  };
+}
+
+                             
+                          
+                                                                 
+                                                                           
+ 
+
+// Applica un movimento sulla casella di destinazione (equivale a doMove).
+// `campTile` serve per il rientro immediato quando si raggiunge la propria estrazione.
+// `first` = è il movimento obbligatorio di inizio turno (gratis)?
+function applyMove(p                 , dest      , campTile      , first         )             {
+  // Estrazione PROPRIA → rientro immediato in base: turno finito, prossimo turno di gestione.
+  if (dest.type === "estrazione" && dest.id === p.extractId) {
+    return {
+      player: { ...p, tile: campTile, phase: "base", actionsLeft: 0, safeTurnPending: true },
+      turnEnds: true, encounterNow: false,
+    };
+  }
+  // Avamposto → il turno finisce subito, resti lì; prossimo turno di gestione.
+  if (dest.type === "avamposto") {
+    return {
+      player: { ...p, tile: dest, phase: "base", actionsLeft: 0, safeTurnPending: true },
+      turnEnds: true, encounterNow: false,
+    };
+  }
+  // Fortezza → incontro immediato, nessuna altra azione.
+  if (dest.type === "fortezza") {
+    return {
+      player: { ...p, tile: dest, phase: "actions", actionsLeft: 0 },
+      turnEnds: false, encounterNow: true,
+    };
+  }
+  // Movimento normale: il primo (obbligatorio) è gratis; gli altri costano un'azione.
+  const actionsLeft = first ? p.actionsLeft : Math.max(0, p.actionsLeft - 1);
+  return {
+    player: { ...p, tile: dest, phase: "actions", actionsLeft, safeTurnPending: false },
+    turnEnds: false, encounterNow: false,
+  };
+}
+
+// A fine turno parte un incontro? (equivale alla condizione in concludeTurn/forceEndOfTurn).
+// NO se sei in zona sicura o nascosto; SÌ altrimenti.
+function shouldEncounterAtEnd(p                 )          {
+  if (p.hidden) return false;
+  if (isSafe(p.tile)) return false;
+  return true;
+}
+
+  root.HXEngine = { isSafe, SAFE_TYPES, createRng, rollDie, roll2d6, deckForZone, canSearch, planSearch, playerRoll, resolveRoundDamage, resolveFlee, resolveTurnStart, applyMove, shouldEncounterAtEnd, BASE_ACTIONS };
+})(typeof globalThis !== "undefined" ? globalThis : this);
+</script>
+<!-- HX_ENGINE_END -->
+
 <script>
 /* =========================================================================
    HEXARTHA — prototipo flusso di gioco (mockup locale, single file)
@@ -5926,7 +6205,12 @@ function endTurnMode(){
   if(state.pendingPvp && state.pendingPvp.length) return {label:"⚔ Avvia PvP", mode:"pvp"};   // PvE concluso: prima gestisci l'inventario, poi lancia lo scontro fra giocatori
   if(ph==="postEncounter"||ph==="base") return {label:"⏭ Termina turno", mode:"conclude"};
   if(ph==="actions"||ph==="move-action"){
-    if(state.you.hidden || SAFE.has(t.type)) return {label:"⏭ Termina turno", mode:"conclude"};
+    // Decisione "incontro a fine turno sì/no" delegata al motore (HXEngine.shouldEncounterAtEnd).
+    // Fallback all'inline se il motore non fosse caricato: comportamento identico a prima.
+    const wantEnc = (typeof HXEngine!=="undefined")
+      ? HXEngine.shouldEncounterAtEnd({hidden:state.you.hidden, tile:t})
+      : !(state.you.hidden || SAFE.has(t.type));
+    if(!wantEnc) return {label:"⏭ Termina turno", mode:"conclude"};
     return {label:"⚔ Effettua Incontro", mode:"encounter"};
   }
   return {label:"⏭ Termina turno", mode:"conclude"};
@@ -6084,7 +6368,10 @@ function concludeTurn(){
 function forceEndOfTurn(){   // dal timer scaduto
   if(state.pendingPvp && state.pendingPvp.length){ return startPendingPvp(); }   // PvP in sospeso: il timer non salta lo scontro, lo avvia
   if(state.phase==="postEncounter"||state.phase==="base"){ return concludeTurn(); }
-  if(state.you.hidden || SAFE.has(state.you.tile.type)){ return concludeTurn(); }
+  const _wantEnc = (typeof HXEngine!=="undefined")
+    ? HXEngine.shouldEncounterAtEnd({hidden:state.you.hidden, tile:state.you.tile})
+    : !(state.you.hidden || SAFE.has(state.you.tile.type));
+  if(!_wantEnc){ return concludeTurn(); }   // motore: niente incontro se nascosto o in zona sicura
   // Timer scaduto senza aver fatto il movimento obbligatorio: il gioco trascina la pedina
   // in una zona vicina (a caso, escluse zone sicure/fortezza), poi va all'incontro.
   if(!state.movedFirst){
