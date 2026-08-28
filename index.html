@@ -1099,7 +1099,7 @@
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #9</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #10</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1587,6 +1587,115 @@ function resolveFlee(die        )                                   {
   return { fled: true, hpLoss: 0 };
 }
 
+  // ===== states.ts =====
+// Stati e cure di Hexartha come funzioni pure. Modellano vita, vite extra temporanee (tempHp),
+// malus al danno e i tre stati negativi (emorragia, ossa rotte, avvelenato). Riproducono
+// esattamente le funzioni del prototipo: addTempHp, hurtYou, clearTurnBuffs, healAtBase,
+// la cura dei consumabili (consumeEffect) e il tick dell'emorragia a fine turno (concludeTurn).
+
+                              
+                     
+                                                                                       
+                                                                              
+ 
+
+                         
+             
+                
+                                                                                       
+                                                                                  
+                      
+                                                                                
+ 
+
+const EXTRA_MAX = 2;   // tetto vite extra (hp base 3 + 2 = 5)
+
+function clone(v        )         {
+  return { ...v, states: { ...v.states } };
+}
+
+// Aggiunge vite extra temporanee, col tetto EXTRA_MAX. (= addTempHp)
+function addTempHp(v        , n        )         {
+  const nv = clone(v);
+  nv.tempHp = Math.min(EXTRA_MAX, (v.tempHp || 0) + n);
+  return nv;
+}
+
+// Applica n danni: consuma PRIMA le vite extra, poi la vita. (= hurtYou)
+function applyDamage(v        , n        )         {
+  const nv = clone(v);
+  for (let i = 0; i < n; i++) {
+    if ((nv.tempHp || 0) > 0) nv.tempHp--;
+    else nv.hp--;
+  }
+  return nv;
+}
+
+const isDead = (v        )          => v.hp <= 0;
+
+// Fine turno: scadono vite extra e malus danno (gli stati NON si toccano qui). (= clearTurnBuffs)
+function clearTurnBuffs(v        )         {
+  const nv = clone(v);
+  nv.tempHp = 0;
+  nv.dmgPenalty = 0;
+  return nv;
+}
+
+// Turno in zona sicura / rientro in base: vita piena, niente vite extra/malus, nessuno stato. (= healAtBase)
+function healAtBase(v        )         {
+  return {
+    ...v,
+    hp: v.maxhp,
+    tempHp: 0,
+    dmgPenalty: 0,
+    states: { emorragia: false, ossa: false, avvelenato: false },
+    emorragiaArmed: false,
+  };
+}
+
+// Si può curare la VITA? No se avvelenato (l'avvelenamento blocca le cure alla vita).
+const canHealLife = (v        )          => !v.states.avvelenato;
+
+// Cura n vite (cap a maxhp), bloccata se avvelenato. Ritorna stato nuovo e vite effettivamente curate.
+function applyHeal(v        , n        )                                     {
+  if (!canHealLife(v)) return { vitals: clone(v), healed: 0 };
+  const healed = Math.min(n, v.maxhp - v.hp);
+  const nv = clone(v);
+  nv.hp += healed;
+  return { vitals: nv, healed };
+}
+
+// Tick emorragia a fine turno: la PRIMA volta "arma" soltanto (nessun danno), poi −1 vita ogni turno.
+function endTurnBleed(v        )                                    {
+  if (!v.states.emorragia) return { vitals: clone(v), bled: false };
+  const nv = clone(v);
+  if (!nv.emorragiaArmed) { nv.emorragiaArmed = true; return { vitals: nv, bled: false }; }
+  nv.hp -= 1;
+  return { vitals: nv, bled: true };
+}
+
+// Applica uno stato negativo.
+function applyStatus(v        , name                   )         {
+  const nv = clone(v);
+  nv.states[name] = true;
+  return nv;
+}
+
+// Cura uno stato negativo (curando l'emorragia si disarma anche il tick).
+function cureStatus(v        , name                   )         {
+  const nv = clone(v);
+  nv.states[name] = false;
+  if (name === "emorragia") nv.emorragiaArmed = false;
+  return nv;
+}
+
+// Le tasche laterali dello zaino sono bloccate da ossa rotte o avvelenamento. (= sidePocketsBlocked)
+const sidePocketsBlocked = (v        )          => !!(v.states.ossa || v.states.avvelenato);
+
+// Malus da passare al combattimento (ponte verso combat.playerRoll).
+const combatMods = (v        )                                             =>
+  ({ ossaRotte: !!v.states.ossa, dmgPenalty: v.dmgPenalty || 0 });
+
   // ===== turn.ts =====
 // Ciclo di turno di Hexartha come FUNZIONI PURE: ricevono uno stato, ne restituiscono uno nuovo,
 // senza mai mutare l'input e senza toccare grafica/rete. È la versione "blindata e testabile"
@@ -1667,7 +1776,7 @@ function shouldEncounterAtEnd(p                 )          {
   return true;
 }
 
-  root.HXEngine = { isSafe, SAFE_TYPES, createRng, rollDie, roll2d6, deckForZone, canSearch, planSearch, playerRoll, resolveRoundDamage, resolveFlee, resolveTurnStart, applyMove, shouldEncounterAtEnd, BASE_ACTIONS };
+  root.HXEngine = { isSafe, SAFE_TYPES, createRng, rollDie, roll2d6, deckForZone, canSearch, planSearch, playerRoll, resolveRoundDamage, resolveFlee, resolveTurnStart, applyMove, shouldEncounterAtEnd, BASE_ACTIONS, EXTRA_MAX, addTempHp, applyDamage, isDead, clearTurnBuffs, healAtBase, canHealLife, applyHeal, endTurnBleed, applyStatus, cureStatus, sidePocketsBlocked, combatMods };
 })(typeof globalThis !== "undefined" ? globalThis : this);
 </script>
 <!-- HX_ENGINE_END -->
@@ -6386,9 +6495,17 @@ function enterPostEncounter(){
 function concludeTurn(){
   if(!mpCanAct()) return;   // sicurezza: solo chi è di turno può concludere (e pubblicare)
   stopTurnTimer();
-  // Emorragia: -1 vita a fine turno (dal turno successivo all'applicazione)
+  // Emorragia: -1 vita a fine turno (dal turno successivo all'applicazione). Logica dal motore (endTurnBleed).
   if(state.you.states.emorragia){
-    if(!state.you.emorragiaArmed){ state.you.emorragiaArmed=true; }
+    if(typeof HXEngine!=="undefined"){
+      const r=HXEngine.endTurnBleed(vitalsOf(state.you));
+      state.you.emorragiaArmed=r.vitals.emorragiaArmed; state.you.hp=r.vitals.hp;
+      if(r.bled){
+        renderHUD();
+        log(`🩸 Emorragia: perdi 1 vita (${Math.max(0,state.you.hp)}/${state.you.maxhp}).`,"bad");
+        if(state.you.hp<=0){ log(`☠ Muori dissanguato: torni alla base.`,"bad"); return respawn(); }
+      }
+    } else if(!state.you.emorragiaArmed){ state.you.emorragiaArmed=true; }
     else{
       state.you.hp--; renderHUD();
       log(`🩸 Emorragia: perdi 1 vita (${Math.max(0,state.you.hp)}/${state.you.maxhp}).`,"bad");
@@ -7384,7 +7501,10 @@ function consumeEffect(it){
   if((it.name==="Stecca"||it.name==="Kit medico")&&s.ossa){s.ossa=false;cured.push("Ossa rotte");}
   if(it.cureOneState){ for(const st of ['avvelenato','emorragia','ossa']){ if(s[st]){ s[st]=false; if(st==='emorragia') state.you.emorragiaArmed=false; cured.push(STATE_LABEL[st]); break; } } }   // Kit medico usato: rimuove 1 stato
   let healed=0;
-  if(it.heal && !s.avvelenato){ healed=Math.min(it.heal, state.you.maxhp-state.you.hp); state.you.hp+=healed; }
+  if(it.heal){   // cura vita delegata al motore (applyHeal): bloccata se avvelenato, cap a maxhp
+    if(typeof HXEngine!=="undefined"){ const r=HXEngine.applyHeal(vitalsOf(state.you), it.heal); healed=r.healed; state.you.hp=r.vitals.hp; }
+    else if(!s.avvelenato){ healed=Math.min(it.heal, state.you.maxhp-state.you.hp); state.you.hp+=healed; }
+  }
   let tmp=0;
   if(it.tempLife){ const before=state.you.tempHp||0; addTempHp(it.tempLife); tmp=(state.you.tempHp||0)-before; }   // vite extra temporanee (anche da avvelenato: è uno stimolante, non una cura)
   if(it.dmgPenalty){ state.you.dmgPenalty=(state.you.dmgPenalty||0)+it.dmgPenalty; }                              // es. Spinello: −2 danno fino a fine turno
@@ -8790,16 +8910,34 @@ function applyState(name, onDone){
   showMalusModal(name, onDone);
 }
 // Tornare in base cura: 3 vita + rimuove tutti gli stati
+// Vista "vitali" per il motore (HXEngine, modulo states): costruisce un oggetto Vitals da state.you.
+function vitalsOf(y){ return { hp:y.hp, maxhp:y.maxhp, tempHp:y.tempHp||0, dmgPenalty:y.dmgPenalty||0,
+  states:{emorragia:!!y.states.emorragia, ossa:!!y.states.ossa, avvelenato:!!y.states.avvelenato}, emorragiaArmed:!!y.emorragiaArmed }; }
+// Vita/vite-extra/cure delegate al motore testato (fallback all'inline se non caricato). Comportamento identico.
 function healAtBase(){
-  state.you.hp=state.you.maxhp;
-  state.you.tempHp=0; state.you.dmgPenalty=0;
-  state.you.states={emorragia:false, ossa:false, avvelenato:false};
-  state.you.emorragiaArmed=false;
+  if(typeof HXEngine!=="undefined"){
+    const v=HXEngine.healAtBase(vitalsOf(state.you));
+    state.you.hp=v.hp; state.you.tempHp=v.tempHp; state.you.dmgPenalty=v.dmgPenalty;
+    state.you.states={emorragia:v.states.emorragia, ossa:v.states.ossa, avvelenato:v.states.avvelenato};
+    state.you.emorragiaArmed=v.emorragiaArmed;
+  } else {
+    state.you.hp=state.you.maxhp; state.you.tempHp=0; state.you.dmgPenalty=0;
+    state.you.states={emorragia:false, ossa:false, avvelenato:false}; state.you.emorragiaArmed=false;
+  }
 }
 // --- Vite extra temporanee (sopra il massimo base, scadono a fine turno) ---
-function addTempHp(n){ state.you.tempHp=Math.min(2,(state.you.tempHp||0)+n); }   // tetto: 2 extra → max 5 vite
-function hurtYou(n){ for(let i=0;i<n;i++){ if((state.you.tempHp||0)>0) state.you.tempHp--; else state.you.hp--; } }  // il danno consuma prima le vite extra
-function clearTurnBuffs(){ state.you.tempHp=0; state.you.dmgPenalty=0; }          // fine turno: scadono vite extra e malus danno
+function addTempHp(n){   // tetto: 2 extra → max 5 vite
+  if(typeof HXEngine!=="undefined") state.you.tempHp=HXEngine.addTempHp(vitalsOf(state.you), n).tempHp;
+  else state.you.tempHp=Math.min(2,(state.you.tempHp||0)+n);
+}
+function hurtYou(n){   // il danno consuma prima le vite extra
+  if(typeof HXEngine!=="undefined"){ const v=HXEngine.applyDamage(vitalsOf(state.you), n); state.you.hp=v.hp; state.you.tempHp=v.tempHp; }
+  else for(let i=0;i<n;i++){ if((state.you.tempHp||0)>0) state.you.tempHp--; else state.you.hp--; }
+}
+function clearTurnBuffs(){   // fine turno: scadono vite extra e malus danno
+  if(typeof HXEngine!=="undefined"){ const v=HXEngine.clearTurnBuffs(vitalsOf(state.you)); state.you.tempHp=v.tempHp; state.you.dmgPenalty=v.dmgPenalty; }
+  else { state.you.tempHp=0; state.you.dmgPenalty=0; }
+}
 // Carta TRAPPOLA pescata nel loot: scatta e infligge il suo stato a chi la pesca (non si tiene)
 // Scatta la trappola su chi la pesca. Restituisce true se la carta si tiene comunque
 // (regola: la trappola infligge il malus ma resta nel bottino), false se non si raccoglie (Buca trappola).
