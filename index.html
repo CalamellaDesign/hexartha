@@ -1148,6 +1148,12 @@ body.theme-pipboy .ab-pip-div{ height:12px; background:var(--border2); }
   body.theme-pipboy #hud-actions .ab-btns{ justify-content:stretch; flex-wrap:nowrap; }
   body.theme-pipboy #hud-actions .ab-btns .btn{ flex:1 1 0; min-width:0; }
 }
+/* barra azioni: via la linea marrone in alto (da tutti i pannelli sotto il tema) + solo "AZIONI" e pallini */
+body.theme-pipboy .fpanel{ border-top-color:var(--border2); }
+@media (min-width:900px){
+  body.theme-pipboy #hud-actions #phaselabel{ display:none; }
+  body.theme-pipboy #hud-actions .ab-pip-row::before{ content:"AZIONI"; font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; margin-right:5px; }
+}
 </style>
 </head>
 <body>
@@ -1170,7 +1176,7 @@ body.theme-pipboy .ab-pip-div{ height:12px; background:var(--border2); }
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #16</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #17</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
