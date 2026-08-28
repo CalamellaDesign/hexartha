@@ -1111,6 +1111,25 @@ body.theme-pipboy::after{ content:""; position:fixed; inset:0; pointer-events:no
 .theme-switch .lab{ font-size:12px; letter-spacing:.06em; }
 .theme-opt{ padding:6px 14px !important; }
 .theme-opt.active{ border-color:var(--gold) !important; color:var(--gold) !important; }
+/* Le carte inventario portano immagine+valore, ma nella CLASSICA restano testuali (nascosti) */
+.inv-card-img,.inv-card-val{ display:none; }
+/* ===== Inventario in stile mockup (solo tema Pip-Boy) ===== */
+body.theme-pipboy .inv-colh{ font-family:"Silkscreen",monospace; color:#9bff9f; font-size:9px; }
+body.theme-pipboy .inv-slot{ background:var(--panel); border:1px solid var(--border2); border-radius:6px; padding:7px; }
+body.theme-pipboy .inv-slot .sl{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.05em; color:var(--muted); text-transform:uppercase; }
+body.theme-pipboy .inv-card{ display:flex; flex-direction:column; align-items:center; text-align:center; gap:3px;
+  background:var(--panel2); border:1px solid var(--border2); border-radius:6px; padding:6px; }
+body.theme-pipboy .inv-card .inv-card-img{ display:block; width:100%; height:74px; object-fit:contain; background:#fff; border:1px solid var(--border2); border-radius:4px; padding:3px; }
+body.theme-pipboy .inv-card .inv-card-name{ font-family:"VT323",monospace; font-size:17px; color:var(--text); line-height:1; }
+body.theme-pipboy .inv-card .inv-card-eff{ display:none; }
+body.theme-pipboy .inv-card .inv-card-val{ display:inline-block; font-family:"VT323",monospace; font-size:15px; color:#9bff9f; }
+body.theme-pipboy .inv-card.sel{ border-color:#74f27a; box-shadow:0 0 8px rgba(116,242,122,.45); }
+body.theme-pipboy .inv-empty{ font-style:normal; color:var(--dim); text-align:center; padding:8px 4px; }
+body.theme-pipboy .inv-free{ min-height:70px; background:rgba(255,255,255,.02); border-color:var(--border2); }
+/* Tasca sicura evidenziata in ORO (distinta dal verde) */
+body.theme-pipboy .inv-slot[data-invslot="equip.tasca"]{ border-color:#d9a441; box-shadow:0 0 9px rgba(217,164,65,.35); }
+body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .sl{ color:#d9a441; }
+body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .inv-card{ border-color:#d9a441; }
 </style>
 </head>
 <body>
@@ -1133,7 +1152,7 @@ body.theme-pipboy::after{ content:""; position:fixed; inset:0; pointer-events:no
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #12</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #13</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -9087,11 +9106,12 @@ function selInv(loc){ state.invSel = (state.invSel===loc?null:loc); state.invMsg
 
 function invCardHTML(loc,item){
   const sel = state.invSel===loc ? ' sel':'';
+  const img = item.img ? `<img class="inv-card-img" src="${encodeURI(item.img)}" alt="" onerror="this.style.display='none'">` : '';
+  const val = (item.val!=null) ? `<span class="inv-card-val">◈${item.val}</span>` : '';
   return `<button class="inv-card${sel}" draggable="true" data-loc="${loc}"
       ondragstart="invDragStart(event,'${loc}')"
       ondragend="invDragEnd()"
-      onclick="selInv('${loc}')">${item.name}
-    <span class="dim" style="font-size:9px"> · ${item.effect||''}</span></button>`;
+      onclick="selInv('${loc}')">${img}<span class="inv-card-name">${item.name}</span><span class="inv-card-eff dim" style="font-size:9px"> · ${item.effect||''}</span>${val}</button>`;
 }
 // slotKey = chiave logica dello slot (es. "pack.sx", "equip.arma", "equip.gadget.0")
 function invSlotHTML(title,cap,inner,slotKey){
