@@ -1159,8 +1159,17 @@ body.theme-pipboy .fpanel{ background:linear-gradient(180deg,var(--panel2),var(-
 body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body.theme-pipboy .inv-slot{ border-radius:3px; }
 /* barra azioni: bottoni più alti, meno spazio tra pallini e CTA (desktop) */
 @media (min-width:900px){
-  body.theme-pipboy #hud-actions .ab-top{ margin-bottom:4px; }
+  body.theme-pipboy #hud-actions.actionsbar{ padding-top:6px; padding-bottom:8px; }
+  body.theme-pipboy #hud-actions .ab-top{ margin-bottom:1px; }
   body.theme-pipboy #hud-actions .ab-btns .btn{ min-height:52px; padding:12px 8px; }
+}
+/* BLOCCO 4 — colonna destra (SIDE): stats · evento · inventario impilati a dx (desktop) */
+@media (min-width:900px){
+  body.theme-pipboy #hud-right{ display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
+  body.theme-pipboy #hud-right #eventbox,
+  body.theme-pipboy #hud-right .equip-card{ margin:0; }
+  body.theme-pipboy #hud-right::-webkit-scrollbar{ width:8px; }
+  body.theme-pipboy #hud-right::-webkit-scrollbar-thumb{ background:var(--border2); border-radius:3px; }
 }
 </style>
 </head>
@@ -1184,7 +1193,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #18</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #19</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -9987,12 +9996,37 @@ function effModalMaybe(e){
 <script>
 /* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
    Il tema è solo una veste (body.theme-pipboy): la logica del gioco resta identica. */
+/* BLOCCO 4 — riordino colonna destra: sposta Evento + preview Inventario (equip) dentro #hud-right,
+   sotto il tema (desktop). Si sposta il DOM per riferimento (gli id restano, quindi renderHUD continua
+   ad aggiornarli). Al ritorno alla Classica si ripristina la posizione originale via segnaposto. */
+var _pipSlots=[];
+function _pipMoveAfterVitals(el){
+  var right=document.getElementById('hud-right'); if(!el||!right) return;
+  var vitals=right.firstElementChild;
+  var ph=document.createComment('pip-slot'); if(el.parentNode) el.parentNode.insertBefore(ph, el);
+  _pipSlots.push({el:el, ph:ph});
+  right.insertBefore(el, vitals ? vitals.nextSibling : right.firstChild);
+}
+function _pipRestore(){
+  for(var i=_pipSlots.length-1;i>=0;i--){ var s=_pipSlots[i];
+    if(s.ph && s.ph.parentNode){ s.ph.parentNode.insertBefore(s.el, s.ph); s.ph.parentNode.removeChild(s.ph); } }
+  _pipSlots=[];
+}
+function pipReorg(on){
+  var desktop = window.matchMedia && window.matchMedia('(min-width:900px)').matches;
+  if(on && desktop){
+    if(_pipSlots.length) return;                                  // già riordinato
+    _pipMoveAfterVitals(document.querySelector('#hud-day .equip-card'));   // ordine: vitals · evento · inventario
+    _pipMoveAfterVitals(document.getElementById('eventbox'));
+  } else { _pipRestore(); }
+}
 function setTheme(t){
   var pip = (t==='pipboy');
   document.body.classList.toggle('theme-pipboy', pip);
   try{ localStorage.setItem('hx-theme', pip?'pipboy':'classic'); }catch(_){}
   var opts=document.querySelectorAll('.theme-opt');
   for(var i=0;i<opts.length;i++){ opts[i].classList.toggle('active', opts[i].getAttribute('data-theme')===(pip?'pipboy':'classic')); }
+  try{ pipReorg(pip); }catch(_){}
 }
 (function(){ var t='classic'; try{ if(localStorage.getItem('hx-theme')==='pipboy') t='pipboy'; }catch(_){}
   setTheme(t); })();
