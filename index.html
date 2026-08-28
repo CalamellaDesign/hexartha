@@ -1167,9 +1167,54 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
 @media (min-width:900px){
   body.theme-pipboy #hud-right{ display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
   body.theme-pipboy #hud-right #eventbox,
+  body.theme-pipboy #hud-right .famacard,
   body.theme-pipboy #hud-right .equip-card{ margin:0; }
   body.theme-pipboy #hud-right::-webkit-scrollbar{ width:8px; }
   body.theme-pipboy #hud-right::-webkit-scrollbar-thumb{ background:var(--border2); border-radius:3px; }
+}
+/* BLOCCO 6 — RAIL sinistro a icone  +  BLOCCO 5 — TOP BAR (desktop, tema) */
+#hx-rail{ display:none; }
+@media (min-width:900px){
+  body.theme-pipboy #hx-rail{
+    display:flex; flex-direction:column; align-items:center; gap:7px;
+    position:absolute; left:10px; top:10px; bottom:10px; width:58px; z-index:14;
+    padding:9px 0; background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--border2); border-radius:3px; overflow:visible;
+  }
+  body.theme-pipboy #hx-rail .rail-logo{
+    font-family:"Press Start 2P",monospace; font-size:7px; line-height:1.6; text-align:center;
+    color:var(--gold); text-shadow:0 0 6px rgba(116,242,122,.5); margin-bottom:5px;
+  }
+  body.theme-pipboy #hx-rail .rail-btn{
+    position:relative; width:42px; height:42px; display:flex; align-items:center; justify-content:center;
+    background:var(--panel); border:1px solid var(--border2); border-radius:3px; color:var(--gold); cursor:pointer; padding:0;
+  }
+  body.theme-pipboy #hx-rail .rail-btn:hover{ border-color:var(--gold); box-shadow:0 0 8px rgba(116,242,122,.35); }
+  body.theme-pipboy #hx-rail .pip-ic{ display:block; width:24px; height:24px; }
+  body.theme-pipboy #hx-rail .rail-sep{ margin-top:auto; }
+  body.theme-pipboy #hx-rail .rail-tip{
+    position:absolute; left:52px; top:50%; transform:translateY(-50%); white-space:nowrap;
+    font-family:"Silkscreen",monospace; font-size:9px; letter-spacing:.06em; color:var(--text);
+    background:var(--panel2); border:1px solid var(--border2); border-radius:3px; padding:4px 7px;
+    opacity:0; pointer-events:none; transition:opacity .12s; z-index:30;
+  }
+  body.theme-pipboy #hx-rail .rail-btn:hover .rail-tip{ opacity:1; }
+
+  /* nasconde i pannelli testuali migrati nel rail (restano nel DOM per renderHUD) */
+  body.theme-pipboy #hud-right .railable{ display:none !important; }
+
+  /* TOP BAR: #hud-day come striscia orizzontale in alto, tra rail e colonna destra */
+  body.theme-pipboy #hud-day{
+    left:78px; right:322px; top:10px; bottom:auto; width:auto; height:auto;
+    overflow:visible; display:flex; flex-direction:row; align-items:center; gap:16px; padding:8px 14px;
+  }
+  body.theme-pipboy #hud-day .hd-top{ flex:1; margin-bottom:0; gap:20px; }
+  body.theme-pipboy #hud-day .turnbox{ flex:1; }
+  body.theme-pipboy #hud-day>div[style*="text-align:right"]{ margin:0; }   /* wrapper bottone Abbandona */
+  body.theme-pipboy #hud-day #ranking-card{ display:none; }
+
+  /* barra azioni: il lato sinistro ora è solo il rail, quindi si estende fin quasi al rail */
+  body.theme-pipboy #hud-actions.actionsbar{ left:78px; right:322px; }
 }
 </style>
 </head>
@@ -1193,7 +1238,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #19</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #20</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1371,6 +1416,20 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   </div>
 
   <!-- PLANCIA DA CAMPO · alto-sinistra: giorno, turno di, timer, evento del giorno -->
+  <!-- RAIL (solo tema Pip-Boy, desktop): scorciatoie a icone. Riusa le funzioni della Classica. -->
+  <div id="hx-rail" aria-hidden="true">
+    <div class="rail-logo">HEX<br>ARTHA</div>
+    <button class="rail-btn" onclick="openCrafting()"><svg class="pip-ic"><use href="#pi-craft"/></svg><span class="rail-tip">Crafting</span></button>
+    <button class="rail-btn" onclick="openCommerce()"><svg class="pip-ic"><use href="#pi-trade"/></svg><span class="rail-tip">Commercio</span></button>
+    <button class="rail-btn" onclick="openMissions()"><svg class="pip-ic"><use href="#pi-mission"/></svg><span class="rail-tip">Missioni</span></button>
+    <button class="rail-btn" onclick="openDeposito()"><svg class="pip-ic"><use href="#pi-mag"/></svg><span class="rail-tip">Magazzino</span></button>
+    <button class="rail-btn" onclick="openCardsBrowser()"><svg class="pip-ic"><use href="#pi-deck"/></svg><span class="rail-tip">Mazzi &amp; Incontri</span></button>
+    <button class="rail-btn rail-sep" onclick="toggleCronaca()"><svg class="pip-ic"><use href="#pi-log"/></svg><span class="rail-tip">Cronaca</span></button>
+    <button class="rail-btn" onclick="toggleChat()"><svg class="pip-ic"><use href="#pi-chat"/></svg><span class="rail-tip">Chat</span></button>
+    <button class="rail-btn" onclick="mToggleAudio()"><svg class="pip-ic"><use href="#pi-audio"/></svg><span class="rail-tip">Audio</span></button>
+    <button class="rail-btn" onclick="openManual()"><svg class="pip-ic"><use href="#pi-manual"/></svg><span class="rail-tip">Manuale</span></button>
+  </div>
+
   <div class="fpanel" id="hud-day">
     <button type="button" class="m-sheet-close" onclick="toggleMobilePlancia(false)">✕ Chiudi diario</button>
     <div class="m-days-left" id="m-days-left"></div>
@@ -1431,12 +1490,12 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
         <span id="states" style="display:inline-flex;gap:5px"></span>
       </div>
     </div>
-    <div class="fpanel hud">
+    <div class="fpanel hud railable">
       <h3>📜 Missioni
         <button class="btn hbtn" onclick="openMissions()">Dettagli</button></h3>
       <div id="missions-hud" class="small"></div>
     </div>
-    <div class="fpanel hud">
+    <div class="fpanel hud railable">
       <h3>Commercio &amp; Crafting</h3>
       <div class="cc-row">
         <div class="cc-label"><span>🤝 COMMERCIO</span>
@@ -1449,17 +1508,17 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
         <button class="btn hbtn" onclick="openCrafting()">Apri</button>
       </div>
     </div>
-    <div class="fpanel hud" id="magazzino-card">
+    <div class="fpanel hud railable" id="magazzino-card">
       <h3>🗄️ Magazzino
         <span class="eqscore-big" title="Carte nel magazzino"><b id="magcount">0</b><span class="sub">/15</span></span></h3>
       <div class="mag-sub dim small" id="mag-sub">Al sicuro anche in caso di morte.</div>
       <button class="btn hbtn invmgr-btn" onclick="openDeposito()">🗄️ Apri magazzino</button>
     </div>
-    <div class="fpanel hud">
+    <div class="fpanel hud railable">
       <h3>📚 MAZZI E INCONTRI</h3>
       <button class="btn" style="width:100%;justify-content:center;letter-spacing:.12em" onclick="openCardsBrowser()">MOSTRA</button>
     </div>
-    <button class="btn manual-hud-btn" onclick="openManual()">📖 Manuale di gioco</button>
+    <button class="btn manual-hud-btn railable" onclick="openManual()">📖 Manuale di gioco</button>
   </div>
 
   <!-- PLANCIA DA CAMPO · basso-centro: barra azioni -->
@@ -9992,6 +10051,13 @@ function effModalMaybe(e){
   <symbol id="pi-trade" viewBox="0 0 24 24"><path d="M11 2h2v18H8v2h8v-2h-5z"/><path d="M4 8h6l-3 6zM14 8h6l-3 6z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="pi-mission" viewBox="0 0 24 24"><path d="M6 3h12v18H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 7h6v2H9zM9 11h6v2H9zM9 15h4v2H9z"/></symbol>
   <symbol id="pi-end" viewBox="0 0 24 24"><path d="M6 3h12v10h-2v3h-3v3h-2v-3H8v-3H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 7h2v3H9zM13 7h2v3h-2z"/></symbol>
+  <symbol id="pi-craft" viewBox="0 0 24 24"><path d="M14 2a5 5 0 0 0-4.9 6L2 15.1V19h3.9l7.1-7.1A5 5 0 1 0 14 2zm0 2a3 3 0 1 1-1.6 5.5l-.7-.4-7.7 7.7v.2h.2l7.7-7.7-.4-.7A3 3 0 0 1 14 4z"/></symbol>
+  <symbol id="pi-deck" viewBox="0 0 24 24"><path d="M7 2h9v3H4v13H1V5h6z"/><path d="M8 6h13v16H8z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 10h7v2h-7zM11 14h7v2h-7z"/></symbol>
+  <symbol id="pi-mag" viewBox="0 0 24 24"><path d="M3 4h18v16H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M3 14h18" stroke="currentColor" stroke-width="2"/><path d="M10 6h4v1h-4zM10 11h4v1h-4zM10 16h4v1h-4z"/></symbol>
+  <symbol id="pi-log" viewBox="0 0 24 24"><path d="M5 2h11l3 3v17H5z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8v2H8zM8 12h8v2H8zM8 16h5v2H8z"/></symbol>
+  <symbol id="pi-chat" viewBox="0 0 24 24"><path d="M3 3h18v13H9l-4 4v-4H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 7h10v2H7zM7 11h7v2H7z"/></symbol>
+  <symbol id="pi-audio" viewBox="0 0 24 24"><path d="M3 9h4l5-5v16l-5-5H3z"/><path d="M16 8a4 4 0 0 1 0 8M18 5a8 8 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="pi-manual" viewBox="0 0 24 24"><path d="M12 4C9 2 5 2 3 3v16c2-1 6-1 9 1 3-2 7-2 9-1V3c-2-1-6-1-9 1z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 5v15" stroke="currentColor" stroke-width="2"/></symbol>
 </defs></svg>
 <script>
 /* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
@@ -10016,8 +10082,9 @@ function pipReorg(on){
   var desktop = window.matchMedia && window.matchMedia('(min-width:900px)').matches;
   if(on && desktop){
     if(_pipSlots.length) return;                                  // già riordinato
-    _pipMoveAfterVitals(document.querySelector('#hud-day .equip-card'));   // ordine: vitals · evento · inventario
+    _pipMoveAfterVitals(document.querySelector('#hud-day .equip-card'));   // ordine finale: vitals · fama · evento · inventario
     _pipMoveAfterVitals(document.getElementById('eventbox'));
+    _pipMoveAfterVitals(document.querySelector('#hud-day .famacard:not(#ranking-card)'));
   } else { _pipRestore(); }
 }
 function setTheme(t){
