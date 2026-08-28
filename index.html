@@ -1218,10 +1218,32 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   body.theme-pipboy #hud-day .hd-top{ flex:1; margin-bottom:0; gap:20px; }
   body.theme-pipboy #hud-day .turnbox{ flex:1; }
   body.theme-pipboy #hud-day>div[style*="text-align:right"]{ margin:0; }   /* wrapper bottone Abbandona */
-  body.theme-pipboy #hud-day #ranking-card{ display:none; }
+  /* CLASSIFICA fuori dalla top bar: in alto a sinistra SOPRA LA MAPPA, in colonna e compatta
+     (renderRanking imposta display:flex inline, quindi la posiziono in assoluto senza toccare il display) */
+  body.theme-pipboy #hud-day #ranking-card{
+    position:absolute; top:calc(100% + 8px); left:0; margin:0;
+    flex-direction:column; align-items:stretch; gap:3px;
+    width:190px; max-height:44vh; overflow:auto; z-index:13;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--border2); border-radius:3px;
+  }
 
   /* barra azioni: il lato sinistro ora è solo il rail, quindi si estende fin quasi al rail */
   body.theme-pipboy #hud-actions.actionsbar{ left:78px; right:322px; }
+
+  /* MAPPA trascinabile/zoomabile come su mobile: cursore + pulsanti zoom +/- visibili */
+  body.theme-pipboy .mapwrap{ cursor:grab; }
+  body.theme-pipboy .mapwrap:active{ cursor:grabbing; }
+  body.theme-pipboy #m-zoom{
+    display:flex; flex-direction:column; gap:8px;
+    position:absolute; right:330px; bottom:88px; top:auto; left:auto; z-index:22;
+  }
+  body.theme-pipboy #m-zoom .mz-btn{
+    width:40px; height:40px; border-radius:3px; font-size:22px; font-weight:bold; line-height:1;
+    background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2);
+    color:var(--gold); cursor:pointer;
+  }
+  body.theme-pipboy #m-zoom .mz-btn:hover{ border-color:var(--gold); box-shadow:0 0 8px rgba(116,242,122,.35); }
 }
 </style>
 </head>
@@ -1245,7 +1267,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #21</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #22</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -5800,6 +5822,8 @@ let mapView={cx:0,cy:0,zoom:1};      // centro (coord svg) + zoom
 const MAP_ZMIN=1, MAP_ZMAX=2.5;
 let _mapDragged=false, _mapGesturesInit=false;
 function mapIsMobile(){ return window.matchMedia('(max-width:860px)').matches; }
+// Pan/zoom abilitato su mobile E sul tema Pip-Boy desktop (la mappa è coperta dalle barre)
+function mapPanZoomEnabled(){ return mapIsMobile() || document.body.classList.contains('theme-pipboy'); }
 function mapCurrentBox(){
   const w=mapHome.w/mapView.zoom, h=mapHome.h/mapView.zoom;
   const minCx=mapHome.x+w/2, maxCx=mapHome.x+mapHome.w-w/2;
@@ -5810,7 +5834,7 @@ function mapCurrentBox(){
 }
 function mapApply(){
   const svg=document.getElementById('mapsvg'); if(!svg||!mapHome) return;
-  if(!mapIsMobile()){ svg.setAttribute('viewBox',`${mapHome.x} ${mapHome.y} ${mapHome.w} ${mapHome.h}`); return; }
+  if(!mapPanZoomEnabled()){ svg.setAttribute('viewBox',`${mapHome.x} ${mapHome.y} ${mapHome.w} ${mapHome.h}`); return; }
   const b=mapCurrentBox(); svg.setAttribute('viewBox',`${b.x} ${b.y} ${b.w} ${b.h}`);
 }
 function mapResetHome(){ if(!mapHome) return; mapView={cx:mapHome.x+mapHome.w/2, cy:mapHome.y+mapHome.h/2, zoom:1}; mapApply(); }
@@ -5848,14 +5872,14 @@ function mapInitGestures(){
   _mapGesturesInit=true;
   const pts=new Map(); let last=null, startDist=0, startZoom=1, moved=0;
   wrap.addEventListener('pointerdown',e=>{
-    if(!mapIsMobile()) return;
+    if(!mapPanZoomEnabled()) return;
     pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); _mapDragged=false; moved=0;
     if(pts.size===1) last={x:e.clientX,y:e.clientY};
     if(pts.size===2){ const a=[...pts.values()]; startDist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1; startZoom=mapView.zoom; }
     try{ wrap.setPointerCapture(e.pointerId); }catch(_){}
   });
   wrap.addEventListener('pointermove',e=>{
-    if(!mapIsMobile()||!pts.has(e.pointerId)) return;
+    if(!mapPanZoomEnabled()||!pts.has(e.pointerId)) return;
     pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pts.size>=2){
       const a=[...pts.values()];
@@ -5871,6 +5895,12 @@ function mapInitGestures(){
   const up=e=>{ pts.delete(e.pointerId); if(pts.size<2) startDist=0;
     if(pts.size===1){ const p=[...pts.values()][0]; last={x:p.x,y:p.y}; } if(pts.size===0) last=null; };
   wrap.addEventListener('pointerup',up); wrap.addEventListener('pointercancel',up);
+  // Desktop (tema): zoom con la rotella, centrato sul puntatore
+  wrap.addEventListener('wheel',e=>{
+    if(!mapPanZoomEnabled()||mapIsMobile()) return;
+    e.preventDefault();
+    mapZoomAt((mapView.zoom||1)+(e.deltaY<0?0.25:-0.25), e.clientX, e.clientY);
+  },{passive:false});
   // Sopprime il click sulla tessera se stavo trascinando/pinchando (capture, prima del click sul polygon)
   svg.addEventListener('click',e=>{ if(_mapDragged){ e.stopPropagation(); e.preventDefault(); _mapDragged=false; } }, true);
   window.addEventListener('resize',()=>{ try{ mapApply(); }catch(_){} });
@@ -10101,6 +10131,7 @@ function setTheme(t){
   var opts=document.querySelectorAll('.theme-opt');
   for(var i=0;i<opts.length;i++){ opts[i].classList.toggle('active', opts[i].getAttribute('data-theme')===(pip?'pipboy':'classic')); }
   try{ pipReorg(pip); }catch(_){}
+  try{ if(typeof mapApply==='function') mapApply(); }catch(_){}   // aggiorna la vista mappa (pan/zoom on/off)
 }
 (function(){ var t='classic'; try{ if(localStorage.getItem('hx-theme')==='pipboy') t='pipboy'; }catch(_){}
   setTheme(t); })();
