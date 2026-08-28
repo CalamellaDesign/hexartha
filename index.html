@@ -1130,6 +1130,10 @@ body.theme-pipboy .inv-free{ min-height:70px; background:rgba(255,255,255,.02); 
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"]{ border-color:#d9a441; box-shadow:0 0 9px rgba(217,164,65,.35); }
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .sl{ color:#d9a441; }
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .inv-card{ border-color:#d9a441; }
+/* icone SVG al posto delle emoji nella barra azioni (solo tema; la Classica resta con le emoji) */
+.pip-ic{ display:none; width:18px; height:18px; fill:currentColor; vertical-align:middle; }
+body.theme-pipboy #hud-actions .ic{ font-size:0; }
+body.theme-pipboy #hud-actions .ic .pip-ic{ display:inline-block; }
 </style>
 </head>
 <body>
@@ -1152,7 +1156,7 @@ body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .inv-card{ border-color:
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #13</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #14</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1431,14 +1435,14 @@ body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .inv-card{ border-color:
       </div>
     </div>
     <div class="ab-btns">
-      <button class="btn" id="a-move" onclick="beginMove()" title="Spostamento aggiuntivo: consuma 1 azione"><span class="ic">🥾</span>Spostati</button>
-      <button class="btn" id="a-search" onclick="doSearch()" title="Cerca nella zona: peschi una carta loot (1 azione)"><span class="ic">🔎</span>Cerca</button>
-      <button class="btn" id="a-hide" onclick="doHide()" title="Trattieni il fiato. Lascia che passino. Nessun incontro a fine turno (1 azione)"><span class="ic">🌑</span>Nascondi</button>
-      <button class="btn" id="a-lock" onclick="doLock()" title="Serve un Grimaldello e un accampamento avversario adiacente (1 azione)"><span class="ic">🗝</span>Scassina</button>
-      <button class="btn" id="a-store" onclick="openDeposito()" style="display:none" title="Gestisci il deposito (solo safe zone)"><span class="ic">🗄</span>Magazzino</button>
-      <button class="btn" id="a-trade" onclick="openCommerce()" style="display:none" title="Compra e vendi dai ricettatori (solo safe zone)"><span class="ic">🤝</span>Commercia</button>
-      <button class="btn" id="a-deliver" onclick="deliverMissions()" style="display:none" title="Consegna gli oggetti delle missioni (solo avamposto)"><span class="ic">📦</span>Consegna missioni</button>
-      <button class="btn" id="a-end" onclick="endTurnCTA()" title="A fine turno, la città presenta il conto.">Termina turno</button>
+      <button class="btn" id="a-move" onclick="beginMove()" title="Spostamento aggiuntivo: consuma 1 azione"><span class="ic">🥾<svg class="pip-ic"><use href="#pi-move"/></svg></span>Spostati</button>
+      <button class="btn" id="a-search" onclick="doSearch()" title="Cerca nella zona: peschi una carta loot (1 azione)"><span class="ic">🔎<svg class="pip-ic"><use href="#pi-search"/></svg></span>Cerca</button>
+      <button class="btn" id="a-hide" onclick="doHide()" title="Trattieni il fiato. Lascia che passino. Nessun incontro a fine turno (1 azione)"><span class="ic">🌑<svg class="pip-ic"><use href="#pi-hide"/></svg></span>Nascondi</button>
+      <button class="btn" id="a-lock" onclick="doLock()" title="Serve un Grimaldello e un accampamento avversario adiacente (1 azione)"><span class="ic">🗝<svg class="pip-ic"><use href="#pi-lock"/></svg></span>Scassina</button>
+      <button class="btn" id="a-store" onclick="openDeposito()" style="display:none" title="Gestisci il deposito (solo safe zone)"><span class="ic">🗄<svg class="pip-ic"><use href="#pi-inv"/></svg></span>Magazzino</button>
+      <button class="btn" id="a-trade" onclick="openCommerce()" style="display:none" title="Compra e vendi dai ricettatori (solo safe zone)"><span class="ic">🤝<svg class="pip-ic"><use href="#pi-trade"/></svg></span>Commercia</button>
+      <button class="btn" id="a-deliver" onclick="deliverMissions()" style="display:none" title="Consegna gli oggetti delle missioni (solo avamposto)"><span class="ic">📦<svg class="pip-ic"><use href="#pi-mission"/></svg></span>Consegna missioni</button>
+      <button class="btn" id="a-end" onclick="endTurnCTA()" title="A fine turno, la città presenta il conto."><span class="ic" style="font-size:0"><svg class="pip-ic"><use href="#pi-end"/></svg></span>Termina turno</button>
     </div>
   </div>
 </section>
@@ -9941,6 +9945,17 @@ function effModalMaybe(e){
 </div>
 
 <script src="Mappa/mappa-engine.js"></script>
+<!-- Sprite icone Pip-Boy (usate al posto delle emoji sotto il tema) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="pi-move" viewBox="0 0 24 24"><path d="M11 1h2v3h-2zM11 20h2v3h-2zM1 11h3v2H1zM20 11h3v2h-3zM12 3l4 4h-3v3h-2V7H8zM12 21l-4-4h3v-3h2v3h3z"/></symbol>
+  <symbol id="pi-search" viewBox="0 0 24 24"><path d="M4 4h10v2h2v8h-2v2H4v-2H2V6h2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15h2v2h2v2h2v2h-2v-2h-2v-2h-2z"/></symbol>
+  <symbol id="pi-hide" viewBox="0 0 24 24"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10h4v4h-4z"/><path d="M3 3l18 18" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
+  <symbol id="pi-lock" viewBox="0 0 24 24"><path d="M6 3h6v2h2v4h-2v2H8v9H6v-9H4V5h2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M14 13h6v2h-2v2h-2v-2h-2z"/></symbol>
+  <symbol id="pi-inv" viewBox="0 0 24 24"><path d="M8 2h8v3h3v17H5V5h3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v2H9zM11 13h2v5h-2z"/></symbol>
+  <symbol id="pi-trade" viewBox="0 0 24 24"><path d="M11 2h2v18H8v2h8v-2h-5z"/><path d="M4 8h6l-3 6zM14 8h6l-3 6z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="pi-mission" viewBox="0 0 24 24"><path d="M6 3h12v18H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 7h6v2H9zM9 11h6v2H9zM9 15h4v2H9z"/></symbol>
+  <symbol id="pi-end" viewBox="0 0 24 24"><path d="M6 3h12v10h-2v3h-3v3h-2v-3H8v-3H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 7h2v3H9zM13 7h2v3h-2z"/></symbol>
+</defs></svg>
 <script>
 /* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
    Il tema è solo una veste (body.theme-pipboy): la logica del gioco resta identica. */
