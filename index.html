@@ -1140,6 +1140,14 @@ body.theme-pipboy .ab-pip.mov{ background:#9bff9f; border-color:#9bff9f; box-sha
 body.theme-pipboy .ab-pip.act{ background:#74f27a; border-color:#74f27a; box-shadow:0 0 6px rgba(116,242,122,.7); }
 body.theme-pipboy .ab-pip.mov.used,body.theme-pipboy .ab-pip.act.used{ background:transparent; border-color:var(--dim); box-shadow:none; }
 body.theme-pipboy .ab-pip-div{ height:12px; background:var(--border2); }
+/* ===== BLOCCO 3 — barra azioni sotto la mappa (solo desktop) ===== */
+@media (min-width:900px){
+  body.theme-pipboy #hud-actions.actionsbar{ left:322px; right:322px; width:auto; max-width:none; transform:none; }
+  body.theme-pipboy #hud-actions .ab-top{ justify-content:flex-start; }
+  body.theme-pipboy #hud-actions .ab-top>div{ align-items:flex-start !important; }
+  body.theme-pipboy #hud-actions .ab-btns{ justify-content:stretch; flex-wrap:nowrap; }
+  body.theme-pipboy #hud-actions .ab-btns .btn{ flex:1 1 0; min-width:0; }
+}
 </style>
 </head>
 <body>
@@ -1162,7 +1170,7 @@ body.theme-pipboy .ab-pip-div{ height:12px; background:var(--border2); }
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #15</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #16</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
