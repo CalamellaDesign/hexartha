@@ -1099,7 +1099,7 @@
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-27 #10</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #11</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -3210,6 +3210,10 @@ let _watchdogSince=null, _watchdogInterval=null, _presenceSeenMultiple=false, _p
 const WATCHDOG_GRACE_MS=25000;        // attesa prima di saltare il turno di un giocatore offline (~25s)
 let _lastAutoResync=0;                 // ultima ri-sincronizzazione automatica (rete anti-freeze)
 const AUTO_RESYNC_MS=8000;             // ogni ~8s, mentre osservo il turno altrui, rileggo lo stato autorevole dal DB
+// Rete anti-freeze — "attivo ma bloccato": se il giocatore di turno è connesso ma lo stato non avanza da troppo
+// (dispositivo inceppato), l'arbitro forza l'avanzamento. Solo nei turni TEMPORIZZATI (esterni, col timer di 3 min).
+let _stallRev=-1, _stallSince=0, _stallSeat=-1, _stallDay=-1;
+const STALL_GRACE_MS=240000;           // 4 min: oltre il timer di turno (3 min) + margine incontro → device sicuramente fermo
 
 function mpPickMission(arr){ const m=arr[Math.floor(Math.random()*arr.length)]; return {...m, done:false}; }
 
@@ -4411,7 +4415,20 @@ function watchdogTick(){
   const seatChar=mpGame.characters[mpGame.seat];
   if(!seatChar){ _watchdogSince=null; return; }
   const activeOnline = onlinePlayers.has(seatChar.id) && !seatChar.abandoned;
-  if(activeOnline){ _watchdogSince=null; return; }            // il giocatore attivo c'è: tutto ok
+  if(activeOnline){
+    _watchdogSince=null;
+    // "Attivo ma bloccato": se net.rev non avanza da troppo mentre lo STESSO seat è di turno, il device è inceppato.
+    // Escluso il turno di GESTIONE (senza timer di 3 min): lì un'attesa lunga è legittima. Arbitro ≠ giocatore bloccato.
+    const rev=(net&&net.rev)||0;
+    if(rev!==_stallRev || mpGame.seat!==_stallSeat || mpGame.day!==_stallDay){
+      _stallRev=rev; _stallSeat=mpGame.seat; _stallDay=mpGame.day; _stallSince=Date.now();   // attività o cambio turno → azzera il conto
+    } else if(activeSeatTimedExternal(seatChar) && myId===stallArbiterId(seatChar.id) && (Date.now()-_stallSince)>=STALL_GRACE_MS){
+      _stallSince=Date.now();   // evita ripetizioni ravvicinate
+      mpForceStalledTurn(seatChar.id, seatChar.name);
+    }
+    return;
+  }
+  _stallRev=-1; _stallSince=0;                                // seat non online-attivo → gestione col watchdog offline
   if(myId!==watchdogArbiterId()) return;                      // non tocca a me arbitrare
   if(_watchdogSince===null){ _watchdogSince=Date.now(); return; }   // avvia il conto alla rovescia
   if(Date.now()-_watchdogSince >= WATCHDOG_GRACE_MS){ _watchdogSince=null; mpSkipOfflineTurn(seatChar.id, seatChar.name); }
@@ -4440,6 +4457,46 @@ function mpSkipOfflineTurn(offlineId, offlineName){
       if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; }
     });
     log(`⏭️ <b>${escapeHtml(offlineName||'Un giocatore')}</b> è offline: il suo turno è stato saltato automaticamente.`,"bad");
+  });
+}
+// È CONFERMATO un turno esterno TEMPORIZZATO (col timer di 3 min)? Solo in questo caso è sicuro forzare
+// l'avanzamento: nel dubbio (turno di gestione, casella incerta, snapshot assente su safe) NON si forza.
+function activeSeatTimedExternal(seatChar){
+  const t=mpGame.turn;
+  if(t && t.ownerId===seatChar.id) return t.phase==="move"||t.phase==="move-action"||t.phase==="actions"||t.phase==="postEncounter";
+  if(seatChar && seatChar.tile && seatChar.tile.type) return !SAFE.has(seatChar.tile.type);   // snapshot assente: esterno se su casella non sicura nota
+  return false;                                                // incerto → non forzo
+}
+// Arbitro per lo stallo: il presente col seat più basso che NON sia il giocatore bloccato (così se il bloccato è l'host, arbitra un altro).
+function stallArbiterId(activeId){
+  const chars=(mpGame&&mpGame.characters)||[];
+  for(const c of chars){ if(c && c.id!==activeId && !c.abandoned && onlinePlayers.has(c.id)) return c.id; }
+  return null;
+}
+// Forza l'avanzamento del turno di un giocatore CONNESSO ma inceppato (come mpSkipOfflineTurn ma senza il check offline).
+function mpForceStalledTurn(stalledId, stalledName){
+  mpGuard("Forza turno bloccato", ()=>{
+    const cur=mpGame.characters[mpGame.seat];
+    if(!cur || cur.id!==stalledId) return;                    // seat già cambiato → non serve
+    const active=mpActiveCharacters();
+    let ended=false, winnerId=null, byFama=false;
+    mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
+    if(mpGame.turnsThisDay>=active.length){
+      const totalDays=mpGame.gameMode==="hardcore"?23:18;
+      if(mpGame.day>=totalDays){ ended=true; byFama=true; }
+      else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
+    } else { mpGame.seat=mpNextSeat(mpGame.seat); }
+    if(ended){ mpLiquidateAll(); if(byFama) winnerId=mpTopFamaId(); }
+    mpGame.turn=null;
+    const gameSer=mpSerialize(mpGame);
+    patchRoom(s=>{
+      if(!s.game||!s.game.characters) return;
+      const c=s.game.characters[s.game.seat];
+      if(!c || c.id!==stalledId) return;                      // un altro arbitro (o il giocatore stesso) ha già avanzato → non sovrascrivo
+      s.game=gameSer; s.pvp=null; s.live=null;
+      if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; }
+    });
+    log(`⏭️ <b>${escapeHtml(stalledName||'Un giocatore')}</b> sembra bloccato: il suo turno è stato fatto avanzare automaticamente.`,"bad");
   });
 }
 
