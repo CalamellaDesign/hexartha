@@ -1154,6 +1154,14 @@ body.theme-pipboy .fpanel{ border-top-color:var(--border2); }
   body.theme-pipboy #hud-actions #phaselabel{ display:none; }
   body.theme-pipboy #hud-actions .ab-pip-row::before{ content:"AZIONI"; font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; margin-right:5px; }
 }
+/* ===== Schede pulite per tutta la UI nuova: niente pallini agli angoli, meno smussate ===== */
+body.theme-pipboy .fpanel{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border-radius:3px; }
+body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body.theme-pipboy .inv-slot{ border-radius:3px; }
+/* barra azioni: bottoni più alti, meno spazio tra pallini e CTA (desktop) */
+@media (min-width:900px){
+  body.theme-pipboy #hud-actions .ab-top{ margin-bottom:4px; }
+  body.theme-pipboy #hud-actions .ab-btns .btn{ min-height:52px; padding:12px 8px; }
+}
 </style>
 </head>
 <body>
@@ -1176,7 +1184,7 @@ body.theme-pipboy .fpanel{ border-top-color:var(--border2); }
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #17</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #18</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
