@@ -1083,6 +1083,35 @@
 </style>
 <!-- Multiplayer: client Supabase + generatore QR (Tappa 1) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Tema Pip-Boy (opzionale, selezionabile dalla home): font pixel/terminale -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style id="hx-theme-pipboy">
+/* ===== TEMA PIP-BOY — attivo con body.theme-pipboy. Riveste il gioco vero (tutte le funzioni restano);
+   la Classica resta invariata di default. Per ora solo palette/font/CRT: il riordino del layout arriva dopo. ===== */
+body.theme-pipboy{
+  --bg:#0b110a; --bg2:#0f180d; --panel:#0e160c; --panel2:#132015;
+  --border:#1c2f1a; --border2:#274c25;
+  --concrete:#6ba36b; --ochre:#7ab85f; --lead:#7d9a70;
+  --rust:#e0603a; --rust-d:#8a3a1f; --rust-glow:rgba(224,96,58,.35);
+  --green:#74f27a; --safe:#2f6b2f; --bile:#5f7d3a;
+  --gold:#74f27a; --gold2:#9bff9f; --brace:#e0824a;
+  --text:#b6e9ba; --muted:#5f9463; --dim:#3b6b40;
+  font-family:"VT323","Courier New",monospace;
+}
+body.theme-pipboy .logo{ font-family:"Press Start 2P",monospace; text-shadow:0 0 8px rgba(116,242,122,.5); }
+body.theme-pipboy .stencil{ font-family:"Silkscreen",monospace; letter-spacing:.05em; }
+body.theme-pipboy .stencil,body.theme-pipboy .flab,body.theme-pipboy .lab{ text-shadow:0 0 5px rgba(116,242,122,.3); }
+body.theme-pipboy .fama-stars,body.theme-pipboy .fstars{ filter:drop-shadow(0 0 4px rgba(116,242,122,.5)); }
+/* scanline CRT sottile (non blocca i click) */
+body.theme-pipboy::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:99997;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px); }
+/* toggle interfaccia in homepage (indipendente dal tema) */
+.theme-switch{ margin-top:16px; display:flex; gap:8px; align-items:center; justify-content:center; }
+.theme-switch .lab{ font-size:12px; letter-spacing:.06em; }
+.theme-opt{ padding:6px 14px !important; }
+.theme-opt.active{ border-color:var(--gold) !important; color:var(--gold) !important; }
+</style>
 </head>
 <body>
 
@@ -1099,7 +1128,12 @@
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #11</b> · non è il gioco finale</p>
+  <div class="theme-switch">
+    <span class="lab dim">Interfaccia:</span>
+    <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
+    <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
+  </div>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #12</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -9887,5 +9921,18 @@ function effModalMaybe(e){
 </div>
 
 <script src="Mappa/mappa-engine.js"></script>
+<script>
+/* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
+   Il tema è solo una veste (body.theme-pipboy): la logica del gioco resta identica. */
+function setTheme(t){
+  var pip = (t==='pipboy');
+  document.body.classList.toggle('theme-pipboy', pip);
+  try{ localStorage.setItem('hx-theme', pip?'pipboy':'classic'); }catch(_){}
+  var opts=document.querySelectorAll('.theme-opt');
+  for(var i=0;i<opts.length;i++){ opts[i].classList.toggle('active', opts[i].getAttribute('data-theme')===(pip?'pipboy':'classic')); }
+}
+(function(){ var t='classic'; try{ if(localStorage.getItem('hx-theme')==='pipboy') t='pipboy'; }catch(_){}
+  setTheme(t); })();
+</script>
 </body>
 </html>
