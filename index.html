@@ -1183,11 +1183,34 @@ body.theme-pipboy .inv-actions.as-popup{ position:fixed; z-index:200; transform:
 body.theme-pipboy .inv-actions.as-popup .small{ font-family:"VT323",monospace; font-size:14px; }
 body.theme-pipboy .inv-actions.as-popup>div:last-child{ flex-direction:column; align-items:stretch; }
 body.theme-pipboy .inv-actions.as-popup .btn{ width:100%; justify-content:flex-start; margin:0; }
-/* SCHEDA FAMA — allineata al design (pannello + icona + numero verde) */
+/* SCHEDA FAMA — allineata al design: pannello + icona + stelle come la Classifica (oro, pulite) */
 body.theme-pipboy #hud-right .famacard{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2); border-radius:3px; }
 body.theme-pipboy #hud-right .famacard .fama-ic{ display:inline-block; width:14px; height:14px; color:var(--gold); flex:none; }
-body.theme-pipboy #hud-right .famacard .fstars{ margin-right:auto; }
-body.theme-pipboy #hud-right .famacard b#fama{ color:var(--accent); }
+body.theme-pipboy #hud-right .famacard .fstars{ margin-right:auto; gap:3px; filter:none; }
+body.theme-pipboy #hud-right .famacard .fstar{ font-size:14px; color:var(--dim); text-shadow:none; }
+body.theme-pipboy #hud-right .famacard .fstar.on{ color:var(--gold); text-shadow:0 0 6px rgba(217,164,65,.6); }
+body.theme-pipboy #hud-right .famacard b#fama{ color:var(--gold); }
+/* BOLLETTINO DEL GIORNO (.evt-card) — veste terminale scura (leggibile), stile monitor/coding */
+body.theme-pipboy .evt-card{ background:#05100a; color:var(--text); border-color:var(--accent-d,#2f9a3a);
+  font-family:"VT323","Courier New",monospace;
+  box-shadow:0 0 22px rgba(0,0,0,.75),inset 0 0 44px rgba(0,0,0,.55); }
+body.theme-pipboy .evt-card::before{ background:#0a1a0f; color:var(--accent); border-bottom-color:var(--accent-d,#2f9a3a); text-shadow:0 0 6px rgba(116,242,122,.4); }
+body.theme-pipboy .evt-card::after{ background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(116,242,122,.05) 2px 3px); }
+body.theme-pipboy .evt-card .en{ font-family:"Press Start 2P",monospace; font-size:13px; text-shadow:0 0 8px currentColor; }
+body.theme-pipboy .evt-card .evt-eff{ background:rgba(116,242,122,.06); border:1px solid var(--accent-d,#2f9a3a); color:var(--text); font-family:"VT323",monospace; font-size:16px; font-weight:normal; }
+body.theme-pipboy .evt-card .evt-eff::after{ content:"▍"; margin-left:2px; color:var(--accent); animation:pipCaret 1s steps(1) infinite; }
+@keyframes pipCaret{ 50%{ opacity:0; } }
+body.theme-pipboy .evt-card .evt-flavor{ color:var(--muted); font-family:"VT323",monospace; font-size:15px; }
+body.theme-pipboy .evt-card .muted{ color:var(--muted); }
+/* TITOLO HOME — bianco bold sans-serif, un po' più piccolo (niente pixel font) */
+body.theme-pipboy #home .logo{ font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; font-weight:800;
+  color:#fff; font-size:clamp(38px,7vw,74px); letter-spacing:.01em; text-shadow:0 2px 14px rgba(0,0,0,.6); }
+body.theme-pipboy #home .logo::after{ background:var(--accent); box-shadow:0 0 10px rgba(116,242,122,.5); }
+/* USURA nella preview inventario: 6 quadratini (3+3) accesi/spenti accanto all'oggetto */
+body.theme-pipboy .prev-wear{ display:grid; grid-template-columns:repeat(3,1fr); gap:2px; margin-left:auto; flex:none; }
+body.theme-pipboy .prev-wear .pw{ width:8px; height:8px; border:1px solid var(--dim); border-radius:1px; background:transparent; }
+body.theme-pipboy .prev-wear .pw.on{ background:var(--accent); border-color:var(--accent); box-shadow:0 0 3px rgba(116,242,122,.6); }
+body.theme-pipboy .prev-wear .pw.low{ background:var(--rust); border-color:var(--rust); box-shadow:0 0 3px rgba(224,96,58,.6); }
 /* CONTROLLO AUDIO — veste Pip-Boy (fosfori verdi) */
 body.theme-pipboy #hx-audio-btn{ background:var(--panel); border:1px solid var(--border2); color:var(--gold); border-radius:3px; box-shadow:0 2px 8px rgba(0,0,0,.5); }
 body.theme-pipboy #hx-audio-btn:hover{ border-color:var(--gold); box-shadow:0 0 8px rgba(116,242,122,.35); }
@@ -9060,6 +9083,12 @@ function setSlot(id,text,filled){
   el.querySelector('.it').innerHTML=text;
   el.classList.toggle('full',!!filled);
 }
+// Griglia usura per la preview: 6 quadratini (3+3) accesi (carica) / spenti (consumati).
+function pipWearGrid(it){
+  const cur=it.wear??it.maxWear, max=it.maxWear;
+  let s=''; for(let i=0;i<max;i++){ const on=i<cur; s+=`<span class="pw ${on?(cur<=2?'low':'on'):''}"></span>`; }
+  return `<div class="prev-wear" title="Usura ${cur}/${max}">${s}</div>`;
+}
 // Preview inventario nell'HUD (colonna destra) in stile mockup: righe con thumbnail + mini-zaino.
 // Solo sotto body.theme-pipboy; in Classica resta la preview a slot testuali.
 function renderPipPreview(){
@@ -9080,8 +9109,9 @@ function renderPipPreview(){
                                : `<span class="pthumb empty"></span>`;
     const nm  = it ? escapeHtml(it.name) : (s.base?'Base':'vuoto');
     const val = it ? '' : (s.base?`<span class="pval">${s.base}</span>`:'');
+    const wear = (it && it.maxWear!=null) ? pipWearGrid(it) : '';
     return `<div class="prev-row${s.safe?' safe':''}">${thumb}
-      <div><div class="pslot">${s.label}</div><div class="pname ${it?'':'empty'}">${nm} ${val}</div></div></div>`;
+      <div style="flex:1;min-width:0"><div class="pslot">${s.label}</div><div class="pname ${it?'':'empty'}">${nm} ${val}</div></div>${wear}</div>`;
   }).join('');
   const zi=[]; packSections().forEach(sec=> y.pack[sec].forEach(it=> zi.push(it)) );
   let zn=''; for(let i=0;i<6;i++){ const z=zi[i];
