@@ -1174,6 +1174,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
 }
 /* BLOCCO 6 — RAIL sinistro a icone  +  BLOCCO 5 — TOP BAR (desktop, tema) */
 #hx-rail{ display:none; }
+#m-focus{ display:none; }   /* pulsante focus pedina: mostrato solo sotto il tema (vedi regola in @media) */
 @media (min-width:900px){
   body.theme-pipboy #hx-rail{
     display:flex; flex-direction:column; align-items:center; gap:7px;
@@ -1247,6 +1248,8 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     display:flex; flex-direction:column; gap:8px;
     position:absolute; right:330px; top:88px; bottom:auto; left:auto; z-index:22;
   }
+  /* pulsante "centra sulla tua pedina": solo sotto il tema (nascosto altrove, mobile incluso) */
+  body.theme-pipboy #m-focus{ display:flex; align-items:center; justify-content:center; font-size:20px; }
 
   /* AUDIO: un solo controllo, in basso a sinistra (dal rail). Nascondo il pulsante top-right;
      il popup volumi resta e si apre accanto al rail. */
@@ -1282,7 +1285,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #25</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #26</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1400,6 +1403,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   <div id="m-zoom">
     <button class="mz-btn" onclick="mapZoomStep(0.5)" aria-label="Ingrandisci">＋</button>
     <button class="mz-btn" onclick="mapZoomStep(-0.5)" aria-label="Rimpicciolisci">－</button>
+    <button class="mz-btn" id="m-focus" onclick="mapFocusMe()" aria-label="Centra sulla tua pedina" title="Centra sulla tua pedina">◎</button>
   </div>
   <div id="m-rotate"><div class="mr-in"><div class="mr-ico">📱</div>HEXARTHA si gioca in verticale.<br>Ruota il telefono.</div></div>
   <!-- Attesa del proprio turno (Tappa 2.2): targhetta NON bloccante (puoi navigare l'HUD) -->
@@ -5877,6 +5881,12 @@ function mapPanScreen(dx,dy){
 }
 function mapAutoCenterOnMe(){
   if(!mapIsMobile()||!mapHome) return;
+  const t=(typeof state!=='undefined')&&state.you&&state.you.tile; if(!t||t._x==null) return;
+  mapView.zoom=Math.min(MAP_ZMAX,1.9); mapView.cx=t._x; mapView.cy=t._y; mapApply();
+}
+// Focus manuale sulla propria pedina (pulsante ◎ sotto lo zoom). Vale ovunque il pan/zoom sia attivo.
+function mapFocusMe(){
+  if(!mapPanZoomEnabled()||!mapHome) return;
   const t=(typeof state!=='undefined')&&state.you&&state.you.tile; if(!t||t._x==null) return;
   mapView.zoom=Math.min(MAP_ZMAX,1.9); mapView.cx=t._x; mapView.cy=t._y; mapApply();
 }
