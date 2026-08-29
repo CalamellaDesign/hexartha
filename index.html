@@ -1224,7 +1224,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   /* STACK in alto a sinistra SOPRA LA MAPPA: CLASSIFICA e sotto ORDINE DEL TURNO (impilati)
      (spostati qui via JS in #hx-leftstack; renderRanking/renderTurnOrder gestiscono il display inline) */
   body.theme-pipboy #hx-leftstack{
-    position:absolute; left:78px; top:64px; width:194px; z-index:13;
+    position:absolute; left:78px; top:88px; width:194px; z-index:13;
     display:flex; flex-direction:column; gap:8px;
   }
   body.theme-pipboy #hx-leftstack #ranking-card,
@@ -1282,7 +1282,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #24</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #25</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -5890,8 +5890,10 @@ function mapInitGestures(){
     if(!mapPanZoomEnabled()) return;
     pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); _mapDragged=false; moved=0;
     if(pts.size===1) last={x:e.clientX,y:e.clientY};
-    if(pts.size===2){ const a=[...pts.values()]; startDist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1; startZoom=mapView.zoom; }
-    try{ wrap.setPointerCapture(e.pointerId); }catch(_){}
+    if(pts.size===2){ const a=[...pts.values()]; startDist=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1; startZoom=mapView.zoom;
+      try{ wrap.setPointerCapture(e.pointerId); }catch(_){} }   // cattura subito SOLO per il pinch a 2 dita
+    // NB: per un solo puntatore NON si cattura qui, altrimenti il click sulla tessera (movimento)
+    //     verrebbe dirottato sul wrap. La cattura parte nel pointermove appena inizia il drag.
   });
   wrap.addEventListener('pointermove',e=>{
     if(!mapPanZoomEnabled()||!pts.has(e.pointerId)) return;
@@ -5903,8 +5905,9 @@ function mapInitGestures(){
       _mapDragged=true;
     } else if(last){
       const dx=e.clientX-last.x, dy=e.clientY-last.y; moved+=Math.abs(dx)+Math.abs(dy);
-      mapPanScreen(dx,dy); last={x:e.clientX,y:e.clientY};
-      if(moved>8) _mapDragged=true;
+      if(moved>8 && !_mapDragged){ _mapDragged=true; try{ wrap.setPointerCapture(e.pointerId); }catch(_){} }  // ora è un drag: cattura
+      if(_mapDragged){ mapPanScreen(dx,dy); }
+      last={x:e.clientX,y:e.clientY};
     }
   });
   const up=e=>{ pts.delete(e.pointerId); if(pts.size<2) startDist=0;
