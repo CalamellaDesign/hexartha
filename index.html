@@ -1379,8 +1379,11 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
   /* MAPPA a tutto schermo in larghezza; padding SOLO sopra/sotto così le barre non la coprono più.
      + niente selezione/evidenziazione del testo durante il drag */
   body.theme-pipboy .mapwrap{ padding:68px 0 82px 0; cursor:grab; user-select:none; -webkit-user-select:none;
-    background:#000; }
+    background:radial-gradient(135% 110% at 50% 22%, var(--bg2) 0%, var(--bg) 52%, #000 100%); }
   body.theme-pipboy .mapwrap:active{ cursor:grabbing; }
+  /* via il rettangolo "terra bruciata" e la vignettatura: intorno agli esagoni si vede lo sfondo comune */
+  body.theme-pipboy #mapsvg .map-ground{ fill:none; }
+  body.theme-pipboy #mapsvg .map-vign{ opacity:0; }
   /* pulsanti zoom +/- in alto a destra, SOTTO la top bar (non ci vanno sopra) */
   body.theme-pipboy #m-zoom{
     display:flex; flex-direction:column; gap:8px;
@@ -5187,7 +5190,7 @@ function buildMap(){
   const fort=tileMap.get("4,6");
   // fondo terra bruciata + bagliori (rosso solo sulla Fortezza, braci sui campi)
   svg.innerHTML = mapDefsHTML()
-    + `<rect x="${X0}" y="${Y0}" width="${W}" height="${H}" fill="url(#ground-g)"/>`
+    + `<rect class="map-ground" x="${X0}" y="${Y0}" width="${W}" height="${H}" fill="url(#ground-g)"/>`
     + (fort?`<circle cx="${fort._x}" cy="${fort._y}" r="${SIZE*2.6}" fill="url(#fort-glow)" pointer-events="none"/>`:"")
     + TILES.filter(t=>SAFE.has(t.type)).map(t=>`<circle cx="${t._x}" cy="${t._y}" r="${SIZE*1.15}" fill="url(#camp-glow)" opacity=".45" pointer-events="none"/>`).join("");
   // layer illustrato (mappa grimdark da mappa-engine.js)
@@ -5233,7 +5236,7 @@ function buildMap(){
   // vignettatura complessiva della plancia (sotto pedine e marker, che vengono appesi dopo)
   const vg=document.createElementNS(svg.namespaceURI,"rect");
   vg.setAttribute("x",X0);vg.setAttribute("y",Y0);vg.setAttribute("width",W);vg.setAttribute("height",H);
-  vg.setAttribute("fill","url(#vign-g)");vg.setAttribute("pointer-events","none");
+  vg.setAttribute("fill","url(#vign-g)");vg.setAttribute("pointer-events","none");vg.setAttribute("class","map-vign");
   svg.appendChild(vg);
   buildLegend();
   markExtractions();
