@@ -1212,8 +1212,6 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
 
   /* legenda colori tessere: ridondante sotto il tema → nascosta */
   body.theme-pipboy #map-legend{ display:none !important; }
-  /* ordine del turno (solo MP): spostato sotto la top bar, non ci va sopra */
-  body.theme-pipboy .turnorder-float{ top:62px; left:328px; }
 
   /* TOP BAR: #hud-day come striscia orizzontale in alto, tra rail e colonna destra */
   body.theme-pipboy #hud-day{
@@ -1223,12 +1221,16 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   body.theme-pipboy #hud-day .hd-top{ flex:1; margin-bottom:0; gap:20px; }
   body.theme-pipboy #hud-day .turnbox{ flex:1; }
   body.theme-pipboy #hud-day>div[style*="text-align:right"]{ margin:0; }   /* wrapper bottone Abbandona */
-  /* CLASSIFICA fuori dalla top bar: in alto a sinistra SOPRA LA MAPPA, in colonna e compatta
-     (renderRanking imposta display:flex inline, quindi la posiziono in assoluto senza toccare il display) */
-  body.theme-pipboy #hud-day #ranking-card{
-    position:absolute; top:calc(100% + 8px); left:0; margin:0;
+  /* STACK in alto a sinistra SOPRA LA MAPPA: CLASSIFICA e sotto ORDINE DEL TURNO (impilati)
+     (spostati qui via JS in #hx-leftstack; renderRanking/renderTurnOrder gestiscono il display inline) */
+  body.theme-pipboy #hx-leftstack{
+    position:absolute; left:78px; top:64px; width:194px; z-index:13;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  body.theme-pipboy #hx-leftstack #ranking-card,
+  body.theme-pipboy #hx-leftstack #turnorder-card{
+    position:static; left:auto; top:auto; margin:0; width:auto; max-height:34vh; overflow:auto;
     flex-direction:column; align-items:stretch; gap:3px;
-    width:190px; max-height:44vh; overflow:auto; z-index:13;
     background:linear-gradient(180deg,var(--panel2),var(--panel));
     border:1px solid var(--border2); border-radius:3px;
   }
@@ -1236,14 +1238,21 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   /* barra azioni: il lato sinistro ora è solo il rail, quindi si estende fin quasi al rail */
   body.theme-pipboy #hud-actions.actionsbar{ left:78px; right:322px; }
 
-  /* MAPPA a tutto schermo (niente padding che la schiacciava in un quadrato) + no selezione testo nel drag */
-  body.theme-pipboy .mapwrap{ padding:0; cursor:grab; user-select:none; -webkit-user-select:none; }
+  /* MAPPA a tutto schermo in larghezza; padding SOLO sopra/sotto così le barre non la coprono più.
+     + niente selezione/evidenziazione del testo durante il drag */
+  body.theme-pipboy .mapwrap{ padding:68px 0 82px 0; cursor:grab; user-select:none; -webkit-user-select:none; }
   body.theme-pipboy .mapwrap:active{ cursor:grabbing; }
-  /* pulsanti zoom +/- in alto a destra (fuori dalla barra) */
+  /* pulsanti zoom +/- in alto a destra, SOTTO la top bar (non ci vanno sopra) */
   body.theme-pipboy #m-zoom{
     display:flex; flex-direction:column; gap:8px;
-    position:absolute; right:330px; top:62px; bottom:auto; left:auto; z-index:22;
+    position:absolute; right:330px; top:88px; bottom:auto; left:auto; z-index:22;
   }
+
+  /* AUDIO: un solo controllo, in basso a sinistra (dal rail). Nascondo il pulsante top-right;
+     il popup volumi resta e si apre accanto al rail. */
+  body.theme-pipboy #hx-audio-btn{ display:none; }
+  body.theme-pipboy #hx-audio-ctrl{ top:auto; right:auto; bottom:14px; left:78px; }
+  body.theme-pipboy #hx-audio-pop{ top:auto; bottom:0; right:auto; left:0; }
   body.theme-pipboy #m-zoom .mz-btn{
     width:40px; height:40px; border-radius:3px; font-size:22px; font-weight:bold; line-height:1;
     background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2);
@@ -1273,7 +1282,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
     <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
   </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-28 #23</b> · non è il gioco finale</p>
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #24</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -1461,7 +1470,7 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
     <button class="rail-btn" onclick="openCardsBrowser()"><svg class="pip-ic"><use href="#pi-deck"/></svg><span class="rail-tip">Mazzi &amp; Incontri</span></button>
     <button class="rail-btn rail-sep" onclick="toggleCronaca()"><svg class="pip-ic"><use href="#pi-log"/></svg><span class="rail-tip">Cronaca</span></button>
     <button class="rail-btn" onclick="toggleChat()"><svg class="pip-ic"><use href="#pi-chat"/></svg><span class="rail-tip">Chat</span></button>
-    <button class="rail-btn" onclick="mToggleAudio()"><svg class="pip-ic"><use href="#pi-audio"/></svg><span class="rail-tip">Audio</span></button>
+    <button class="rail-btn" onclick="hxAudioPop(event)"><svg class="pip-ic"><use href="#pi-audio"/></svg><span class="rail-tip">Audio / Volumi</span></button>
     <button class="rail-btn" onclick="openManual()"><svg class="pip-ic"><use href="#pi-manual"/></svg><span class="rail-tip">Manuale</span></button>
   </div>
 
@@ -10116,6 +10125,12 @@ function _pipMoveAfterVitals(el){
   _pipSlots.push({el:el, ph:ph});
   right.insertBefore(el, vitals ? vitals.nextSibling : right.firstChild);
 }
+function _pipMoveInto(el, dest){   // sposta el dentro dest (in coda), lasciando un segnaposto per il ripristino
+  if(!el||!dest) return;
+  var ph=document.createComment('pip-slot'); if(el.parentNode) el.parentNode.insertBefore(ph, el);
+  _pipSlots.push({el:el, ph:ph});
+  dest.appendChild(el);
+}
 function _pipRestore(){
   for(var i=_pipSlots.length-1;i>=0;i--){ var s=_pipSlots[i];
     if(s.ph && s.ph.parentNode){ s.ph.parentNode.insertBefore(s.el, s.ph); s.ph.parentNode.removeChild(s.ph); } }
@@ -10128,6 +10143,14 @@ function pipReorg(on){
     _pipMoveAfterVitals(document.querySelector('#hud-day .equip-card'));   // ordine finale: vitals · fama · evento · inventario
     _pipMoveAfterVitals(document.getElementById('eventbox'));
     _pipMoveAfterVitals(document.querySelector('#hud-day .famacard:not(#ranking-card)'));
+    // stack in alto a sinistra sopra la mappa: CLASSIFICA e sotto ORDINE DEL TURNO
+    var host=document.getElementById('hud-day');
+    if(host){
+      var stack=document.getElementById('hx-leftstack');
+      if(!stack){ stack=document.createElement('div'); stack.id='hx-leftstack'; host.parentNode.appendChild(stack); }
+      _pipMoveInto(document.getElementById('ranking-card'), stack);
+      _pipMoveInto(document.getElementById('turnorder-card'), stack);
+    }
   } else { _pipRestore(); }
 }
 function setTheme(t){
@@ -10139,6 +10162,8 @@ function setTheme(t){
   try{ pipReorg(pip); }catch(_){}
   try{ if(typeof mapApply==='function') mapApply(); }catch(_){}   // aggiorna la vista mappa (pan/zoom on/off)
 }
+// Apre/chiude il popup volumi (dal pulsante Audio del rail). stopPropagation: non farlo richiudere dal click-fuori.
+function hxAudioPop(ev){ if(ev){ ev.stopPropagation(); } var p=document.getElementById('hx-audio-pop'); if(p) p.classList.toggle('open'); }
 (function(){ var t='classic'; try{ if(localStorage.getItem('hx-theme')==='pipboy') t='pipboy'; }catch(_){}
   setTheme(t); })();
 </script>
