@@ -1175,6 +1175,27 @@ body.theme-pipboy .icard.dd-blocked{ opacity:.35; }
 @media (min-width:900px){
   body.theme-pipboy .overlay .modal:has(.inv-pip){ width:min(1060px,96vw); max-width:96vw; }
 }
+/* Azioni carta come POPUP ancorato alla carta (stile mockup .cardpop) */
+body.theme-pipboy .inv-actions.as-popup{ position:fixed; z-index:200; transform:translateX(-50%);
+  width:max-content; max-width:260px; padding:8px 9px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--gold);
+  border-radius:6px; box-shadow:0 0 12px rgba(116,242,122,.35),0 8px 24px #000; }
+body.theme-pipboy .inv-actions.as-popup .small{ font-family:"VT323",monospace; font-size:14px; }
+body.theme-pipboy .inv-actions.as-popup>div:last-child{ flex-direction:column; align-items:stretch; }
+body.theme-pipboy .inv-actions.as-popup .btn{ width:100%; justify-content:flex-start; margin:0; }
+/* SCHEDA FAMA — allineata al design (pannello + icona + numero verde) */
+body.theme-pipboy #hud-right .famacard{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2); border-radius:3px; }
+body.theme-pipboy #hud-right .famacard .fama-ic{ display:inline-block; width:14px; height:14px; color:var(--gold); flex:none; }
+body.theme-pipboy #hud-right .famacard .fstars{ margin-right:auto; }
+body.theme-pipboy #hud-right .famacard b#fama{ color:var(--accent); }
+/* CONTROLLO AUDIO — veste Pip-Boy (fosfori verdi) */
+body.theme-pipboy #hx-audio-btn{ background:var(--panel); border:1px solid var(--border2); color:var(--gold); border-radius:3px; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+body.theme-pipboy #hx-audio-btn:hover{ border-color:var(--gold); box-shadow:0 0 8px rgba(116,242,122,.35); }
+body.theme-pipboy #hx-audio-pop{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2); border-radius:3px; color:var(--text); box-shadow:0 0 14px rgba(0,0,0,.7); }
+body.theme-pipboy #hx-audio-pop label{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.1em; color:var(--muted); }
+body.theme-pipboy #hx-audio-pop .row{ font-family:"VT323",monospace; }
+body.theme-pipboy #hx-audio-pop input[type=range]{ accent-color:var(--accent); }
+body.theme-pipboy #hx-audio-pop .mute{ font-family:"VT323",monospace; font-size:15px; color:var(--text); }
 /* icone SVG al posto delle emoji nella barra azioni (solo tema; la Classica resta con le emoji) */
 .pip-ic{ display:none; width:18px; height:18px; fill:currentColor; vertical-align:middle; }
 body.theme-pipboy #hud-actions .ic{ font-size:0; }
@@ -1202,10 +1223,12 @@ body.theme-pipboy .fpanel{ border-top-color:var(--border2); }
 /* ===== Schede pulite per tutta la UI nuova: niente pallini agli angoli, meno smussate ===== */
 body.theme-pipboy .fpanel{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border-radius:3px; }
 body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body.theme-pipboy .inv-slot{ border-radius:3px; }
-/* barra azioni: bottoni più alti, meno spazio tra pallini e CTA (desktop) */
+/* barra azioni: bottoni più alti, pallini più vicini alle CTA (desktop) */
 @media (min-width:900px){
-  body.theme-pipboy #hud-actions.actionsbar{ padding-top:4px; padding-bottom:5px; }
-  body.theme-pipboy #hud-actions .ab-top{ margin-bottom:1px; }
+  body.theme-pipboy #hud-actions.actionsbar{ padding-top:8px; padding-bottom:6px; }
+  body.theme-pipboy #hud-actions .ab-top{ margin-bottom:6px; }
+  body.theme-pipboy #hud-actions .ab-top>div{ gap:0; }
+  body.theme-pipboy #hud-actions .act-boost{ min-height:0; margin-top:0; }   /* niente vuoto quando non ci sono boost */
   body.theme-pipboy #hud-actions .ab-btns .btn{ min-height:38px; padding:7px 8px; }
 }
 /* BLOCCO 4 — colonna destra (SIDE): stats · evento · inventario impilati a dx (desktop) */
@@ -1587,6 +1610,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <div class="ev-more">▾ lore</div>
     </div>
     <div class="famacard" title="La fama si ottiene SOLO dalle missioni. Alla 5ª stella la partita finisce.">
+      <svg class="pip-ic fama-ic"><use href="#pi-fame"/></svg>
       <span class="flab">FAMA</span>
       <div class="fstars" id="fama-stars"></div>
       <span class="dim small"><b id="fama">0</b>/5</span>
@@ -9389,6 +9413,33 @@ function openInventory(){ if(document.getElementById('overlay').classList.contai
 function closeInventory(){ state.invSel=null; closeModal(); renderHUD(); }
 function invMsg(m){ state.invMsg=m; renderInventory(); }
 function selInv(loc){ state.invSel = (state.invSel===loc?null:loc); state.invMsg=null; renderInventory(); }
+// Sotto il tema Pip-Boy: le azioni della carta compaiono come POPUP ancorato alla carta
+// (invece del pannello sotto). Riusa .inv-actions/invActionPanel: nessuna logica cambiata.
+let _invPopupInit=false;
+function positionInvPopup(){
+  if(!_invPopupInit){
+    _invPopupInit=true;
+    document.addEventListener('click', e=>{
+      if(!document.body.classList.contains('theme-pipboy')) return;
+      if(!state || !state.invSel) return;
+      const ov=document.getElementById('overlay');
+      if(!ov || !ov.classList.contains('active')) return;
+      if(e.target.closest && (e.target.closest('.ocard')||e.target.closest('.inv-actions'))) return; // carta o popup: non chiudere
+      if(e.target.closest && e.target.closest('#modal')){ state.invSel=null; state.invMsg=null; renderInventory(); } // clic fuori dalle carte: chiudi
+    });
+  }
+  const box=document.querySelector('#modal .inv-actions'); if(!box) return;
+  const sel=document.querySelector('#modal .ocard.sel');
+  const active=!!(sel && state.invSel);
+  box.classList.toggle('as-popup', active);
+  if(!active){ box.style.left=box.style.top=''; return; }
+  const r=sel.getBoundingClientRect();
+  let top=r.bottom+8, left=r.left+r.width/2;
+  const bh=box.offsetHeight||0, bw=box.offsetWidth||0;
+  if(top+bh>window.innerHeight-8) top=Math.max(8, r.top-bh-8);   // niente spazio sotto → sopra la carta
+  left=Math.min(Math.max(left, bw/2+8), window.innerWidth-bw/2-8);
+  box.style.left=left+'px'; box.style.top=top+'px';
+}
 
 function invCardHTML(loc,item){
   const sel = state.invSel===loc ? ' sel':'';
@@ -9817,6 +9868,7 @@ function renderInventory(){
       <div class="inv-actions">${msg}${actions}</div>
       ${footer}
     </div>`, (rev||spoil), (rev||spoil||inLoot||prep) ? null : closeInventory);
+  if(pip) positionInvPopup();   // azioni carta come popup ancorato (solo tema)
 }
 function invActionPanel(loc){
   // Carta del bottino da sistemare (modalità loot-room)
