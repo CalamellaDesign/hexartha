@@ -1130,6 +1130,51 @@ body.theme-pipboy .inv-free{ min-height:70px; background:rgba(255,255,255,.02); 
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"]{ border-color:#d9a441; box-shadow:0 0 9px rgba(217,164,65,.35); }
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .sl{ color:#d9a441; }
 body.theme-pipboy .inv-slot[data-invslot="equip.tasca"] .inv-card{ border-color:#d9a441; }
+/* BLOCCO 7bis — inventario in stile mockup FE: carte ricche (.ocard) + fila EQUIP + zaino a zone */
+body.theme-pipboy .invsec-lab{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; margin:2px 0 8px; }
+body.theme-pipboy .invsec-lab .dim{ color:var(--dim); }
+/* CARTA OGGETTO ricca */
+body.theme-pipboy .ocard{ display:flex; flex-direction:column; background:#0e0d0a; border:2px solid var(--cat,#b5482f); border-radius:8px; overflow:hidden; box-shadow:0 4px 14px #000; cursor:grab; }
+body.theme-pipboy .ocard.sel{ outline:2px solid var(--accent); outline-offset:2px; box-shadow:0 0 10px rgba(116,242,122,.5),0 4px 14px #000; }
+body.theme-pipboy .ocard .otitle{ font-family:"Oswald","Silkscreen",sans-serif; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.02em; text-align:center; color:#e8e2d8; background:#0a0908; padding:5px 4px; border-bottom:1px solid var(--cat,#b5482f); line-height:1.1; }
+body.theme-pipboy .ocard .oart{ height:74px; background:#fff; display:flex; align-items:center; justify-content:center; border-bottom:1px solid var(--cat,#b5482f); }
+body.theme-pipboy .ocard .oart img{ width:100%; height:100%; object-fit:contain; padding:4px; }
+body.theme-pipboy .ocard .obody{ padding:5px 7px; flex:1; }
+body.theme-pipboy .ocard .omain{ font-family:"VT323",monospace; color:var(--accent); font-size:14px; line-height:1.1; }
+body.theme-pipboy .ocard .ofoot{ display:flex; align-items:center; justify-content:space-between; padding:5px 7px; border-top:1px solid rgba(255,255,255,.06); background:#0a0908; }
+body.theme-pipboy .ocard .oval{ font-family:"VT323",monospace; font-size:14px; color:var(--muted); } body.theme-pipboy .ocard .oval b{ color:var(--gold); font-size:16px; }
+body.theme-pipboy .ocard .ocat{ font-family:"Silkscreen",monospace; font-size:7px; letter-spacing:.05em; display:inline-flex; align-items:center; gap:4px; text-transform:uppercase; color:var(--muted); }
+body.theme-pipboy .ocard .ocat .dot{ width:8px; height:8px; border-radius:50%; background:var(--cat,#b5482f); }
+/* CELLA slot: etichetta + carta o vuoto */
+body.theme-pipboy .icard{ position:relative; background:transparent; border:none; padding:0; display:flex; flex-direction:column; }
+body.theme-pipboy .inv-eqrow .inv-slot[data-invslot="equip.tasca"]{ border-color:transparent; box-shadow:none; background:transparent; }
+body.theme-pipboy .icard .slotlab{ font-family:"Silkscreen",monospace; font-size:7px; letter-spacing:.05em; color:var(--accent-d,#2f9a3a); text-transform:uppercase; text-align:center; margin-bottom:4px; display:flex; align-items:center; justify-content:center; gap:4px; height:12px; }
+body.theme-pipboy .icard .slotlab .sl-ic{ display:inline-block; width:9px; height:9px; }
+body.theme-pipboy .icard.safe .slotlab{ color:var(--gold); }
+body.theme-pipboy .icard .ocard{ flex:1; }
+body.theme-pipboy .icard.safe .ocard{ border-color:var(--gold); box-shadow:0 0 9px rgba(217,164,65,.45),0 4px 14px #000; }
+body.theme-pipboy .emptyc{ flex:1; min-height:150px; border:1px dashed var(--dim); border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--dim); background:rgba(255,255,255,.02); }
+body.theme-pipboy .emptyc .em-ic{ display:inline-block; width:28px; height:28px; }
+body.theme-pipboy .emptyc .lab{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.05em; text-transform:uppercase; }
+body.theme-pipboy .emptyc .baseval{ font-family:"VT323",monospace; font-size:30px; color:var(--accent); text-shadow:0 0 6px rgba(116,242,122,.45); line-height:1; }
+body.theme-pipboy .icard.safe .emptyc{ border-color:var(--gold); color:var(--gold); }
+/* FILA EQUIP (6) + ZAINO a 3 zone */
+body.theme-pipboy .inv-eqrow{ display:flex; flex-wrap:wrap; gap:10px; }
+body.theme-pipboy .inv-eqrow .icard{ width:120px; }
+body.theme-pipboy .inv-zwrap{ display:grid; grid-template-columns:1fr 4fr 1fr; gap:14px; align-items:start; }
+body.theme-pipboy .inv-zsec{ display:flex; flex-direction:column; min-width:0; }
+body.theme-pipboy .inv-zsec-centro{ padding:0 12px; border-left:1px solid var(--border2); border-right:1px solid var(--border2); }
+body.theme-pipboy .inv-zsec .zlab{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.06em; color:var(--muted); text-transform:uppercase; margin-bottom:6px; text-align:center; }
+body.theme-pipboy .inv-zsec .zlab .dim{ color:var(--dim); }
+body.theme-pipboy .zcells{ display:grid; gap:8px; }
+body.theme-pipboy .inv-zsec-centro .zcells{ grid-template-columns:repeat(4,1fr); }
+body.theme-pipboy .zcells.dd-valid{ outline:1px dashed var(--teal); outline-offset:3px; border-radius:8px; }
+body.theme-pipboy .zcells.dd-over{ outline:2px dashed var(--gold); outline-offset:3px; border-radius:8px; }
+body.theme-pipboy .zcells.dd-blocked{ opacity:.35; }
+body.theme-pipboy .zcells .ocard{ height:100%; }
+body.theme-pipboy .icard.dd-over .ocard,body.theme-pipboy .icard.dd-over .emptyc{ outline:2px dashed var(--gold); outline-offset:2px; }
+body.theme-pipboy .icard.dd-valid .emptyc{ border-color:var(--teal); color:var(--teal); }
+body.theme-pipboy .icard.dd-blocked{ opacity:.35; }
 /* icone SVG al posto delle emoji nella barra azioni (solo tema; la Classica resta con le emoji) */
 .pip-ic{ display:none; width:18px; height:18px; fill:currentColor; vertical-align:middle; }
 body.theme-pipboy #hud-actions .ic{ font-size:0; }
@@ -1172,6 +1217,35 @@ body.theme-pipboy .modal,body.theme-pipboy .btn,body.theme-pipboy .inv-card,body
   body.theme-pipboy #hud-right::-webkit-scrollbar{ width:8px; }
   body.theme-pipboy #hud-right::-webkit-scrollbar-thumb{ background:var(--border2); border-radius:3px; }
 }
+/* BLOCCO 7ter — fascia destra in stile mockup FE: Sopravvivenza (pips+malus) · Evento · preview */
+body.theme-pipboy #hud-right .fpanel.hud{ padding:9px 11px; }
+body.theme-pipboy #hud-right .fpanel.hud h3{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.14em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+body.theme-pipboy #hud-right .vitalrow{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+body.theme-pipboy #hud-right .vitalrow .statlab{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.1em; color:var(--muted); }
+body.theme-pipboy #hud-right .hp{ display:flex; gap:3px; align-items:center; flex-wrap:wrap; }
+/* VITA a pips quadrati (base = rosso ruggine · persa = contorno · extra = verde acceso) */
+body.theme-pipboy .heart{ font-size:0; width:14px; height:14px; display:inline-block; background:var(--rust); box-shadow:0 0 4px var(--rust); vertical-align:middle; border-radius:0; }
+body.theme-pipboy .heart.lost{ background:transparent; box-shadow:none; border:1px solid var(--dim); }
+body.theme-pipboy .heart.extra{ background:transparent; box-shadow:none; border:1px solid var(--dim); }
+body.theme-pipboy .heart.extra.on{ background:var(--accent); box-shadow:0 0 4px var(--accent); border:none; }
+/* MONETE come chip + MALUS come box icona SVG */
+body.theme-pipboy #hud-right .stats{ display:flex; align-items:center; gap:10px; }
+body.theme-pipboy #hud-right .stats .chip{ border:1px solid var(--border2); border-radius:3px; padding:3px 8px; }
+body.theme-pipboy #states{ display:inline-flex; gap:6px; }
+body.theme-pipboy .malus-ico{ width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border2); border-radius:3px; color:var(--dim); cursor:pointer; transition:.14s; }
+body.theme-pipboy .malus-ico.on{ color:var(--rust); border-color:var(--rust); box-shadow:0 0 6px rgba(224,96,58,.4); }
+body.theme-pipboy .malus-ico .mi-emo{ font-size:0; }
+body.theme-pipboy .malus-ico .st-ic{ display:block; width:16px; height:16px; }
+/* EVENTO del giorno */
+body.theme-pipboy #hud-right #eventbox{ border:1px solid var(--accent-d,#2f9a3a); border-radius:4px; }
+body.theme-pipboy #hud-right #eventbox .t{ font-family:"Press Start 2P",monospace; font-size:8px; color:var(--rust); line-height:1.5; }
+/* FAMA */
+body.theme-pipboy #hud-right .famacard{ display:flex; align-items:center; gap:8px; padding:8px 11px; }
+body.theme-pipboy #hud-right .famacard .flab{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.14em; color:var(--muted); }
+/* PREVIEW inventario (equip-card): pannello pulito, apre la modale */
+body.theme-pipboy #hud-right .equip-card h3{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.14em; color:var(--muted); text-transform:uppercase; }
+body.theme-pipboy #hud-right .equip-card .slot .lab{ font-family:"Silkscreen",monospace; font-size:7px; letter-spacing:.05em; color:var(--accent-d,#2f9a3a); text-transform:uppercase; }
+body.theme-pipboy #hud-right .equip-card .equip-hint{ font-family:"Silkscreen",monospace; font-size:8px; letter-spacing:.08em; color:var(--accent); text-transform:uppercase; }
 /* BLOCCO 6 — RAIL sinistro a icone  +  BLOCCO 5 — TOP BAR (desktop, tema) */
 #hx-rail{ display:none; }
 #m-focus{ display:none; }   /* pulsante focus pedina: mostrato solo sotto il tema (vedi regola in @media) */
@@ -2778,9 +2852,10 @@ const STATE_INFO ={
 function renderStatesHUD(){
   const el=document.getElementById('states'); if(!el||!state)return;
   // 3 icone affiancate: spente di default, si illuminano se il malus è attivo; click → dettaglio
+  const STATE_PI={emorragia:'pi-bleed', ossa:'pi-bone', avvelenato:'pi-poison'};
   el.innerHTML = Object.keys(STATE_LABEL).map(k=>{
     const on=state.you.states[k];
-    return `<span class="malus-ico ${on?'on':''}" title="${STATE_LABEL[k]}${on?' — ATTIVO':''} (tocca per il dettaglio)" onclick="showStateInfo('${k}')">${STATE_ICON[k]}</span>`;
+    return `<span class="malus-ico ${on?'on':''}" title="${STATE_LABEL[k]}${on?' — ATTIVO':''} (tocca per il dettaglio)" onclick="showStateInfo('${k}')"><svg class="pip-ic st-ic"><use href="#${STATE_PI[k]}"/></svg><span class="mi-emo">${STATE_ICON[k]}</span></span>`;
   }).join("");
 }
 function showStateInfo(k){
@@ -9286,6 +9361,39 @@ function invSlotHTML(title,cap,inner,slotKey){
       ondrop="invDrop(event,this)"` : '';
   return `<div class="inv-slot"${sk}><div class="sl"><span>${title}</span><span>${cap}</span></div>${inner}</div>`;
 }
+// ---- Rendering carte oggetto RICCHE (stile mockup Pip-Boy) — usato solo sotto body.theme-pipboy ----
+// Categoria carta → colore + etichetta (comune/medico/militare/speciale), coerente con la palette del tema.
+function itemCat(it){
+  if(!it) return {c:'#c9603f', l:'Comune'};
+  if(it.special)                                            return {c:'#d9a441', l:'Speciale'};
+  if(it.heal||it.cureOneState||it.cureAllStates||it.medic)  return {c:'#7ab85f', l:'Medico'};
+  if(['arma','armatura','casco'].includes(it.slot)||it.atk||it.red) return {c:'#b4b24a', l:'Militare'};
+  return {c:'#c9603f', l:'Comune'};
+}
+// Carta oggetto ricca (.ocard): titolo · illustrazione su bianco · effetto · footer valore(oro)+categoria.
+// Draggable, riusa GLI STESSI handler/attributi di invCardHTML (data-loc, selInv, invDragStart/End).
+function ocardHTML(loc,it){
+  const sel = state.invSel===loc ? ' sel':'';
+  const cat = itemCat(it);
+  const img = it.img ? `<img src="${encodeURI(it.img)}" alt="" onerror="this.style.display='none'">` : '';
+  const val = (it.val!=null) ? `<span class="oval">◈ <b>${it.val}</b></span>` : `<span class="oval"></span>`;
+  return `<div class="ocard${sel}" draggable="true" data-loc="${loc}" style="--cat:${cat.c}"
+      ondragstart="invDragStart(event,'${loc}')" ondragend="invDragEnd()" onclick="selInv('${loc}')">
+      <div class="otitle">${escapeHtml(it.name)}</div>
+      <div class="oart">${img}</div>
+      <div class="obody"><div class="omain">${it.effect||''}</div></div>
+      <div class="ofoot">${val}<span class="ocat"><span class="dot"></span>${cat.l}</span></div>
+    </div>`;
+}
+// Cella EQUIP in stile mockup: contenitore drop (data-invslot + handler) con etichetta slot + carta o vuoto.
+function invCellPip(slotKey, item, meta){
+  const dd = `data-invslot="${slotKey}" ondragover="invDragOver(event,this)" ondragleave="invDragLeave(this)" ondrop="invDrop(event,this)"`;
+  const lab = `<div class="slotlab"><svg class="pip-ic sl-ic"><use href="#${meta.icon}"/></svg>${meta.label}</div>`;
+  const inner = item ? ocardHTML(slotKey, item)
+    : `<div class="emptyc"><svg class="pip-ic em-ic"><use href="#${meta.icon}"/></svg>${
+        meta.base ? `<span class="baseval">${meta.base}</span>` : `<span class="lab">${meta.safe?'vuota':'vuoto'}</span>`}</div>`;
+  return `<div class="inv-slot icard${meta.safe?' safe':''}" ${dd}>${lab}${inner}</div>`;
+}
 // =================== DRAG & DROP INVENTARIO ===================
 let invDrag = null; // { loc, item }
 
@@ -9359,7 +9467,7 @@ function initInvTouchDrag(){
   const THRESH=10;
   document.addEventListener('touchstart', ev=>{
     if(ev.touches.length!==1) return;
-    const card=ev.target.closest && ev.target.closest('.inv-card[data-loc]');
+    const card=ev.target.closest && ev.target.closest('.inv-card[data-loc], .ocard[data-loc]');
     if(!card) return;
     const t=ev.touches[0];
     _invTouch={loc:card.dataset.loc, card, x0:t.clientX, y0:t.clientY, moved:false, ghost:null};
@@ -9533,7 +9641,8 @@ function renderInventory(){
   const y=state.you;
   // slot vuoti disegnati (capienza visibile a colpo d'occhio)
   const freeSlots=n=>Array.from({length:Math.max(0,n)},()=>`<div class="inv-free"></div>`).join("");
-  const packCol = packSections().map(sec=>{
+  // costruttore di una sezione zaino (riusato sia dal layout classico sia da quello Pip-Boy)
+  const packBuild = sec=>{
     const items=y.pack[sec];
     const blocked = sidePocketsBlocked() && sec!=="centro";
     const inner = blocked ? `<div class="inv-empty">🔒 bloccata (stato)</div>`
@@ -9541,15 +9650,17 @@ function renderInventory(){
                    + freeSlots(PACK_CAP[sec]-items.length)
                    + (items.length?'':`<div class="inv-empty">vuoto</div>`));
     return invSlotHTML(PACK_LABEL[sec], blocked?"🔒":`${items.length}/${PACK_CAP[sec]}`, inner, blocked?null:`pack.${sec}`);
-  }).join("");
-  const midCol =
-      invSlotHTML("🔒 Tasca sicura", y.equip.tasca?"1/1":"0/1", y.equip.tasca? invCardHTML("equip.tasca",y.equip.tasca) : freeSlots(1)+`<div class="inv-empty">vuoto — al sicuro anche se muori</div>`, "equip.tasca")
-    + invSlotHTML("🔧 Gadget 1", y.equip.gadget[0]?"1/1":"0/1", y.equip.gadget[0]? invCardHTML("equip.gadget.0",y.equip.gadget[0]) : freeSlots(1)+`<div class="inv-empty">vuoto</div>`, "equip.gadget.0")
-    + invSlotHTML("🔧 Gadget 2", y.equip.gadget[1]?"1/1":"0/1", y.equip.gadget[1]? invCardHTML("equip.gadget.1",y.equip.gadget[1]) : freeSlots(1)+`<div class="inv-empty">vuoto</div>`, "equip.gadget.1");
-  const eqCol =
-      invSlotHTML("🗡 Arma","+"+(y.equip.arma?itemEquip(y.equip.arma):1), y.equip.arma? invCardHTML("equip.arma",y.equip.arma) : `<div class="inv-empty">Arma base (+1)</div>`, "equip.arma")
-    + invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):BASE_EQUIP.armatura), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+${BASE_EQUIP.armatura})</div>`, "equip.armatura")
-    + invSlotHTML("⛑ Casco","+"+(y.equip.casco?itemEquip(y.equip.casco):1), y.equip.casco? invCardHTML("equip.casco",y.equip.casco) : `<div class="inv-empty">Base (+1)</div>`, "equip.casco");
+  };
+  const packCol = packSections().map(packBuild).join("");
+  // celle equip singole (stesse identiche invSlotHTML: drag&drop e data-invslot invariati)
+  const cellTasca = invSlotHTML("🔒 Tasca sicura", y.equip.tasca?"1/1":"0/1", y.equip.tasca? invCardHTML("equip.tasca",y.equip.tasca) : freeSlots(1)+`<div class="inv-empty">vuoto — al sicuro anche se muori</div>`, "equip.tasca");
+  const cellGad0  = invSlotHTML("🔧 Gadget 1", y.equip.gadget[0]?"1/1":"0/1", y.equip.gadget[0]? invCardHTML("equip.gadget.0",y.equip.gadget[0]) : freeSlots(1)+`<div class="inv-empty">vuoto</div>`, "equip.gadget.0");
+  const cellGad1  = invSlotHTML("🔧 Gadget 2", y.equip.gadget[1]?"1/1":"0/1", y.equip.gadget[1]? invCardHTML("equip.gadget.1",y.equip.gadget[1]) : freeSlots(1)+`<div class="inv-empty">vuoto</div>`, "equip.gadget.1");
+  const cellArma  = invSlotHTML("🗡 Arma","+"+(y.equip.arma?itemEquip(y.equip.arma):1), y.equip.arma? invCardHTML("equip.arma",y.equip.arma) : `<div class="inv-empty">Arma base (+1)</div>`, "equip.arma");
+  const cellArmatura = invSlotHTML("🛡 Armatura","+"+(y.equip.armatura?itemEquip(y.equip.armatura):BASE_EQUIP.armatura), y.equip.armatura? invCardHTML("equip.armatura",y.equip.armatura) : `<div class="inv-empty">Base (+${BASE_EQUIP.armatura})</div>`, "equip.armatura");
+  const cellCasco = invSlotHTML("⛑ Casco","+"+(y.equip.casco?itemEquip(y.equip.casco):1), y.equip.casco? invCardHTML("equip.casco",y.equip.casco) : `<div class="inv-empty">Base (+1)</div>`, "equip.casco");
+  const midCol = cellTasca + cellGad0 + cellGad1;
+  const eqCol  = cellArma + cellArmatura + cellCasco;
   const msg = state.invMsg? `<div class="inv-msg">⚠ ${state.invMsg}</div>` : "";
   const rev = !!(state.you && state.you.reviveEquipPending) && mpCanAct(); // fase di RIARMO (rientro dopo la morte) — SOLO nel proprio turno (durante il turno altrui l'inventario è di sola consultazione)
   const spoil = !rev && !!state.spoilMode;                   // fase di SACCHEGGIO post-vittoria PvP
@@ -9599,7 +9710,36 @@ function renderInventory(){
         : (prep
           ? `<div class="center" style="margin-top:12px"><button class="btn primary" style="background:var(--rust)" onclick="pvpPrepReady()">⚔ READY ▸</button></div>`
           : ``)));
-  const invGrid = `
+  const pip = document.body.classList.contains('theme-pipboy');
+  // ---- Layout Pip-Boy (come da mockup FE): fila EQUIP a 6 carte + ZAINO a 3 zone ----
+  const ZLAB = {sx:"Laterale sx", centro:"Centrale", dx:"Laterale dx"};
+  const eqRow =
+      invCellPip('equip.arma',     y.equip.arma,      {label:'Arma',        icon:'pi-weapon', base:'+1'})
+    + invCellPip('equip.armatura', y.equip.armatura,  {label:'Armatura',    icon:'pi-armor',  base:'+'+BASE_EQUIP.armatura})
+    + invCellPip('equip.casco',    y.equip.casco,     {label:'Casco',       icon:'pi-helmet', base:'+1'})
+    + invCellPip('equip.gadget.0', y.equip.gadget[0], {label:'Gadget 1',    icon:'pi-gadget'})
+    + invCellPip('equip.gadget.1', y.equip.gadget[1], {label:'Gadget 2',    icon:'pi-gadget'})
+    + invCellPip('equip.tasca',    y.equip.tasca,     {label:'Tasca sicura',icon:'pi-lock', safe:true});
+  const packZonePip = sec=>{
+    const items=y.pack[sec];
+    const blocked = sidePocketsBlocked() && sec!=="centro";
+    const dd = blocked ? '' : `data-invslot="pack.${sec}" ondragover="invDragOver(event,this)" ondragleave="invDragLeave(this)" ondrop="invDrop(event,this)"`;
+    const cells = blocked
+      ? `<div class="emptyc blocked"><svg class="pip-ic em-ic"><use href="#pi-lock"/></svg><span class="lab">bloccata</span></div>`
+      : items.map((it,i)=>ocardHTML(`pack.${sec}.${i}`,it)).join("")
+        + Array.from({length:Math.max(0,PACK_CAP[sec]-items.length)},()=>`<div class="emptyc"><span class="lab">vuoto</span></div>`).join("");
+    return `<div class="inv-zsec inv-zsec-${sec}">
+        <div class="zlab">${ZLAB[sec]} <span class="dim">${blocked?'🔒':items.length+'/'+PACK_CAP[sec]}</span></div>
+        <div class="zcells" ${dd}>${cells}</div>
+      </div>`;
+  };
+  const invGrid = pip ? `
+      <div class="inv-pip">
+        <div class="invsec-lab">Equipaggiamento · ⚔ +${y.equipScore} · ogni slot mostra cosa inserire · trascina per spostare, tocca per le azioni</div>
+        <div class="inv-eqrow">${eqRow}</div>
+        <div class="invsec-lab" style="margin-top:14px">Zaino ${packTotal()}/6 — <span class="dim">le tasche laterali si bloccano con Ossa rotte / Veleno</span></div>
+        <div class="inv-zwrap">${packSections().map(packZonePip).join("")}</div>
+      </div>` : `
       <div class="inv-grid">
         <div><div class="inv-colh">🎒 ZAINO <span class="dim small">${packTotal()}/6</span></div>${packCol}</div>
         <div><div class="inv-colh">🔒 TASCA / 🔧 GADGET</div>${midCol}</div>
@@ -10123,6 +10263,17 @@ function effModalMaybe(e){
   <symbol id="pi-chat" viewBox="0 0 24 24"><path d="M3 3h18v13H9l-4 4v-4H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 7h10v2H7zM7 11h7v2H7z"/></symbol>
   <symbol id="pi-audio" viewBox="0 0 24 24"><path d="M3 9h4l5-5v16l-5-5H3z"/><path d="M16 8a4 4 0 0 1 0 8M18 5a8 8 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="pi-manual" viewBox="0 0 24 24"><path d="M12 4C9 2 5 2 3 3v16c2-1 6-1 9 1 3-2 7-2 9-1V3c-2-1-6-1-9 1z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 5v15" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="pi-weapon" viewBox="0 0 24 24"><path d="M3 8h14v3h-3v2h-2v-2H9v6H6v-6H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 8h4v2h-4z"/></symbol>
+  <symbol id="pi-armor" viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 6-4 9-8 11-4-2-8-5-8-11V5z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 8h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></symbol>
+  <symbol id="pi-helmet" viewBox="0 0 24 24"><path d="M4 13a8 8 0 0116 0v3H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 16h18v3H3z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="pi-gadget" viewBox="0 0 24 24"><path d="M14 2a5 5 0 0 0-4.9 6L2 15.1V19h3.9l7.1-7.1A5 5 0 1 0 14 2zm0 2a3 3 0 1 1-1.6 5.5l-.7-.4-7.7 7.7v.2h.2l7.7-7.7-.4-.7A3 3 0 0 1 14 4z"/></symbol>
+  <symbol id="pi-hp" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 7h4v3h3v4h-3v3h-4v-3H7v-4h3z"/></symbol>
+  <symbol id="pi-coin" viewBox="0 0 24 24"><path d="M7 4h10v2h2v2h2v8h-2v2h-2v2H7v-2H5v-2H3V8h2V6h2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 8h2v2h2v4h-2v2h-2v-2H9v-4h2z"/></symbol>
+  <symbol id="pi-fame" viewBox="0 0 24 24"><path d="M11 2h2v6h6v2h-5l5 5-2 2-5-5v7h-2v-7l-5 5-2-2 5-5H1V8h6z"/></symbol>
+  <symbol id="pi-event" viewBox="0 0 24 24"><path d="M5 3h14v18H5z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 6h8v2H8zM8 10h8v2H8zM8 14h5v2H8z"/></symbol>
+  <symbol id="pi-bleed" viewBox="0 0 24 24"><path d="M11 2h2v4h-2zM9 6h6v3H9zM7 9h10v6h-2v3h-2v3h-2v-3H9v-3H7z"/></symbol>
+  <symbol id="pi-bone" viewBox="0 0 24 24"><path d="M5 5h3v3H5zM5 16h3v3H5zM16 5h3v3h-3zM16 16h3v3h-3z"/><path d="M8 6l8 12M16 6L8 18" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
+  <symbol id="pi-poison" viewBox="0 0 24 24"><path d="M6 3h12v11h-2v3h-3v3h-2v-3H8v-3H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8h2v2H9zM13 8h2v2h-2zM11 11h2v3h-2z"/></symbol>
 </defs></svg>
 <script>
 /* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
