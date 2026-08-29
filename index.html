@@ -1276,7 +1276,10 @@ body.theme-pipboy .heart.extra{ background:transparent; box-shadow:none; border:
 body.theme-pipboy .heart.extra.on{ background:var(--accent); box-shadow:0 0 4px var(--accent); border:none; }
 /* MONETE come chip + MALUS come box icona SVG */
 body.theme-pipboy #hud-right .stats{ display:flex; align-items:center; gap:10px; }
-body.theme-pipboy #hud-right .stats .chip{ border:1px solid var(--border2); border-radius:3px; padding:3px 8px; }
+body.theme-pipboy #hud-right .stats .chip{ border:1px solid var(--border2); border-radius:3px; padding:3px 8px; display:inline-flex; align-items:center; gap:5px; }
+body.theme-pipboy #hud-right .stats .chip .coin-emo{ font-size:0; }
+body.theme-pipboy #hud-right .stats .chip .coin-ic{ display:inline-block; width:15px; height:15px; color:var(--gold); }
+body.theme-pipboy #hud-right .stats .chip b{ color:var(--accent); }
 body.theme-pipboy #states{ display:inline-flex; gap:6px; }
 body.theme-pipboy .malus-ico{ width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border2); border-radius:3px; color:var(--dim); cursor:pointer; transition:.14s; }
 body.theme-pipboy .malus-ico.on{ color:var(--rust); border-color:var(--rust); box-shadow:0 0 6px rgba(224,96,58,.4); }
@@ -1375,7 +1378,8 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
 
   /* MAPPA a tutto schermo in larghezza; padding SOLO sopra/sotto così le barre non la coprono più.
      + niente selezione/evidenziazione del testo durante il drag */
-  body.theme-pipboy .mapwrap{ padding:68px 0 82px 0; cursor:grab; user-select:none; -webkit-user-select:none; }
+  body.theme-pipboy .mapwrap{ padding:68px 0 82px 0; cursor:grab; user-select:none; -webkit-user-select:none;
+    background:radial-gradient(135% 110% at 50% 22%, var(--bg2) 0%, var(--bg) 52%, #000 100%); }
   body.theme-pipboy .mapwrap:active{ cursor:grabbing; }
   /* pulsanti zoom +/- in alto a destra, SOTTO la top bar (non ci vanno sopra) */
   body.theme-pipboy #m-zoom{
@@ -1669,7 +1673,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
         <div class="hp" id="hp"></div>
       </div>
       <div class="stats" style="align-items:center">
-        <span class="chip">🪙 <b id="coins">3</b></span>
+        <span class="chip"><svg class="pip-ic coin-ic"><use href="#pi-coin"/></svg><span class="coin-emo">🪙</span> <b id="coins">3</b></span>
         <span class="dim small" style="margin-left:auto;margin-right:2px">Malus</span>
         <span id="states" style="display:inline-flex;gap:5px"></span>
       </div>
@@ -10399,9 +10403,9 @@ function effModalMaybe(e){
   <symbol id="pi-coin" viewBox="0 0 24 24"><path d="M7 4h10v2h2v2h2v8h-2v2h-2v2H7v-2H5v-2H3V8h2V6h2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 8h2v2h2v4h-2v2h-2v-2H9v-4h2z"/></symbol>
   <symbol id="pi-fame" viewBox="0 0 24 24"><path d="M11 2h2v6h6v2h-5l5 5-2 2-5-5v7h-2v-7l-5 5-2-2 5-5H1V8h6z"/></symbol>
   <symbol id="pi-event" viewBox="0 0 24 24"><path d="M5 3h14v18H5z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 6h8v2H8zM8 10h8v2H8zM8 14h5v2H8z"/></symbol>
-  <symbol id="pi-bleed" viewBox="0 0 24 24"><path d="M11 2h2v4h-2zM9 6h6v3H9zM7 9h10v6h-2v3h-2v3h-2v-3H9v-3H7z"/></symbol>
-  <symbol id="pi-bone" viewBox="0 0 24 24"><path d="M5 5h3v3H5zM5 16h3v3H5zM16 5h3v3h-3zM16 16h3v3h-3z"/><path d="M8 6l8 12M16 6L8 18" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
-  <symbol id="pi-poison" viewBox="0 0 24 24"><path d="M6 3h12v11h-2v3h-3v3h-2v-3H8v-3H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8h2v2H9zM13 8h2v2h-2zM11 11h2v3h-2z"/></symbol>
+  <symbol id="pi-bleed" viewBox="0 0 24 24"><path d="M12 2.5c0 0 6.5 7 6.5 11.5a6.5 6.5 0 0 1-13 0C5.5 9.5 12 2.5 12 2.5z"/></symbol>
+  <symbol id="pi-bone" viewBox="0 0 24 24"><rect x="7" y="10.4" width="10" height="3.2" rx="1.6"/><circle cx="7" cy="9.2" r="2.3"/><circle cx="7" cy="14.8" r="2.3"/><circle cx="17" cy="9.2" r="2.3"/><circle cx="17" cy="14.8" r="2.3"/></symbol>
+  <symbol id="pi-poison" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 3a7 7 0 0 0-7 7v3l2 1.5V17h2v-1.6h2V17h2v-1.5l2-1.5v-3a7 7 0 0 0-7-7zm-2.6 6.4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm5.2 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></symbol>
 </defs></svg>
 <script>
 /* Toggle interfaccia Classica / Pip-Boy (homepage). Salva la scelta e la riapplica all'avvio.
