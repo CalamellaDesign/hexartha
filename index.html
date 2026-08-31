@@ -442,9 +442,19 @@
       min-width:40px;min-height:40px;display:flex;align-items:center;justify-content:center}
     .cron-mx:active{color:var(--gold)}
 
-    /* DIARIO (plancia) pulito: niente dump dell'equipaggiamento (sta nell'inventario, FAB 🎒);
-       così l'EVENTO del giorno + Fama + stato restano in evidenza. */
-    #hud-day.m-open .equip-card{display:none}
+    /* DIARIO (plancia): nella equip-card mostra SOLO l'overview a thumbnail
+       (come il desktop, #pip-inv-preview) nascondendo il dump testuale verboso
+       dei .slots — così l'evento resta in alto e l'inventario è un colpo d'occhio. */
+    body.theme-pipboy #hud-day .equip-card .slots,
+    body.theme-pipboy #hud-day .equip-card #equip-wear{ display:none; }
+
+    /* FAMA nel diario allineata al desktop: pannello + icona + stelle oro/verde pulite */
+    body.theme-pipboy #hud-day .famacard{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2); border-radius:3px; }
+    body.theme-pipboy #hud-day .famacard .fama-ic{ display:inline-block; width:14px; height:14px; color:var(--gold); flex:none; }
+    body.theme-pipboy #hud-day .famacard .fstars{ margin-right:auto; gap:3px; filter:none; }
+    body.theme-pipboy #hud-day .famacard .fstar{ font-size:14px; color:var(--dim); text-shadow:none; }
+    body.theme-pipboy #hud-day .famacard .fstar.on{ color:var(--gold); text-shadow:0 0 6px rgba(217,164,65,.6); }
+    body.theme-pipboy #hud-day .famacard b#fama{ color:var(--gold); }
 
     /* --- ORDINE TURNO (solo MP): in alto a sinistra sotto la top bar --- */
     .turnorder-float{left:calc(8px + var(--safe-left));right:auto;top:calc(var(--safe-top) + var(--m-topbar) + 6px);
@@ -1262,6 +1272,17 @@ body.theme-pipboy .inv-actions.as-popup{ position:fixed; z-index:200; transform:
 body.theme-pipboy .inv-actions.as-popup .small{ font-family:"VT323",monospace; font-size:14px; }
 body.theme-pipboy .inv-actions.as-popup>div:last-child{ flex-direction:column; align-items:stretch; }
 body.theme-pipboy .inv-actions.as-popup .btn{ width:100%; justify-content:flex-start; margin:0; }
+/* MOBILE: popup azioni carta a misura di dito — tap target ampi, ben leggibili, dismissibile toccando fuori */
+@media (max-width:860px){
+  body.theme-pipboy .inv-actions.as-popup{ width:min(86vw,300px); max-width:86vw; padding:10px 11px 12px;
+    max-height:70vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  body.theme-pipboy .inv-actions.as-popup .small{ font-size:16px; }
+  body.theme-pipboy .inv-actions.as-popup>div:last-child{ gap:8px; }
+  body.theme-pipboy .inv-actions.as-popup .btn{ min-height:44px; font-size:15px; padding:0 12px; align-items:center; }
+  /* riga di scorrimento più "afferrabile": nessun highlight blu del tap sulle carte */
+  body.theme-pipboy .inv-pip-m .inv-row-scroll{ scroll-snap-type:x proximity; touch-action:pan-x; -webkit-tap-highlight-color:transparent; }
+  body.theme-pipboy .inv-pip-m .inv-row-scroll .ocard{ scroll-snap-align:start; }
+}
 /* SCHEDA FAMA — allineata al design: pannello + icona + stelle come la Classifica (oro, pulite) */
 body.theme-pipboy #hud-right .famacard{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--border2); border-radius:3px; }
 body.theme-pipboy #hud-right .famacard .fama-ic{ display:inline-block; width:14px; height:14px; color:var(--gold); flex:none; }
@@ -9707,6 +9728,10 @@ function initInvTouchDrag(){
   if(window._invTouchInit) return; window._invTouchInit=true;
   const THRESH=10;
   document.addEventListener('touchstart', ev=>{
+    // MOBILE: niente drag&drop col dito. Le righe dell'inventario scorrono in
+    // orizzontale e gli spostamenti/equip si fanno col menu tap→azioni (selInv → popup).
+    // (design: HUD/MOBILE-UI-PROPOSTA.md §8 "niente drag critico su mobile")
+    if(mapIsMobile()) return;
     if(ev.touches.length!==1) return;
     const card=ev.target.closest && ev.target.closest('.inv-card[data-loc], .ocard[data-loc]');
     if(!card) return;
