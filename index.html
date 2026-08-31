@@ -278,6 +278,7 @@
   .cron-badge.zero{display:none}
   .cron-prev{flex:1;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cron-arrow{flex:none;color:var(--dim);font-size:10px}
+  .cron-mhead{display:none}   /* header con la X: solo su mobile (vedi @media 860) */
   .cron-body{height:0;overflow:hidden;transition:height .22s ease-out;margin-bottom:4px}
   .cron.open .cron-body{height:min(44vh,320px)}
   .cron.open .cron-tab{border-color:var(--rust)}
@@ -429,8 +430,21 @@
     .cron{left:calc(8px + var(--safe-left));right:calc(8px + var(--safe-right));width:auto;z-index:57;
       bottom:calc(var(--safe-bottom) + var(--m-botbar) + 10px)}
     .cron.open .cron-body{height:min(42vh,340px);margin-bottom:0}
-    .cron-body .log,.cron .chatbox{box-shadow:0 8px 24px rgba(0,0,0,.72);border-radius:8px}
+    .cron-body .log,.cron .chatbox{box-shadow:0 8px 24px rgba(0,0,0,.72);border-radius:8px 8px 0 0}
     body.m-cron-open #m-fab-left,body.m-cron-open #m-fab-right,body.m-cron-open #m-zoom{display:none}
+    /* Header con la X per chiudere cronaca/chat (le linguette con la freccia sono nascoste su mobile) */
+    .cron.open .cron-mhead{display:flex;align-items:center;justify-content:space-between;
+      padding:8px 6px 8px 12px;background:linear-gradient(180deg,rgba(18,17,15,.98),rgba(18,17,15,.92));
+      border:1px solid var(--border2);border-bottom:none;border-radius:8px 8px 0 0;
+      box-shadow:0 -2px 12px rgba(0,0,0,.4)}
+    .cron-mhead .stencil{font-size:13px;letter-spacing:.12em;color:var(--gold)}
+    .cron-mx{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;
+      min-width:40px;min-height:40px;display:flex;align-items:center;justify-content:center}
+    .cron-mx:active{color:var(--gold)}
+
+    /* DIARIO (plancia) pulito: niente dump dell'equipaggiamento (sta nell'inventario, FAB 🎒);
+       così l'EVENTO del giorno + Fama + stato restano in evidenza. */
+    #hud-day.m-open .equip-card{display:none}
 
     /* --- ORDINE TURNO (solo MP): in alto a sinistra sotto la top bar --- */
     .turnorder-float{left:calc(8px + var(--safe-left));right:auto;top:calc(var(--safe-top) + var(--m-topbar) + 6px);
@@ -545,6 +559,25 @@
     body.theme-pipboy .actionsbar .ab-btns .btn:not(#a-end){ border-color:var(--border2); }
     body.theme-pipboy .actionsbar .ab-btns .btn:not(#a-end):not(:disabled):active{
       border-color:var(--gold); box-shadow:0 0 10px rgba(116,242,122,.35); }
+
+    /* Sfondo mappa come sul desktop: via il rettangolo "terra bruciata" e la
+       vignettatura; radiale scuro che sfuma al nero attorno agli esagoni. */
+    body.theme-pipboy #mapsvg .map-ground{ fill:none; }
+    body.theme-pipboy #mapsvg .map-vign{ opacity:0; }
+    body.theme-pipboy .mapwrap{ background:radial-gradient(135% 110% at 50% 22%, var(--bg2) 0%, var(--bg) 52%, #000 100%); }
+
+    /* Inventario mobile a 3 righe con SCORRIMENTO ORIZZONTALE (vedi renderInventory). */
+    body.theme-pipboy .inv-pip-m .inv-row-scroll{ display:flex; flex-wrap:nowrap; gap:10px; align-items:flex-start;
+      overflow-x:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 8px; }
+    body.theme-pipboy .inv-pip-m .inv-row-scroll > *{ flex:0 0 auto; }
+    body.theme-pipboy .inv-pip-m .inv-row-scroll .inv-zsec{ display:flex; flex-direction:column; }
+    body.theme-pipboy .inv-pip-m .inv-zsec-centro{ padding:0; border:none; }   /* niente bordi laterali nel flusso a righe */
+    body.theme-pipboy .inv-pip-m .inv-zsec-centro .zlab{ display:none; }         /* label ridondante col titolo di sezione */
+    body.theme-pipboy .inv-pip-m .inv-row-scroll::-webkit-scrollbar{ height:6px; }
+    body.theme-pipboy .inv-pip-m .inv-row-scroll::-webkit-scrollbar-thumb{ background:var(--border2); border-radius:3px; }
+    /* carte un filo più piccole così si intravede lo scorrimento */
+    body.theme-pipboy .inv-pip-m .ocard, body.theme-pipboy .inv-pip-m .emptyc{ width:108px; height:168px; }
+    body.theme-pipboy .inv-pip-m .icard{ width:108px; }
   }
   /* --- Landscape su telefono: invita a ruotare in verticale (Fase 5) --- */
   @media (orientation:landscape) and (max-height:500px){
@@ -1639,6 +1672,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
           <span class="cron-badge zero" id="chat-badge">0</span>
         </button>
       </div>
+      <div class="cron-mhead"><span class="stencil" id="cron-mtitle">Cronaca</span><button type="button" class="cron-mx" onclick="setDrawer(null)" aria-label="Chiudi">✕</button></div>
       <div class="cron-body">
         <div class="log" id="log"></div>
         <div class="chatbox" id="chatbox" style="display:none">
@@ -3111,6 +3145,7 @@ function setDrawer(which){
   const a=document.getElementById('cron-arrow'); if(a) a.textContent=cronacaOpen?'▼':'▲';
   document.getElementById('tab-cron')?.classList.toggle('active', cronacaOpen);
   document.getElementById('tab-chat')?.classList.toggle('active', chatOpen);
+  const mt=document.getElementById('cron-mtitle'); if(mt) mt.textContent = chatOpen ? 'Chat' : 'Cronaca';   // mobile: titolo dell'header con la X
   if(cronacaOpen){
     cronUnread=0;
     const b=document.getElementById('cron-badge'); if(b){ b.textContent='0'; b.classList.add('zero'); }
@@ -9939,13 +9974,33 @@ function renderInventory(){
         <div class="zcells" ${dd}>${cells}</div>
       </div>`;
   };
-  const invGrid = pip ? `
+  // MOBILE (solo tema Pip-Boy, <=860px): 3 righe a scorrimento orizzontale —
+  //  1) Equipaggio (arma·armatura·casco·gadget1·gadget2)  2) Zaino centrale  3) Tasca sicura + tasche laterali.
+  //  Riusa le stesse celle/drop target della versione desktop: logica invariata.
+  const isMobInv = !!(window.matchMedia && window.matchMedia('(max-width:860px)').matches);
+  const eqRowNoTasca =
+      invCellPip('equip.arma',     y.equip.arma,      {label:'Arma',        icon:'pi-weapon', base:'+1'})
+    + invCellPip('equip.armatura', y.equip.armatura,  {label:'Armatura',    icon:'pi-armor',  base:'+'+BASE_EQUIP.armatura})
+    + invCellPip('equip.casco',    y.equip.casco,     {label:'Casco',       icon:'pi-helmet', base:'+1'})
+    + invCellPip('equip.gadget.0', y.equip.gadget[0], {label:'Gadget 1',    icon:'pi-gadget'})
+    + invCellPip('equip.gadget.1', y.equip.gadget[1], {label:'Gadget 2',    icon:'pi-gadget'});
+  const tascaCell = invCellPip('equip.tasca', y.equip.tasca, {label:'Tasca sicura', icon:'pi-lock', safe:true});
+  const invGridPipMobile = `
+      <div class="inv-pip inv-pip-m">
+        <div class="invsec-lab">Equipaggio · ⚔ +${y.equipScore} · <span class="dim">tocca una carta per le azioni · scorri ⟶</span></div>
+        <div class="inv-row-scroll inv-eqrow">${eqRowNoTasca}</div>
+        <div class="invsec-lab" style="margin-top:12px">Zaino centrale <span class="dim">${y.pack.centro.length}/${PACK_CAP.centro}</span></div>
+        <div class="inv-row-scroll">${packZonePip('centro')}</div>
+        <div class="invsec-lab" style="margin-top:12px">Tasca sicura & tasche laterali <span class="dim">— si bloccano con Ossa rotte / Veleno</span></div>
+        <div class="inv-row-scroll">${tascaCell}${packZonePip('sx')}${packZonePip('dx')}</div>
+      </div>`;
+  const invGrid = pip ? ( isMobInv ? invGridPipMobile : `
       <div class="inv-pip">
         <div class="invsec-lab">Equipaggiamento · ⚔ +${y.equipScore} · ogni slot mostra cosa inserire · trascina per spostare, tocca per le azioni</div>
         <div class="inv-eqrow">${eqRow}</div>
         <div class="invsec-lab" style="margin-top:14px">Zaino ${packTotal()}/6 — <span class="dim">le tasche laterali si bloccano con Ossa rotte / Veleno</span></div>
         <div class="inv-zwrap">${packSections().map(packZonePip).join("")}</div>
-      </div>` : `
+      </div>`) : `
       <div class="inv-grid">
         <div><div class="inv-colh">🎒 ZAINO <span class="dim small">${packTotal()}/6</span></div>${packCol}</div>
         <div><div class="inv-colh">🔒 TASCA / 🔧 GADGET</div>${midCol}</div>
