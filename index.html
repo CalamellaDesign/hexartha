@@ -500,6 +500,52 @@
     .lobby-card{grid-template-columns:1fr}
     .lobby-side{border-left:none;border-top:1px solid var(--border)}
   }
+  /* ============================================================
+     BLOCCO 9 — Tema Pip-Boy applicato al LAYOUT MOBILE.
+     Solo body.theme-pipboy sotto 860px; nessuna logica toccata.
+     Veste il chrome mobile-specifico (FAB, top bar, drawer, malus,
+     zoom) coi fosfori verdi, come il rail/azioni del desktop. Vince
+     sulle regole Classica per specificità (body.theme-pipboy …).
+     ============================================================ */
+  @media (max-width:860px){
+    /* Emoji → SVG nel chrome mobile (trucco .ic{font-size:0} + .pip-ic) */
+    body.theme-pipboy #m-topbar .ic,
+    body.theme-pipboy #m-fab-left .ic, body.theme-pipboy #m-fab-right .ic,
+    body.theme-pipboy #m-drawer .md-ic.ic{ font-size:0; }
+    body.theme-pipboy #m-malus .mm-ic{ font-size:0; }
+    body.theme-pipboy #m-topbar .mt-lab .ic .pip-ic{ display:inline-block; width:12px; height:12px; }
+    body.theme-pipboy #m-topbar .mt-coins .ic .pip-ic{ display:inline-block; width:15px; height:15px; }
+    body.theme-pipboy #m-fab-left .ic .pip-ic, body.theme-pipboy #m-fab-right .ic .pip-ic{ display:inline-block; width:26px; height:26px; }
+    body.theme-pipboy #m-drawer .md-ic.ic .pip-ic{ display:inline-block; width:20px; height:20px; }
+    body.theme-pipboy #m-malus .mm-ic .pip-ic{ display:inline-block; width:16px; height:16px; color:var(--dim); }
+    body.theme-pipboy #m-malus .mm-ic.on .pip-ic{ color:var(--rust); filter:drop-shadow(0 0 5px rgba(224,96,58,.6)); }
+
+    /* Etichette col font a stampino del tema */
+    body.theme-pipboy #m-topbar .mt-lab,
+    body.theme-pipboy #m-drawer .md-item,
+    body.theme-pipboy #m-drawer .md-head .stencil{ font-family:"Silkscreen","Arial Narrow",sans-serif; }
+
+    /* FAB = equivalente mobile del rail desktop: verde fosforico, non ruggine */
+    body.theme-pipboy .m-fab{ border-color:var(--border2); color:var(--gold); border-radius:3px;
+      background:linear-gradient(180deg,var(--panel2),var(--panel));
+      box-shadow:0 3px 14px rgba(0,0,0,.55), inset 0 0 0 1px rgba(116,242,122,.05); }
+    body.theme-pipboy .m-fab:active{ border-color:var(--gold); filter:brightness(1.12);
+      box-shadow:0 0 12px rgba(116,242,122,.4); }
+
+    /* Hamburger / zoom: bordo verde su tocco */
+    body.theme-pipboy #m-burger:active,
+    body.theme-pipboy #m-zoom .mz-btn:active{ border-color:var(--gold); box-shadow:0 0 10px rgba(116,242,122,.4); }
+
+    /* Cuori extra: verde brillante quando pieni, verde scuro quando vuoti
+       (invece dell'azzurro off-palette). I base restano rossi = vita/sangue. */
+    body.theme-pipboy #m-hearts .mh.extra{ color:#1b3320; }
+    body.theme-pipboy #m-hearts .mh.extra.on{ color:var(--gold2); text-shadow:0 0 5px rgba(155,255,159,.7); }
+
+    /* Box azioni della bottom bar: cornice verde tenue, glow verde su tocco */
+    body.theme-pipboy .actionsbar .ab-btns .btn:not(#a-end){ border-color:var(--border2); }
+    body.theme-pipboy .actionsbar .ab-btns .btn:not(#a-end):not(:disabled):active{
+      border-color:var(--gold); box-shadow:0 0 10px rgba(116,242,122,.35); }
+  }
   /* --- Landscape su telefono: invita a ruotare in verticale (Fase 5) --- */
   @media (orientation:landscape) and (max-height:500px){
     #m-rotate{display:flex;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;
@@ -1501,7 +1547,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
   <!-- ===== MOBILE CHROME (Fase 1) — visibile solo sotto 860px ===== -->
   <div id="m-topbar" role="toolbar">
     <button id="m-plancia" class="mt-cell" onclick="toggleMobilePlancia()" title="Apri il diario / plancia del giorno">
-      <span class="mt-lab">📖 Diario</span>
+      <span class="mt-lab"><span class="ic">📖<svg class="pip-ic"><use href="#pi-manual"/></svg></span> Diario</span>
       <span class="mt-day"><b id="m-day">1</b><span class="dim" id="m-total">/18</span><span id="m-period">L'inizio</span><span class="mt-chev">▾</span></span>
     </button>
     <div class="mt-cell mt-turn">
@@ -1513,35 +1559,35 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <span id="m-time">3:00</span>
     </div>
     <div class="mt-cell mt-vite" title="Vite (max 5: 3 base + 2 extra)"><div id="m-hearts"></div></div>
-    <div class="mt-cell mt-coins" title="Monete">🪙<b id="m-coinval">3</b></div>
+    <div class="mt-cell mt-coins" title="Monete"><span class="ic">🪙<svg class="pip-ic"><use href="#pi-coin"/></svg></span><b id="m-coinval">3</b></div>
     <button id="m-burger" class="mt-cell" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
   </div>
   <div id="m-drawer-scrim" onclick="toggleMobileMenu(false)"></div>
   <nav id="m-drawer" aria-label="Funzioni secondarie">
     <div class="md-head"><span class="stencil">Menu</span><button class="md-x" onclick="toggleMobileMenu(false)" aria-label="Chiudi">✕</button></div>
-    <button class="md-item" onclick="toggleMobileMenu(false);toggleCronaca()"><span class="md-ic">🗒</span><span>Cronaca</span><span class="md-cbadge zero" id="md-cron-badge">0</span></button>
-    <button class="md-item" onclick="mMenu(openDeposito)"><span class="md-ic">🗄️</span><span>Magazzino</span></button>
-    <button class="md-item" onclick="mMenu(openCardsBrowser)"><span class="md-ic">📚</span><span>Mazzi &amp; incontri</span></button>
-    <button class="md-item" onclick="mMenu(openManual)"><span class="md-ic">📖</span><span>Manuale di gioco</span></button>
+    <button class="md-item" onclick="toggleMobileMenu(false);toggleCronaca()"><span class="md-ic ic">🗒<svg class="pip-ic"><use href="#pi-log"/></svg></span><span>Cronaca</span><span class="md-cbadge zero" id="md-cron-badge">0</span></button>
+    <button class="md-item" onclick="mMenu(openDeposito)"><span class="md-ic ic">🗄️<svg class="pip-ic"><use href="#pi-mag"/></svg></span><span>Magazzino</span></button>
+    <button class="md-item" onclick="mMenu(openCardsBrowser)"><span class="md-ic ic">📚<svg class="pip-ic"><use href="#pi-deck"/></svg></span><span>Mazzi &amp; incontri</span></button>
+    <button class="md-item" onclick="mMenu(openManual)"><span class="md-ic ic">📖<svg class="pip-ic"><use href="#pi-manual"/></svg></span><span>Manuale di gioco</span></button>
     <div class="md-sep"></div>
-    <button class="md-item" id="md-audio" onclick="mToggleAudio()"><span class="md-ic">🔊</span><span>Audio: attivo</span></button>
+    <button class="md-item" id="md-audio" onclick="mToggleAudio()"><span class="md-ic ic">🔊<svg class="pip-ic"><use href="#pi-audio"/></svg></span><span>Audio: attivo</span></button>
     <div class="md-sep"></div>
     <button class="md-item danger" onclick="toggleMobileMenu(false);abandonGame()"><span class="md-ic">🚪</span><span>Abbandona partita</span></button>
   </nav>
   <!-- Floating button (Fase 2). Sinistra: missioni sopra, equip sotto. Destra: chat e cronaca separati. -->
   <div id="m-fab-left" class="m-fabcol">
-    <button class="m-fab" onclick="openMissions()" aria-label="Missioni" title="Missioni">📜<span class="m-fab-badge zero" id="m-fab-miss">0</span></button>
-    <button class="m-fab" onclick="openInventory()" aria-label="Inventario / Equip" title="Inventario / Equip">🎒</button>
+    <button class="m-fab" onclick="openMissions()" aria-label="Missioni" title="Missioni"><span class="ic">📜<svg class="pip-ic"><use href="#pi-mission"/></svg></span><span class="m-fab-badge zero" id="m-fab-miss">0</span></button>
+    <button class="m-fab" onclick="openInventory()" aria-label="Inventario / Equip" title="Inventario / Equip"><span class="ic">🎒<svg class="pip-ic"><use href="#pi-inv"/></svg></span></button>
   </div>
   <div id="m-fab-right" class="m-fabcol">
-    <button class="m-fab" onclick="openCommerce()" aria-label="Commercio" title="Commercio">🤝</button>
-    <button class="m-fab" onclick="openCrafting()" aria-label="Crafting" title="Crafting">🛠</button>
-    <button class="m-fab" id="m-fab-chatbtn" style="display:none" onclick="toggleChat()" aria-label="Chat" title="Chat">💬<span class="m-fab-badge zero" id="m-fab-chat">0</span></button>
+    <button class="m-fab" onclick="openCommerce()" aria-label="Commercio" title="Commercio"><span class="ic">🤝<svg class="pip-ic"><use href="#pi-trade"/></svg></span></button>
+    <button class="m-fab" onclick="openCrafting()" aria-label="Crafting" title="Crafting"><span class="ic">🛠<svg class="pip-ic"><use href="#pi-craft"/></svg></span></button>
+    <button class="m-fab" id="m-fab-chatbtn" style="display:none" onclick="toggleChat()" aria-label="Chat" title="Chat"><span class="ic">💬<svg class="pip-ic"><use href="#pi-chat"/></svg></span><span class="m-fab-badge zero" id="m-fab-chat">0</span></button>
   </div>
   <div id="m-malus" aria-label="Malus attivi">
-    <span class="mm-ic" data-k="emorragia" onclick="showStateInfo('emorragia')" title="Emorragia">🩸</span>
-    <span class="mm-ic" data-k="ossa" onclick="showStateInfo('ossa')" title="Ossa rotte">🦴</span>
-    <span class="mm-ic" data-k="avvelenato" onclick="showStateInfo('avvelenato')" title="Avvelenato">☠️</span>
+    <span class="mm-ic" data-k="emorragia" onclick="showStateInfo('emorragia')" title="Emorragia">🩸<svg class="pip-ic"><use href="#pi-bleed"/></svg></span>
+    <span class="mm-ic" data-k="ossa" onclick="showStateInfo('ossa')" title="Ossa rotte">🦴<svg class="pip-ic"><use href="#pi-bone"/></svg></span>
+    <span class="mm-ic" data-k="avvelenato" onclick="showStateInfo('avvelenato')" title="Avvelenato">☠️<svg class="pip-ic"><use href="#pi-poison"/></svg></span>
   </div>
   <div id="m-zoom">
     <button class="mz-btn" onclick="mapZoomStep(0.5)" aria-label="Ingrandisci">＋</button>
