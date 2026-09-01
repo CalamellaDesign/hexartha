@@ -5451,6 +5451,7 @@ function buildOpponents(){
     const pl=i+2;                       // P2, P3, P4
     const campKey=CAMP_OF[pl];
     const o={name:f.name, color:f.color, player:pl, campKey,
+             id:'bot_'+pl, isBot:!!f.isBot,   // id → abilita il PvP (pvpTargetsOnTile richiede o.id); isBot → voto/saccheggio automatico
              tile:tileMap.get(campKey), extractKey:EXTRACTION_OF[pl], hidden:false,
              hp:3, maxhp:3,
              equip:{arma:pickBySlot(DECK_MILITARE,"arma"), armatura:pickBySlot(DECK_MILITARE,"armatura"),
@@ -8504,8 +8505,9 @@ function pvpVote(choice){
     log(`💀 Resa dei conti — scontro inevitabile con <b>${foe.name}</b>.`,"bad");
     return pvpStartPrep(pvpFight);
   }
+  // I BOT votano sempre PACE: lo scontro parte solo se sei TU a scegliere Lotta (o nella Resa dei conti).
   const stronger=oppEquipScore(foe)>=state.you.equipScore;
-  const foeChoice=((stronger? Math.random()<0.7 : Math.random()<0.35) ? 'fight':'peace');
+  const foeChoice = foe.isBot ? 'peace' : ((stronger? Math.random()<0.7 : Math.random()<0.35) ? 'fight':'peace');
   state.pvp.foeChoice=foeChoice;
   log(`⚖ Voto PvP: Tu → ${choice==='fight'?'Lotta':'Pace'} · ${foe.name} → ${foeChoice==='fight'?'Lotta':'Pace'}.`);
   if(choice==='peace' && foeChoice==='peace') pvpPeace();
@@ -8651,7 +8653,31 @@ function pvpLose(){
       <button class="btn primary" onclick="pvpLoseDone()">Torna alla base</button>
     </div>`);
 }
+// Un BOT vincitore prende le tue carte migliori (equip + zaino, NON la Tasca sicura): prima gli
+// oggetti speciali/di missione, poi quelli di più valore, finché ha spazio nello zaino (il resto è perso).
+function botLootYou(bot){
+  const y=state.you; const loot=[];
+  ['arma','armatura','casco'].forEach(k=>{ if(y.equip[k]) loot.push(y.equip[k]); });
+  (y.equip.gadget||[]).forEach(g=>{ if(g) loot.push(g); });
+  packSections().forEach(s=> (y.pack[s]||[]).forEach(it=>loot.push(it)) );
+  if(!loot.length) return;
+  const prio=it=> (it.discoSegreto?3:0) + ((it.special||it.mission)?2:0) + Math.min(1,(it.val||0)/10);
+  loot.sort((a,b)=> prio(b)-prio(a) || (b.val||0)-(a.val||0));
+  if(!Array.isArray(bot.pack)) bot.pack=[];
+  const CAP=6; const taken=[];
+  for(const it of loot){
+    if(['arma','armatura','casco'].includes(it.slot)){                 // migliora l'equip se conviene
+      const cur=bot.equip[it.slot]?(bot.equip[it.slot].val||1):(BASE_EQUIP[it.slot]||1);
+      if((it.val||1)>cur){ bot.equip[it.slot]=it; taken.push(it.name); continue; }
+    }
+    if(bot.pack.length<CAP){ bot.pack.push(it); taken.push(it.name); }   // altrimenti nello zaino finché c'è spazio
+  }
+  bot.equipScore=oppEquipScore(bot);
+  if(taken.length) log(`🎒 <b>${bot.name}</b> ti saccheggia: ${taken.map(escapeHtml).join(', ')}${taken.length<loot.length?' <span class="dim">(il resto è perso)</span>':''}.`,"bad");
+}
 function pvpLoseDone(){
+  const foe=state.pvp && state.pvp.foe;
+  if(foe && foe.isBot) botLootYou(foe);   // il bot vincitore prende le tue carte migliori PRIMA che vadano perse
   state.you.weaponUsedThisTurn=false; deathCleanup(); closeModal();
   if(mpGame){ patchRoom(s=>{ s.pvp=null; }); }   // l'esito (mia morte) viene pubblicato a fine turno
   state.pvp=null; afterTurnResolved();
