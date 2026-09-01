@@ -10832,23 +10832,28 @@ function tutStart(){
     try{ closeModal(); }catch(_){}
     try{ beginYourTurn(); }catch(_){}
     try{ stopTurnTimer(); }catch(_){}
-    tutRun(tutIsMobile()? TUT_HUD_MOBILE() : TUT_HUD_DESKTOP());
+    tutRun(tutIsMobile()? TUT_HUD_MOBILE() : TUT_HUD_DESKTOP(), tutMenu);
   }, 260);
 }
-function tutRun(steps){
-  _tutSteps=steps.filter(s=>!s.sel || document.querySelector(s.sel));   // scarta gli step il cui target non c'è
+let _tutOnEnd=null;
+function tutRun(steps, onEnd){
+  _tutOnEnd = onEnd || tutEnd;
+  _tutSteps=steps.filter(s=>{ if(!s.sel) return true; const el=document.querySelector(s.sel); return el && el.offsetParent!==null; });   // scarta gli step il cui target manca o è nascosto
   _tutIdx=0;
   document.getElementById('tut-root').classList.add('on');
+  document.getElementById('tut-next').style.display='';
   tutShow();
 }
 function tutShow(){
   const root=document.getElementById('tut-root');
   const s=_tutSteps[_tutIdx];
-  if(!s){ return tutEnd(); }
+  if(!s){ return (_tutOnEnd||tutEnd)(); }
   document.getElementById('tut-tip-title').textContent = s.title||'Tutorial';
   document.getElementById('tut-tip-text').innerHTML = s.text||'';
   document.getElementById('tut-count').textContent = (_tutIdx+1)+'/'+_tutSteps.length;
-  document.getElementById('tut-next').textContent = (_tutIdx>=_tutSteps.length-1)?'Fine ✓':'Avanti ▸';
+  document.getElementById('tut-next').style.display='';
+  const last=_tutIdx>=_tutSteps.length-1;
+  document.getElementById('tut-next').textContent = last ? ((_tutOnEnd&&_tutOnEnd!==tutEnd)?'Continua ▸':'Fine ✓') : 'Avanti ▸';
   const hole=document.getElementById('tut-hole'), tip=document.getElementById('tut-tip');
   const el = s.sel ? document.querySelector(s.sel) : null;
   if(el){
@@ -10894,7 +10899,7 @@ function TUT_HUD_DESKTOP(){ return [
   {sel:'#hud-right',   title:'Il tuo stato',  text:'<b>Vita</b>, <b>monete</b>, <b>fama</b> e <b>malus</b>. Sotto: l\'<b>evento del giorno</b> e l\'anteprima dell\'<b>inventario</b> (clic per gestirlo).'},
   {sel:'.mapwrap',     title:'La mappa',      text:'Il territorio a esagoni: ti muovi di casella in casella. Le zone verso il centro sono più pericolose ma più ricche.'},
   {sel:'#hud-actions', title:'Le azioni',     text:'I <b>pallini</b> indicano movimento e azioni rimaste. I pulsanti (<b>Muoviti · Cerca · Nasconditi</b>…) cambiano col contesto. A destra la CTA per <b>terminare il turno</b>.'},
-  {title:'Pronto', text:'Questo era il giro dell\'interfaccia. Nel <b>prossimo aggiornamento</b> ti farò <b>provare le azioni</b> passo passo: muoviti, cerca, incontri, PvP, avamposto e consegna missioni.'},
+  {title:'Ora le azioni', text:'Fine del giro dell\'interfaccia. Adesso ti mostro le <b>azioni</b> una per una: potrai scegliere quale vedere.'},
 ]; }
 function TUT_HUD_MOBILE(){ return [
   {title:'🎓 Benvenuto', text:'Ti mostro l\'interfaccia <b>mobile</b>, poi (a breve) le azioni. Usa <b>Avanti ▸</b> o <b>Esci</b>.'},
@@ -10904,8 +10909,84 @@ function TUT_HUD_MOBILE(){ return [
   {sel:'#m-fab-right', title:'Commercio & Cronaca', text:'In basso a destra: <b>commercio/crafting</b> e la <b>cronaca/chat</b>.'},
   {sel:'#m-zoom',      title:'Zoom mappa',    text:'Ingrandisci/rimpicciolisci la mappa; puoi anche fare <b>pinch</b> e trascinarla con un dito.'},
   {sel:'.actionsbar',  title:'Le azioni',     text:'In basso: i <b>pallini</b> (movimento/azioni rimaste) e i pulsanti azione, con a destra la CTA per <b>terminare il turno</b>.'},
-  {title:'Pronto', text:'Fine del giro dell\'interfaccia. Nel <b>prossimo aggiornamento</b> ti farò <b>provare le azioni</b>: muoviti, cerca, incontri, PvP, avamposto e consegna.'},
+  {title:'Ora le azioni', text:'Fine del giro dell\'interfaccia. Adesso ti mostro le <b>azioni</b> una per una: potrai scegliere quale vedere.'},
 ]; }
+
+// --- FASE 2: scenari "prova le azioni" con menu "AVANZA A…" ---
+// tutStage: imposta il contesto reale (posizione/fase) così i pulsanti giusti compaiono e si possono evidenziare.
+function tutStage(opts){
+  opts=opts||{}; const y=state.you;
+  if(opts.camp){ y.tile=tileMap.get(y.campKey); }
+  else if(opts.tileType){ const t=[...tileMap.values()].find(x=>x.type===opts.tileType); if(t) y.tile=t; }
+  y.hidden=false;
+  state.phase=opts.phase||'actions';
+  state.actionsLeft=(opts.actionsLeft!=null)?opts.actionsLeft:2;
+  state.movedFirst=(opts.movedFirst!=null)?opts.movedFirst:true;
+  y.safeTurnPending=!!opts.safeTurnPending;
+  try{ stopTurnTimer(); }catch(_){}
+  try{ recalcStats(); }catch(_){}
+  try{ drawPawn(); }catch(_){}
+  try{ updateActionUI(); }catch(_){}
+  try{ renderHUD(); }catch(_){}
+  try{ opts.reach ? showReach() : clearReach(); }catch(_){}
+}
+function TUT_SCENARIOS(){ return [
+  {id:'move', label:'🥾 Muoviti', run:()=>{ tutStage({camp:true, phase:'move', movedFirst:false, actionsLeft:2, reach:true});
+    tutRun([
+      {sel:'.mapwrap', title:'Muoviti', text:'A inizio turno <b>devi muoverti</b>: tocca una casella <b>evidenziata</b> adiacente. Hai 2 azioni a turno; la prima è il movimento obbligatorio.'},
+      {sel:'#a-move',  title:'Spostati ancora', text:'Con le azioni residue puoi <b>spostarti di nuovo</b> (una casella per azione) per esplorare o raggiungere un obiettivo.'},
+    ], tutMenu); }},
+  {id:'search', label:'🔎 Cerca', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:2});
+    tutRun([
+      {sel:'#a-search', title:'Cerca', text:'In una zona non sicura puoi <b>Cercare</b>: peschi carte (oggetti, armi, medicine…) spendendo 1 azione. Nelle zone <b>militari</b> trovi equipaggiamento migliore.'},
+    ], tutMenu); }},
+  {id:'hide', label:'🌑 Nasconditi', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:2});
+    tutRun([
+      {sel:'#a-hide', title:'Nasconditi', text:'<b>Nasconderti</b> ti fa saltare l\'incontro di fine turno: nessun nemico ti trova. Costa 1 azione — utile quando sei ferito.'},
+    ], tutMenu); }},
+  {id:'pve', label:'⚔ Incontro (PvE)', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:0});
+    tutRun([
+      {sel:'#a-end', title:'Incontro', text:'Se <b>termini il turno</b> in una zona pericolosa (e non sei nascosto) parte un <b>incontro</b>: appare un nemico da affrontare.'},
+      {title:'Come si combatte', text:'Tiri <b>2 dadi + il tuo Equipaggiamento</b> contro il nemico: il più basso perde vita, fino alla sconfitta. Puoi anche <b>fuggire</b> (1 dado) o usare i <b>gadget</b>.'},
+    ], tutMenu); }},
+  {id:'pvp', label:'🗡 Scontro (PvP)', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:0});
+    tutRun([
+      {title:'Scontro tra giocatori', text:'Se finisci sulla <b>casella di un altro giocatore</b> (o bot) parte il <b>PvP</b>: prima si <b>vota</b> Lotta o Pace. Basta un voto Lotta per combattere (nella "Resa dei conti" si combatte sempre).'},
+      {title:'Vincitore e bottino', text:'Si combatte a dadi come nel PvE. Chi <b>vince saccheggia</b> il perdente: prende gli oggetti (equip + zaino), <b>tranne la Tasca sicura</b>.'},
+    ], tutMenu); }},
+  {id:'base', label:'🏠 Turno base', run:()=>{ tutStage({camp:true, phase:'base', movedFirst:true, actionsLeft:0, safeTurnPending:false});
+    tutRun([
+      {sel:'#a-store', title:'Turno di gestione', text:'Al tuo <b>accampamento</b> hai un turno di <b>gestione</b>: niente movimento, ma usi il <b>Magazzino</b> per mettere/prendere oggetti al sicuro (non si perdono se muori).'},
+      {sel:'#a-trade', title:'Commercia', text:'Nelle zone sicure puoi <b>commerciare</b> coi ricettatori: vendi il superfluo e compra equipaggiamento e medicine.'},
+    ], tutMenu); }},
+  {id:'outpost', label:'📦 Avamposto & consegna', run:()=>{ tutStage({tileType:'avamposto', phase:'base', movedFirst:true, actionsLeft:0, safeTurnPending:false});
+    tutRun([
+      {sel:'#a-deliver', title:'Consegna missioni', text:'Gli <b>avamposti</b> sono zone sicure dove <b>consegni le missioni</b>: se hai gli oggetti richiesti li consegni e guadagni <b>FAMA</b>. Alla <b>5ª stella</b> di fama <b>vinci la partita</b>.'},
+    ], tutMenu); }},
+]; }
+function tutMenu(){
+  _tutActive=true; _tutOnEnd=tutEnd;
+  const root=document.getElementById('tut-root'); root.classList.add('on','center');
+  const hole=document.getElementById('tut-hole'); hole.style.left='50%'; hole.style.top='50%'; hole.style.width='0'; hole.style.height='0';
+  const tip=document.getElementById('tut-tip'); tip.style.transform='translate(-50%,-50%)'; tip.style.left='50%'; tip.style.top='50%';
+  document.getElementById('tut-tip-title').textContent='🎓 Prova le azioni';
+  document.getElementById('tut-tip-text').innerHTML='Scegli cosa vedere — <b>AVANZA A…</b>'
+    + '<div id="tut-jumps">'
+    + TUT_SCENARIOS().map(s=>`<button class="btn" onclick="tutRunScenario('${s.id}')">${s.label}</button>`).join('')
+    + '<button class="btn primary" onclick="tutPlayNow()">▶ Gioca ora (pratica libera)</button>'
+    + '</div>';
+  document.getElementById('tut-count').textContent='';
+  document.getElementById('tut-next').style.display='none';   // nel menu niente "Avanti"
+}
+function tutRunScenario(id){ const s=TUT_SCENARIOS().find(x=>x.id===id); if(s){ document.getElementById('tut-root').classList.remove('center'); s.run(); } }
+function tutPlayNow(){
+  _tutActive=false;
+  const root=document.getElementById('tut-root'); root.classList.remove('on','center');
+  document.getElementById('tut-next').style.display='';
+  try{ tutStage({camp:true, phase:'move', movedFirst:false, actionsLeft:2, reach:true}); }catch(_){}
+  try{ startTurnTimer(); }catch(_){}
+  try{ log('🎓 Tutorial concluso: ora giochi liberamente in solitaria. Buona fortuna!','evt'); }catch(_){}
+}
 
 (function(){ setTheme('pipboy'); })();   // tema unico: Pip-Boy sempre attivo
 </script>
