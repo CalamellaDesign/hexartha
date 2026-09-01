@@ -300,8 +300,8 @@
   .chat-tab{flex:none;border-left-color:var(--brace)}
   .cron-tab.active{border-color:var(--rust)}
   /* --- Pannello chat (stesso spazio della cronaca) --- */
-  .chatbox{height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#1c1c20,#161618);
-    border:1px solid var(--border2);border-radius:4px;box-shadow:0 6px 20px rgba(0,0,0,.7);overflow:hidden}
+  .chatbox{height:100%;display:flex;flex-direction:column;background:#0a0a0c;
+    border:1px solid var(--border);border-radius:5px;box-shadow:0 6px 20px rgba(0,0,0,.7);overflow:hidden}
   .chatlog{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:5px}
   .chat-msg{font-size:12px;line-height:1.35;word-break:break-word}
   .chat-msg .who{font-weight:bold;margin-right:5px}
@@ -310,7 +310,7 @@
   .chatform{display:flex;gap:6px;padding:7px;border-top:1px solid var(--border2);background:rgba(0,0,0,.25)}
   .chatform input{flex:1;min-width:0;background:#0f0f11;border:1px solid var(--border2);border-radius:4px;
     color:var(--text);font-family:inherit;font-size:12px;padding:7px 9px}
-  .chatform input:focus{outline:none;border-color:var(--rust)}
+  .chatform input:focus{outline:none;border-color:var(--gold)}
   .chatform .btn{flex:none;padding:7px 12px;font-size:12px}
   /* --- Inventario (modale): sezioni etichettate, slot vuoti disegnati --- */
   .inv-colh{font-size:11px;border-bottom:1px solid var(--border2);padding-bottom:4px;
@@ -531,6 +531,15 @@
     #turnorder-hud .pl-row{padding:2px 6px!important;background:rgba(0,0,0,.4)!important;border-radius:11px;gap:4px;align-items:center}
     #turnorder-hud .pl-row .to-name,#turnorder-hud .pl-row .to-cur{display:none!important}
     #turnorder-hud .pl-row .to-num{min-width:auto!important;font-size:11px!important}
+    /* Ordine turni + Malus: STESSA ALTEZZA, senza la linea rossa in alto */
+    .turnorder-float,#m-malus{border-top:1px solid var(--border2)!important;min-height:34px;box-sizing:border-box;
+      display:flex;align-items:center;padding-top:4px;padding-bottom:4px}
+    /* Carte in eccesso (bottino zaino pieno) e Saccheggio: barra a SCORRIMENTO ORIZZONTALE
+       (non impilate verticalmente → meno spazio verticale). #overlay per vincere
+       sulle regole base .loot-pend-row che stanno più in basso nel sorgente. */
+    #overlay .loot-pend-row{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+    #overlay .loot-pend-row .inv-card{flex:0 0 auto!important;width:118px!important;min-width:118px;max-width:118px;margin-top:0}
+    #overlay .revive-grid .loot-pend-row .inv-card{width:118px!important}
 
     /* --- Lobby / creazione stanza / join: schermata scrollabile su mobile --- */
     #lobby.active,#join.active{display:block;overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -10086,7 +10095,7 @@ function renderInventory(){
     sideSlot = invSlotHTML("🗄️ Magazzino (al sicuro)", (y.deposito||[]).length+"/15", depCards, "dep");
   } else if(spoil){
     const lootCards = (_lootRemaining||[]).length ? _lootRemaining.map((it,i)=>invCardHTML(`spoil.${i}`,it)).join("") : `<div class="inv-empty">niente da saccheggiare</div>`;
-    sideSlot = invSlotHTML("☠ Bottino del nemico", (_lootRemaining||[]).length+" carte", lootCards, "spoil");
+    sideSlot = invSlotHTML("☠ Bottino del nemico", (_lootRemaining||[]).length+" carte", `<div class="loot-pend-row">${lootCards}</div>`, "spoil");
   }
   const body = (rev||spoil)
     ? `<div class="revive-grid"><div>${sideSlot}</div><div>${invGrid}</div></div>`
