@@ -1583,6 +1583,16 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <div class="dim small">GIOCATORI IN SALA</div>
       <ul class="players" id="playerlist"></ul>
 
+      <!-- BOT: gioco offline tu + bot (l'host guida i bot sul proprio device) -->
+      <div id="botzone" style="margin-top:16px;display:none">
+        <div class="dim small" style="margin-bottom:6px">🤖 GIOCA CONTRO I BOT <span class="dim">(offline · basta 1 bot)</span></div>
+        <ul class="players" id="botlist"></ul>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn" id="addbot-btn" onclick="addLocalBot()">➕ Aggiungi BOT</button>
+          <button class="btn primary" id="startbot-btn" onclick="startBotGame()" style="display:none">▶ Avvia vs BOT</button>
+        </div>
+      </div>
+
       <div style="margin-top:18px">
         <div class="dim small" style="margin-bottom:6px">MODALITÀ DI GIOCO</div>
         <div style="display:flex;gap:12px">
@@ -3275,7 +3285,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 // ---------- Creazione stanza (host) ----------
 async function createRoom(){
   const name=(prompt("Come ti chiami?","Host")||"Host").trim().slice(0,20)||"Host";
-  myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false;
+  myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false; localBots=[];
   const st={hostId:myId, phase:"lobby", gameMode:"classica", rev:0,   // rev: contatore per il lock ottimistico delle scritture
             players:[{id:myId,name,color:COLORS[0]}]};
   const {error}=await SB.from("rooms").insert({code:roomCode, state:st});
@@ -3428,8 +3438,9 @@ function renderPlayers(){
   const closebtn=document.getElementById("closebtn");
   if(closebtn) closebtn.textContent=isHost?"Chiudi stanza":"Esci dalla stanza";
   document.getElementById("lobbyhint").textContent =
-    isHost ? (n<2?"Servono almeno 2 giocatori.":`${n} giocatori in sala — puoi avviare.`)
+    isHost ? (n<2?"Servono almeno 2 giocatori (o aggiungi un BOT qui sotto).":`${n} giocatori in sala — puoi avviare.`)
            : `In attesa che l'host avvii… (${n} in sala)`;
+  renderBotList();   // sezione BOT (offline), solo host
 }
 
 // ---------- Avvio (host) ----------
@@ -3441,6 +3452,43 @@ function hostStartGame(){
     const game=mpBuildGame(players, net.gameMode);   // costruisce UNA partita condivisa
     patchRoom(s=>{ s.phase="playing"; s.game=game; });
   });
+}
+
+// ---------- BOT: gioco offline "tu + bot" (l'host guida i bot sul proprio device) ----------
+let localBots=[];   // [{name,color}] configurati nella lobby
+function addLocalBot(){
+  if(localBots.length>=3) return;                          // max 3 bot (tu + 3 = 4 giocatori/campi)
+  localBots.push({name:'BOT '+(localBots.length+1), color:COLORS[(localBots.length+1)%COLORS.length]});
+  renderBotList();
+}
+function removeLocalBot(i){
+  localBots.splice(i,1);
+  localBots.forEach((b,k)=>{ b.name='BOT '+(k+1); b.color=COLORS[(k+1)%COLORS.length]; });   // rinumera BOT 1/2/3
+  renderBotList();
+}
+function renderBotList(){
+  const zone=document.getElementById('botzone'); if(!zone) return;
+  zone.style.display=isHost?'':'none';                     // solo l'host avvia il gioco coi bot
+  const ul=document.getElementById('botlist');
+  if(ul) ul.innerHTML=localBots.map((b,i)=>`<li><span class="pdot" style="color:${b.color};background:${b.color}"></span>
+    <span>${escapeHtml(b.name)}</span>
+    <button class="you" style="cursor:pointer;border:none;background:none;color:var(--rust)" onclick="removeLocalBot(${i})" title="Rimuovi">✕ togli</button></li>`).join("");
+  const add=document.getElementById('addbot-btn'); if(add) add.disabled=localBots.length>=3;
+  const st=document.getElementById('startbot-btn'); if(st) st.style.display=localBots.length>=1?'':'none';
+}
+// Avvia una partita LOCALE: tu + i bot configurati. I bot sono gli avversari, simulati a fine di ogni tuo turno.
+function startBotGame(){
+  if(!localBots.length){ return; }
+  const gm=(net&&net.gameMode) || (document.querySelector('input[name=gamemode]:checked')||{}).value || 'classica';
+  const bots=localBots.slice();
+  try{ leaveCleanup(); }catch(_){}   // stacca da Supabase: da qui è tutto locale
+  mpGame=null; gameStarted=false;
+  state=fresh();
+  state.gameMode=gm;
+  state.players=[{name:'Tu', you:true, color:COLORS[0]},
+                 ...bots.map(b=>({name:b.name, color:b.color, isBot:true}))];
+  startGame();   // costruisce i bot come avversari + missioni/mappa/evento → poi "Inizia il turno"
+  log(`🤖 Partita contro <b>${bots.length}</b> bot avviata. Buona fortuna.`,"evt");
 }
 
 // ---------- Chiusura stanza dalla LOBBY ----------
@@ -7098,11 +7146,18 @@ function afterTurnResolved(){
   // (vecchio comportamento solitario, non più usato online)
   simulateOpponents(()=>{
     if(state.you.fama>=5){return victory();}
+    const botWin=(state.opponents||[]).find(o=>(o.fama||0)>=5);   // un BOT ha raggiunto 5 fama → vince lui
+    if(botWin){ log(`🏁 <b>${escapeHtml(botWin.name)}</b> raggiunge 5 fama e vince la partita.`,"bad"); return showEndScreen(`${botWin.name} ha raggiunto 5 punti fama: ha vinto la partita.`); }
     const totalDays=(state.gameMode==="hardcore")?23:18;
     if(state.day>=totalDays){return gameOver();}
     newDay(false);
   });
 }
+// Distanza approssimata tra tessere (coordinate esagonali) per far "puntare" i bot a un obiettivo.
+function botTileDist(a,b){ return Math.abs(a.col-b.col)+Math.abs(a.v-b.v); }
+function botNearestType(from,type){ let best=null,bd=1e9; tileMap.forEach(t=>{ if(t.type===type){ const d=botTileDist(from,t); if(d<bd){bd=d;best=t;} } }); return best; }
+// Turno dei BOT (avversari): IA semplice ma orientata a VINCERE — puntano agli avamposti per
+// consegnare (fama), equipaggiano oggetti migliori quando cercano, si nascondono o combattono.
 function simulateOpponents(done){
   const list=state.opponents||[];
   if(!list.length) return done();
@@ -7111,17 +7166,35 @@ function simulateOpponents(done){
     if(i>=list.length){ document.getElementById('turnof').textContent="Tu"; return done(); }
     const o=list[i++];
     document.getElementById('turnof').textContent=o.name;
-    // muovi la pedina in una casella adiacente valida (movimento pubblico)
+    // MOVIMENTO: spesso verso l'avamposto più vicino (per consegnare), altrimenti a caso.
     const opts=neighbors(o.tile).filter(n=>n.type!=="accampamento");
     const oMoved=opts.length>0;
-    if(oMoved) o.tile=opts[Math.floor(Math.random()*opts.length)];
+    if(oMoved){
+      const target=botNearestType(o.tile,"avamposto");
+      let dest=null;
+      if(target && Math.random()<0.55){ dest=opts.reduce((best,n)=> botTileDist(n,target)<botTileDist(best,target)?n:best, opts[0]); }
+      o.tile = dest || opts[Math.floor(Math.random()*opts.length)];
+    }
     o.hidden=false;
-    // azione pubblica; il contenuto delle carte pescate resta privato
+    // AZIONE: cerca (e prova a EQUIPAGGIARE qualcosa di meglio) · si nasconde · incontro.
     const r=Math.random();
     let act;
-    if(r<0.45)      act=`e <b>cerca</b> <span class="dim">(bottino privato)</span>`;
-    else if(r<0.70){ o.hidden=true; act=`e si <b>nasconde</b>`; }
-    else            act=`; affronta un incontro e ${Math.random()<0.7?'lo <b>vince</b>':'<b>fugge</b>'}`;
+    if(r<0.5){
+      act=`e <b>cerca</b>`;
+      const it=drawFrom("comune");
+      if(it && ["arma","armatura","casco"].includes(it.slot)){
+        const cur=o.equip[it.slot] ? (o.equip[it.slot].val||1) : (BASE_EQUIP[it.slot]||1);
+        if((it.val||1)>cur){ o.equip[it.slot]=it; o.equipScore=oppEquipScore(o);
+          act=`e <b>equipaggia ${escapeHtml(it.name)}</b> <span class="dim">(⚔ ${o.equipScore})</span>`; }
+      }
+    } else if(r<0.72){ o.hidden=true; act=`e si <b>nasconde</b>`; }
+    else            { act=`; affronta un incontro e ${Math.random()<0.7?'lo <b>vince</b>':'<b>fugge</b>'}`; }
+    // CONSEGNA MISSIONE → +1 FAMA: molto più probabile se è su un avamposto ("gioca per vincere").
+    const onOutpost = o.tile && o.tile.type==="avamposto";
+    if((o.fama||0)<5 && ((onOutpost && Math.random()<0.7) || Math.random()<0.08)){
+      o.fama=(o.fama||0)+1;
+      act += ` — <b style="color:var(--gold)">consegna una missione! (★ ${o.fama}/5)</b>`;
+    }
     // Se l'avversario FINISCE su un drop (dopo essersi mosso), lo raccoglie lui (arrivato per primo)
     const got=oMoved?takeDropAt(o.tile):null;
     let dropMsg="";
