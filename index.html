@@ -252,6 +252,16 @@
   .inv-slot.dd-valid{border-color:var(--teal) !important;box-shadow:0 0 8px rgba(79,168,154,.35)}
   .inv-slot.dd-over{border-color:var(--gold) !important;background:rgba(217,164,65,.1);box-shadow:0 0 14px rgba(217,164,65,.45)}
   .inv-slot.dd-blocked{opacity:.28;pointer-events:none}
+  /* --- MODALITÀ SPOSTA: banner + destinazioni valide "illuminate" (un solo tap sposta) --- */
+  .inv-move-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;padding:6px 4px;font-size:13px;color:var(--gold)}
+  .inv-move-hint>span{flex:1 1 140px;min-width:120px;text-align:left}
+  .inv-move-hint .inv-cancel-move{flex:none;padding:6px 12px}
+  .inv-moving [data-invslot].dd-valid{cursor:pointer;animation:ddPulse 1.1s ease-in-out infinite}
+  .inv-moving [data-invslot].dd-blocked{opacity:.25;pointer-events:none}
+  @keyframes ddPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.4)}}
+  /* pipboy: evidenzia anche le carte-target (swap), non solo gli slot vuoti */
+  body.theme-pipboy .inv-moving .icard.dd-valid .ocard,
+  body.theme-pipboy .inv-moving .icard.dd-valid .emptyc{outline:2px dashed var(--teal);outline-offset:2px}
   /* --- Usura equipaggiamento: quadratini identici ai capdot, scala rust→blood --- */
   .wdots{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}
   .wdot{width:10px;height:10px;border:1px solid var(--border2);border-radius:2px;background:#1b1b1e}
@@ -3121,7 +3131,7 @@ function fresh(){
          states:{emorragia:false, ossa:false, avvelenato:false},    // stati negativi
          emorragiaArmed:false,                                      // l'emorragia sanguina dal turno DOPO
          equip:{arma:null,armatura:null,casco:null,tasca:null,gadget:[null,null]}},
-    phase:"move", actionsLeft:2, movedFirst:false, milSearchCount:0, invSel:null, invMsg:null,
+    phase:"move", actionsLeft:2, movedFirst:false, milSearchCount:0, invSel:null, invMoveSel:null, invMsg:null,
     pendingLoot:[], pendingDone:null,   // carte pescate in attesa di spazio (zaino pieno)
     lootRoom:false,                     // inventario aperto in modalità "sistema il bottino"
     drops:[],                           // drop aiuti/missioni sulla mappa: {key, kind, day}
@@ -9578,9 +9588,36 @@ function locRemove(loc){
 
 // =================== INVENTARIO (interfaccia) ===================
 function openInventory(){ if(document.getElementById('overlay').classList.contains('active'))return; state.invSel=null; state.invMsg=null; renderInventory(); }
-function closeInventory(){ state.invSel=null; closeModal(); renderHUD(); }
+function closeInventory(){ state.invSel=null; state.invMoveSel=null; closeModal(); renderHUD(); }
 function invMsg(m){ state.invMsg=m; renderInventory(); }
-function selInv(loc){ state.invSel = (state.invSel===loc?null:loc); state.invMsg=null; renderInventory(); }
+function selInv(loc){ state.invSel = (state.invSel===loc?null:loc); state.invMoveSel=null; state.invMsg=null; renderInventory(); }
+
+// ---- MODALITÀ "SPOSTA" a tocco (un solo pulsante Sposta → si illuminano i target validi → tap per spostare) ----
+// Riusa la stessa macchina del drag&drop (canDropOnSlot/highlightDragTargets/doDragDrop): nessuna logica di gioco nuova.
+const MOVE_ICO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-3px;margin-right:4px"><path d="M12 3v18M3 12h18M12 3l-2.6 2.6M12 3l2.6 2.6M12 21l-2.6-2.6M12 21l2.6-2.6M3 12l2.6-2.6M3 12l2.6 2.6M21 12l-2.6-2.6M21 12l-2.6 2.6"/></svg>`;
+function invStartMove(loc){
+  const it = locGet(loc); if(!it){ return; }
+  state.invMoveSel = loc; state.invSel = null; state.invMsg = null;
+  renderInventory();   // il post-render evidenzia i target; se non ce ne sono, annulla con messaggio
+}
+function invCancelMove(){ state.invMoveSel=null; renderInventory(); }
+let _invMoveInit=false;
+function initInvMove(){
+  if(_invMoveInit) return; _invMoveInit=true;
+  // Cattura: quando siamo in modalità sposta, un tap su uno slot valido esegue lo spostamento;
+  // i tap su slot non validi/sorgente vengono ignorati (così non selezionano la carta sotto).
+  document.addEventListener('click', ev=>{
+    if(!state || !state.invMoveSel) return;
+    const slot = ev.target.closest && ev.target.closest('[data-invslot]');
+    if(!slot) return;                       // click fuori dagli slot (es. Annulla, X): lascia passare
+    ev.stopPropagation(); ev.preventDefault();
+    if(slot.classList.contains('dd-valid')){
+      const dst = slot.dataset.invslot, src = state.invMoveSel;
+      state.invMoveSel = null;
+      doDragDrop(src, dst);                  // esegue e ri-renderizza (fuori modalità sposta)
+    }
+  }, true);
+}
 // Sotto il tema Pip-Boy: le azioni della carta compaiono come POPUP ancorato alla carta
 // (invece del pannello sotto). Riusa .inv-actions/invActionPanel: nessuna logica cambiata.
 let _invPopupInit=false;
@@ -9944,8 +9981,10 @@ function renderInventory(){
         : (prep
           ? `⚔ <b>Preparati allo scontro</b>: curati, equipaggia e sistema l'inventario. Poi premi <b>READY</b>.`
           : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`)));
-  const actions = state.invSel? invActionPanel(state.invSel)
-    : `<p class="dim small center" style="margin:0">${hint}</p>`;
+  const actions = state.invMoveSel
+    ? `<div class="inv-move-hint">${MOVE_ICO}<span>Tocca una sezione <b>illuminata</b> per spostare <b>${escapeHtml(locGet(state.invMoveSel)?.name||'la carta')}</b></span><button class="btn inv-cancel-move" onclick="invCancelMove()">Annulla</button></div>`
+    : (state.invSel? invActionPanel(state.invSel)
+    : `<p class="dim small center" style="margin:0">${hint}</p>`);
   // Pannello bottino da sistemare (solo in modalità loot-room)
   const lootPanel = inLoot ? `
     <div class="loot-pending">
@@ -10061,6 +10100,19 @@ function renderInventory(){
       ${footer}
     </div>`, (rev||spoil), (rev||spoil||inLoot||prep) ? null : closeInventory);
   if(pip) positionInvPopup();   // azioni carta come popup ancorato (solo tema)
+  // MODALITÀ SPOSTA: illumina le destinazioni valide (riusa la logica del drag)
+  initInvMove();
+  if(state.invMoveSel){
+    const it=locGet(state.invMoveSel);
+    if(!it){ state.invMoveSel=null; }
+    else{
+      highlightDragTargets(it, state.invMoveSel);
+      if(!document.querySelector('[data-invslot].dd-valid')){   // nessuno spazio: esci con avviso
+        state.invMoveSel=null; invMsg('Non c\'è spazio dove spostare questa carta.'); return;
+      }
+      document.getElementById('modal')?.classList.add('inv-moving');
+    }
+  }
 }
 function invActionPanel(loc){
   // Carta del bottino da sistemare (modalità loot-room)
@@ -10120,16 +10172,8 @@ function invActionPanel(loc){
     if(item.repairTool)   btns.push(`<button class="btn primary" onclick="useRepair('${loc}')">🛠 Usa (ripara)</button>`);
     if(["arma","armatura","casco","gadget","consumabile"].includes(item.slot) && !item.noEquip && !isFood(item))
       btns.push(`<button class="btn primary" onclick="invEquip('${loc}')">${item.slot==="consumabile"?"Equip. gadget":"Equipaggia"}</button>`);
-    // Sposta tra sezioni: se la destinazione è piena ma a 1 slot → scambio (⇄)
-    packSections().forEach(sec=>{
-      if(sec===p[1] || (sidePocketsBlocked()&&sec!=="centro")) return;
-      const full = packFree(sec)<=0;
-      if(full && PACK_CAP[sec]!==1) return;                 // sezione centrale piena: nessuno scambio
-      btns.push(`<button class="btn" onclick="invMove('${loc}','${sec}')">${full?'⇄':'▸'} ${PACK_LABEL[sec]}</button>`);
-    });
-    // Tasca sicura: 1 carta (no carte speciali); se occupata → scambio con la carta che c'è
-    if(!item.special)
-      btns.push(`<button class="btn" onclick="invToTasca('${loc}')">${y_tascaFull()?'⇄':'→'} Tasca sicura</button>`);
+    // Un solo pulsante SPOSTA: illumina tutte le destinazioni valide, poi tocchi quella giusta.
+    btns.push(`<button class="btn" onclick="invStartMove('${loc}')">${MOVE_ICO}Sposta</button>`);
   }else{
     // gadget equipaggiati: i consumabili/medici si possono USARE anche fuori dalla battaglia, senza rimetterli nello zaino
     if(loc.startsWith("equip.gadget") && item.slot==="consumabile")
@@ -10138,7 +10182,7 @@ function invActionPanel(loc){
     if(loc==="equip.tasca" && isFood(item))
       btns.push(`<button class="btn primary" onclick="invUse('${loc}')">Usa</button>`);
     // Torcia e Sensore di movimento si attivano via modale durante Cerca / Effettua Incontro (non dall'inventario)
-    btns.push(`<button class="btn" onclick="invUnequip('${loc}')">Rimetti nello zaino</button>`);
+    btns.push(`<button class="btn" onclick="invStartMove('${loc}')">${MOVE_ICO}Sposta</button>`);
   }
   btns.push(`<button class="btn" onclick="invDiscard('${loc}')">🗑 Scarta</button>`);
   return `<div class="small" style="margin-bottom:8px"><b>${item.name}</b> — ${item.effect||''}${item.val?` <span class="dim">(valore ${item.val})</span>`:''}</div>
