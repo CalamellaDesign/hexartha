@@ -1612,14 +1612,10 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <div class="dim small">GIOCATORI IN SALA</div>
       <ul class="players" id="playerlist"></ul>
 
-      <!-- BOT: gioco offline tu + bot (l'host guida i bot sul proprio device) -->
-      <div id="botzone" style="margin-top:16px;display:none">
-        <div class="dim small" style="margin-bottom:6px">🤖 GIOCA CONTRO I BOT <span class="dim">(offline · basta 1 bot)</span></div>
-        <ul class="players" id="botlist"></ul>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
-          <button class="btn" id="addbot-btn" onclick="addLocalBot()">➕ Aggiungi BOT</button>
-          <button class="btn primary" id="startbot-btn" onclick="startBotGame()" style="display:none">▶ Avvia vs BOT</button>
-        </div>
+      <!-- BOT: aggiunti come giocatori nella stanza (l'host li guida durante il loro turno) -->
+      <div id="botzone" style="margin-top:12px;display:none">
+        <button class="btn" id="addbot-btn" onclick="addRoomBot()">🤖 Aggiungi BOT</button>
+        <span class="dim small" style="margin-left:8px">I BOT contano come giocatori: bastano <b>2</b> in sala per avviare. Partite anche miste (umani + bot).</span>
       </div>
 
       <div style="margin-top:18px">
@@ -3329,7 +3325,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 // ---------- Creazione stanza (host) ----------
 async function createRoom(){
   const name=(prompt("Come ti chiami?","Host")||"Host").trim().slice(0,20)||"Host";
-  myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false; localBots=[];
+  myId=randId(); myName=name; isHost=true; roomCode=makeCode(); gameStarted=false; endedShown=false;
   const st={hostId:myId, phase:"lobby", gameMode:"classica", rev:0,   // rev: contatore per il lock ottimistico delle scritture
             players:[{id:myId,name,color:COLORS[0]}]};
   const {error}=await SB.from("rooms").insert({code:roomCode, state:st});
@@ -3471,6 +3467,12 @@ function renderPlayers(){
   const ul=document.getElementById("playerlist");
   ul.innerHTML=players.map(p=>{
     const host=p.id===net.hostId, me=p.id===myId?" (tu)":"";
+    if(p.isBot){
+      const rm = isHost ? `<button class="you" style="cursor:pointer;border:none;background:none;color:var(--rust)" onclick="removeRoomBot('${p.id}')" title="Rimuovi">✕ togli</button>`
+                        : '<span class="you" style="color:var(--muted)">BOT</span>';
+      return `<li><span class="pdot" style="color:${p.color};background:${p.color}"></span>
+        <span>🤖 ${escapeHtml(p.name)}</span>${rm}</li>`;
+    }
     return `<li><span class="pdot" style="color:${p.color};background:${p.color}"></span>
       <span>${escapeHtml(p.name)}${me}</span>${host?'<span class="you">HOST</span>':'<span class="you" style="color:var(--green)">PRONTO</span>'}</li>`;
   }).join("");
@@ -3498,41 +3500,26 @@ function hostStartGame(){
   });
 }
 
-// ---------- BOT: gioco offline "tu + bot" (l'host guida i bot sul proprio device) ----------
-let localBots=[];   // [{name,color}] configurati nella lobby
-function addLocalBot(){
-  if(localBots.length>=3) return;                          // max 3 bot (tu + 3 = 4 giocatori/campi)
-  localBots.push({name:'BOT '+(localBots.length+1), color:COLORS[(localBots.length+1)%COLORS.length]});
-  renderBotList();
-}
-function removeLocalBot(i){
-  localBots.splice(i,1);
-  localBots.forEach((b,k)=>{ b.name='BOT '+(k+1); b.color=COLORS[(k+1)%COLORS.length]; });   // rinumera BOT 1/2/3
-  renderBotList();
-}
-function renderBotList(){
+// ---------- BOT nella stanza (rete): aggiunti come giocatori; l'host li guida al loro turno ----------
+function renderBotList(){   // ora mostra solo il pulsante "Aggiungi BOT" (host); i bot sono nella lista giocatori
   const zone=document.getElementById('botzone'); if(!zone) return;
-  zone.style.display=isHost?'':'none';                     // solo l'host avvia il gioco coi bot
-  const ul=document.getElementById('botlist');
-  if(ul) ul.innerHTML=localBots.map((b,i)=>`<li><span class="pdot" style="color:${b.color};background:${b.color}"></span>
-    <span>${escapeHtml(b.name)}</span>
-    <button class="you" style="cursor:pointer;border:none;background:none;color:var(--rust)" onclick="removeLocalBot(${i})" title="Rimuovi">✕ togli</button></li>`).join("");
-  const add=document.getElementById('addbot-btn'); if(add) add.disabled=localBots.length>=3;
-  const st=document.getElementById('startbot-btn'); if(st) st.style.display=localBots.length>=1?'':'none';
+  const players=(net&&net.players)||[];
+  zone.style.display=isHost?'':'none';
+  const add=document.getElementById('addbot-btn'); if(add) add.disabled=players.length>=4;   // max 4 giocatori/campi
 }
-// Avvia una partita LOCALE: tu + i bot configurati. I bot sono gli avversari, simulati a fine di ogni tuo turno.
-function startBotGame(){
-  if(!localBots.length){ return; }
-  const gm=(net&&net.gameMode) || (document.querySelector('input[name=gamemode]:checked')||{}).value || 'classica';
-  const bots=localBots.slice();
-  try{ leaveCleanup(); }catch(_){}   // stacca da Supabase: da qui è tutto locale
-  mpGame=null; gameStarted=false;
-  state=fresh();
-  state.gameMode=gm;
-  state.players=[{name:'Tu', you:true, color:COLORS[0]},
-                 ...bots.map(b=>({name:b.name, color:b.color, isBot:true}))];
-  startGame();   // costruisce i bot come avversari + missioni/mappa/evento → poi "Inizia il turno"
-  log(`🤖 Partita contro <b>${bots.length}</b> bot avviata. Buona fortuna.`,"evt");
+function addRoomBot(){
+  if(!isHost) return;
+  const players=(net&&net.players)||[];
+  if(players.length>=4){ return; }
+  const botN=players.filter(p=>p.isBot).length + 1;
+  const id='bot_'+randId();
+  patchRoom(s=>{ const list=s.players||[]; s.players=[...list, {id, name:'BOT '+botN, color:COLORS[list.length%COLORS.length], isBot:true}]; });
+}
+function removeRoomBot(id){
+  if(!isHost) return;
+  patchRoom(s=>{ s.players=(s.players||[]).filter(p=>p.id!==id);
+    let n=0; (s.players||[]).forEach(p=>{ if(p.isBot){ n++; p.name='BOT '+n; } });   // rinumera BOT 1/2/3
+  });
 }
 
 // ---------- Chiusura stanza dalla LOBBY ----------
@@ -3806,6 +3793,7 @@ function mpBuildGame(players, gameMode){
     const pl=i+1, campKey=CAMP_OF[pl]||YOU_CAMP;
     const base=fresh().you;
     return {...base, id:p.id, name:p.name, color:COLORS[i%COLORS.length], player:pl,   // colore FISSO per numero giocatore
+      isBot:!!p.isBot,   // bot: l'host lo guida durante il suo turno (nessun device)
       tile: tileMap.get(campKey), campKey, extractKey: EXTRACTION_OF[pl]||YOU_EXTRACTION,
       missions:[ {...dealMed[i%dealMed.length],done:false}, {...dealMil[i%dealMil.length],done:false}, {...dealUrb[i%dealUrb.length],done:false} ],
       abandoned:false };
@@ -3855,6 +3843,7 @@ function mpHydrate(game){
   state.opponents = game.characters.map((c,i)=>({c,i}))
     .filter(o=>o.i!==mySeatIndex && !o.c.abandoned)
     .map(o=>{ const c=o.c; return {id:c.id,name:c.name,color:c.color,player:c.player,tile:c.tile,hidden:!!c.hidden,
+             isBot:!!c.isBot,
              hp:c.hp,maxhp:c.maxhp,campKey:c.campKey,equip:c.equip,equipScore:c.equipScore,
              fama:c.fama||0,coins:c.coins||0,
              pack:mpPackToArray(c.pack),deposito:c.deposito||[]}; });
@@ -4012,7 +4001,65 @@ function mpStarterReveal(cb){
   })();
 }
 function mpProceedTurnOrWatch(){
+  const cur=mpGame.characters[mpGame.seat];
+  if(cur && cur.isBot && !cur.abandoned){ if(isHost) mpBotPlayTurn(); else mpWatch(); return; }   // BOT: guidato dall'host, gli altri guardano
   if(mpGame.seat===mySeatIndex && mySeatIndex>=0) mpStartMyTurn(); else mpWatch();
+}
+// ---- BOT in rete: l'host esegue il turno del bot corrente e avanza il seat (come mpEndMyTurn) ----
+let _botTurnBusy=false;
+function mpBotPlayTurn(){
+  if(!isHost || _botTurnBusy || !mpGame) return;
+  const c=mpGame.characters[mpGame.seat];
+  if(!c || !c.isBot || c.abandoned) return;
+  _botTurnBusy=true; mpMyTurn=false;
+  mpShowWatch(c.name);   // anche l'host "guarda" il turno del bot
+  const to=document.getElementById('turnof'); if(to) to.textContent=c.name;
+  setTimeout(()=>{
+    const cc = mpGame && mpGame.characters[mpGame.seat];   // rileggi il personaggio corrente (evita riferimenti stale)
+    if(cc && cc.isBot && !cc.abandoned){ try{ mpBotAct(cc); }catch(e){ console.error('[bot]',e); } _botTurnBusy=false; mpBotEndTurn(cc); }
+    else { _botTurnBusy=false; }
+  }, 1000);
+}
+function mpBotAct(c){
+  const from=(c.tile && c.tile.col!=null) ? c.tile : (tileMap.get(c.campKey)||c.tile);
+  const opts=neighbors(from).filter(n=>n.type!=='accampamento' && n.type!=='fortezza');
+  if(opts.length){
+    const target=botNearestType(from,'avamposto');
+    let dest=null;
+    if(target && Math.random()<0.55) dest=opts.reduce((best,n)=> botTileDist(n,target)<botTileDist(best,target)?n:best, opts[0]);
+    c.tile = dest || opts[Math.floor(Math.random()*opts.length)];
+  }
+  c.hidden=false;
+  const r=Math.random(); let act;
+  if(r<0.5){ act='<b>cerca</b>'; const it=drawFrom('comune');
+    if(it && ['arma','armatura','casco'].includes(it.slot)){ const cur=c.equip[it.slot]?(c.equip[it.slot].val||1):(BASE_EQUIP[it.slot]||1); if((it.val||1)>cur){ c.equip[it.slot]=it; c.equipScore=oppEquipScore(c); act='<b>equipaggia '+escapeHtml(it.name)+'</b>'; } }
+  } else if(r<0.72){ c.hidden=true; act='si <b>nasconde</b>'; }
+  else { act='affronta un <b>incontro</b>'; }
+  const onOutpost=c.tile && c.tile.type==='avamposto';
+  if((c.fama||0)<5 && ((onOutpost && Math.random()<0.7) || Math.random()<0.08)){ c.fama=(c.fama||0)+1; act+=` — <b style="color:var(--gold)">consegna una missione (★${c.fama})</b>`; }
+  try{ log(`<span style="color:${c.color}">${escapeHtml(c.name)}</span> si sposta in <b>${c.tile.name}</b> e ${act}.`); }catch(_){}
+  try{ if(mySeatIndex>=0){ mpRenderAll(); } }catch(_){}
+}
+function mpBotEndTurn(c){
+  if(!isHost) return;
+  mpGuard("Fine turno bot", ()=>{
+    let ended=false, winnerId=null, byFama=false;
+    const active=mpActiveCharacters();
+    if((c.fama||0)>=5){ ended=true; winnerId=c.id; }
+    else if(active.length<=1){ ended=true; winnerId=active.length?active[0].id:null; }
+    else {
+      mpGame.turnsThisDay=(mpGame.turnsThisDay||0)+1;
+      if(mpGame.turnsThisDay>=active.length){
+        const totalDays=mpGame.gameMode==="hardcore"?23:18;
+        if(mpGame.day>=totalDays){ ended=true; byFama=true; }
+        else { mpAdvanceDay(); mpGame.turnsThisDay=0; mpGame.starterIdx=mpNextSeat(mpGame.starterIdx); mpGame.seat=mpGame.starterIdx; }
+      } else { mpGame.seat=mpNextSeat(mpGame.seat); }
+    }
+    if(ended){ mpLiquidateAll(); if(byFama) winnerId=mpTopFamaId(); }
+    mpGame.turn=null;
+    const gameSer=mpSerialize(mpGame);
+    patchRoom(s=>{ s.game=gameSer; s.pvp=null; s.live=null; if(ended){ s.phase="ended"; s.winnerId=winnerId; s.endReason="partita"; } });
+  });
 }
 function mpShowEventCard(cb){
   const e=state.event;
@@ -8510,7 +8557,7 @@ function startPvP(foes){
   stopCombatIdle();
   const list=Array.isArray(foes)?foes:[foes];
   state.pvp={foes:list, foe:list[0]};
-  if(mpGame && list.length && list[0].id){ mpStartPvpVote(list); return; }   // online: votazione fra tutti i giocatori sulla casella
+  if(mpGame && list.length && list[0].id && !list[0].isBot){ mpStartPvpVote(list); return; }   // online umano-vs-umano: voto in rete. Contro un BOT → flusso locale (il bot non ha device, voterebbe all'infinito)
   renderPvPVote();
 }
 // Nel periodo finale "La resa dei conti" non c'è tregua: gli scontri tra giocatori si combattono sempre.
@@ -10831,7 +10878,7 @@ let _tutSteps=[], _tutIdx=0, _tutActive=false;
 function tutIsMobile(){ return !!(window.matchMedia && window.matchMedia('(max-width:860px)').matches); }
 function tutStart(){
   try{ leaveCleanup(); }catch(_){}                 // stacca da eventuali stanze: il tutorial è locale
-  mpGame=null; gameStarted=false; localBots=[];
+  mpGame=null; gameStarted=false;
   state=fresh(); state.gameMode='classica';
   state.players=[{name:'Tu', you:true, color:COLORS[0]}];
   _tutActive=true;
