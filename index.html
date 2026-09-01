@@ -1547,12 +1547,8 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
-  <div class="theme-switch">
-    <span class="lab dim">Interfaccia:</span>
-    <button class="btn theme-opt" data-theme="classic" onclick="setTheme('classic')">Classica</button>
-    <button class="btn theme-opt" data-theme="pipboy" onclick="setTheme('pipboy')">Pip-Boy</button>
-  </div>
-  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-08-29 #26</b> · non è il gioco finale</p>
+  <!-- Selettore interfaccia rimosso: Pip-Boy è l'unico tema (per ora). -->
+  <p class="dim small" style="margin-top:48px">Prototipo interattivo · v0.1 · <b style="color:var(--gold)">build 2026-09-01 #27</b> · non è il gioco finale</p>
 </section>
 
 <!-- ============ ENTRA TRAMITE CODICE ============ -->
@@ -10672,19 +10668,20 @@ function pipReorg(on){
     }
   } else { _pipRestore(); }
 }
+// Pip-Boy è l'UNICO tema disponibile (Classica rimossa "per ora"): setTheme forza sempre Pip-Boy,
+// qualunque argomento riceva. Il CSS Classica resta come base (non cancellato) per un eventuale ripristino.
 function setTheme(t){
-  var pip = (t==='pipboy');
-  document.body.classList.toggle('theme-pipboy', pip);
-  try{ localStorage.setItem('hx-theme', pip?'pipboy':'classic'); }catch(_){}
+  var pip = true;
+  document.body.classList.add('theme-pipboy');
+  try{ localStorage.setItem('hx-theme','pipboy'); }catch(_){}
   var opts=document.querySelectorAll('.theme-opt');
-  for(var i=0;i<opts.length;i++){ opts[i].classList.toggle('active', opts[i].getAttribute('data-theme')===(pip?'pipboy':'classic')); }
-  try{ pipReorg(pip); }catch(_){}
-  try{ if(typeof mapApply==='function') mapApply(); }catch(_){}   // aggiorna la vista mappa (pan/zoom on/off)
+  for(var i=0;i<opts.length;i++){ opts[i].classList.toggle('active', opts[i].getAttribute('data-theme')==='pipboy'); }
+  try{ pipReorg(true); }catch(_){}
+  try{ if(typeof mapApply==='function') mapApply(); }catch(_){}   // aggiorna la vista mappa (pan/zoom)
 }
 // Apre/chiude il popup volumi (dal pulsante Audio del rail). stopPropagation: non farlo richiudere dal click-fuori.
 function hxAudioPop(ev){ if(ev){ ev.stopPropagation(); } var p=document.getElementById('hx-audio-pop'); if(p) p.classList.toggle('open'); }
-(function(){ var t='classic'; try{ if(localStorage.getItem('hx-theme')==='pipboy') t='pipboy'; }catch(_){}
-  setTheme(t); })();
+(function(){ setTheme('pipboy'); })();   // tema unico: Pip-Boy sempre attivo
 </script>
 </body>
 </html>
