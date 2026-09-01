@@ -3834,12 +3834,12 @@ function mpCheckDiscoAnnounce(){
   _lastDiscoAnnounceTs=a.ts;
   if(a.byId===myId) return;                          // chi l'ha trovato ha già suono e messaggio
   try{HXAudio.sample('discoSegreto',3000);}catch(_){}   // suono del Disco segreto anche agli altri (3s)
-  log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha trovato il DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
+  log(`📡 <b>${escapeHtml(a.name||"Un giocatore")} ha pescato la carta DISCO SEGRETO!</b> È in gioco: chi lo elimina completa la missione di storia.`,"evt");
   openModal(`
-    <div class="modal-h"><span class="stencil" style="color:var(--gold)">📡 Disco segreto trovato</span></div>
+    <div class="modal-h"><span class="stencil" style="color:var(--gold)">📡 Disco segreto</span></div>
     <div class="modal-b center">
       <div style="font-size:40px;margin-bottom:10px">📡</div>
-      <p style="font-size:14px;margin:0 0 8px"><b>${escapeHtml(a.name||"Un giocatore")}</b> ha trovato il <b>Disco segreto</b>!</p>
+      <p style="font-size:14px;margin:0 0 8px"><b>${escapeHtml(a.name||"Un giocatore")}</b> ha pescato la carta <b>DISCO SEGRETO</b>!</p>
       <p class="muted small" style="margin:0 0 16px;line-height:1.5">È in gioco: chi lo <b>elimina</b> completa la missione di storia. Chi lo tiene ha <b>−1 azione</b> per turno.</p>
       <button class="btn primary" onclick="closeModal()">Ok</button>
     </div>`);
@@ -9379,9 +9379,10 @@ function packAdd(item){ const secs=sidePocketsBlocked()?["centro"]:["centro","sx
       state.you.pack[sec].push(item);
       if(item.discoSegreto && !state.discoSegretoEliminated && !state.discoSegretoInPlay){   // solo alla PRIMA scoperta
         state.discoSegretoInPlay=true;
-        log(`📡 <b>Hai trovato il Disco segreto!</b> Tutti i giocatori lo sanno. −1 azione per turno finché lo tieni.`,"evt");
+        log(`📡 <b>Hai pescato il DISCO SEGRETO!</b> Tutti i giocatori lo sanno. −1 azione per turno finché lo tieni.`,"evt");
         // Marcatore condiviso: gli altri device lo vedono all'aggiornamento e mostrano l'avviso.
         state.discoAnnounce={ name:(state.you&&state.you.name)||"Un giocatore", byId:myId, ts:Date.now() };
+        try{ mpTouch(); }catch(_){}   // propaga SUBITO agli altri device (popup immediato, non a fine turno)
       }
       return sec;
     }
@@ -9629,12 +9630,12 @@ function positionInvPopup(){
       if(!state || !state.invSel) return;
       const ov=document.getElementById('overlay');
       if(!ov || !ov.classList.contains('active')) return;
-      if(e.target.closest && (e.target.closest('.ocard')||e.target.closest('.inv-actions'))) return; // carta o popup: non chiudere
+      if(e.target.closest && (e.target.closest('.ocard')||e.target.closest('.inv-card')||e.target.closest('.inv-actions'))) return; // carta (anche bottino) o popup: non chiudere
       if(e.target.closest && e.target.closest('#modal')){ state.invSel=null; state.invMsg=null; renderInventory(); } // clic fuori dalle carte: chiudi
     });
   }
   const box=document.querySelector('#modal .inv-actions'); if(!box) return;
-  const sel=document.querySelector('#modal .ocard.sel');
+  const sel=document.querySelector('#modal .ocard.sel, #modal .inv-card.sel');   // ancora il popup anche alle carte del bottino (loot)
   const active=!!(sel && state.invSel);
   box.classList.toggle('as-popup', active);
   if(!active){ box.style.left=box.style.top=''; return; }
@@ -9977,7 +9978,7 @@ function renderInventory(){
     : (spoil
       ? `Trascina le carte del <b>bottino</b> negli slot (zaino · tasca sicura · gadget · arma/armatura/casco) o toccale per i pulsanti. Trascina una tua carta <b>sul bottino</b> per scartarla e fare spazio. Poi premi FINE SACCHEGGIO.`
       : (inLoot
-        ? `Trascina le carte del bottino su uno slot libero (zaino o equip), oppure toccale per le opzioni.`
+        ? `Tocca una carta del bottino per le opzioni (Usa · Riponi · Equipaggia · Rinuncia), oppure «Rinuncia a tutto».`
         : (prep
           ? `⚔ <b>Preparati allo scontro</b>: curati, equipaggia e sistema l'inventario. Poi premi <b>READY</b>.`
           : `Tocca una carta per gestirla: equipaggia · sposta · scarta.`)));
@@ -9992,6 +9993,8 @@ function renderInventory(){
       <div class="loot-pend-row">
         ${state.pendingLoot.map((it,i)=>invCardHTML(`loot.${i}`,it)).join("")}
       </div>
+      <div class="dim small" style="margin-top:8px">Tocca una carta per le opzioni (Usa · Riponi · Equipaggia · Rinuncia).</div>
+      <div style="margin-top:8px"><button class="btn" onclick="lootRenounceAll()">🗑 Rinuncia a tutto</button></div>
     </div>` : "";
   const spoilCtx = state.spoilCtx||{};
   const header = rev
@@ -10014,7 +10017,7 @@ function renderInventory(){
     : (spoil
       ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="spoilFinish()">${spoilCtx.doneLabel||'FINE SACCHEGGIO ▸'}</button></div>`
       : (inLoot
-        ? `<div class="center" style="margin-top:12px"><button class="btn" onclick="lootRenounceAll()">Rinuncia al bottino rimasto & chiudi</button></div>`
+        ? ``
         : (prep
           ? `<div class="center" style="margin-top:12px"><button class="btn primary" style="background:var(--rust)" onclick="pvpPrepReady()">⚔ READY ▸</button></div>`
           : ``)));
@@ -10132,7 +10135,6 @@ function invActionPanel(loc){
       btns.push(`<span class="dim small">Inventario e slot equip pieni: libera spazio o rinuncia.</span>`);
     btns.push(`<button class="btn" onclick="lootRenounce(${i})">🗑 Rinuncia</button>`);
     return `<div class="small" style="margin-bottom:8px"><b>${it.name}</b> — ${it.effect||''}${it.val?` <span class="dim">(valore ${it.val})</span>`:''}</div>
-      <div class="dim small" style="margin-bottom:4px">Trascina la carta sullo slot, oppure usa i pulsanti.</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${btns.join("")}</div>`;
   }
   // Carta nel Magazzino (fase Riarmo): prendi nello zaino / equipaggia / metti in tasca sicura
