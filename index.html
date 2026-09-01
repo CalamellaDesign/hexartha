@@ -1219,11 +1219,7 @@ body.theme-pipboy .fama-stars,body.theme-pipboy .fstars{ filter:drop-shadow(0 0 
 /* scanline CRT sottile (non blocca i click) */
 body.theme-pipboy::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:99997;
   background:repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px); }
-/* toggle interfaccia in homepage (indipendente dal tema) */
-.theme-switch{ margin-top:16px; display:flex; gap:8px; align-items:center; justify-content:center; }
-.theme-switch .lab{ font-size:12px; letter-spacing:.06em; }
-.theme-opt{ padding:6px 14px !important; }
-.theme-opt.active{ border-color:var(--gold) !important; color:var(--gold) !important; }
+/* (selettore tema rimosso: Pip-Boy è l'unico tema) */
 /* Le carte inventario portano immagine+valore, ma nella CLASSICA restano testuali (nascosti) */
 .inv-card-img,.inv-card-val{ display:none; }
 /* ===== Inventario in stile mockup (solo tema Pip-Boy) ===== */
