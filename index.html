@@ -477,7 +477,8 @@
       gap:6px;padding:4px 9px;align-items:center;
       background:rgba(14,13,11,.92);border:1px solid var(--border2);border-top:2px solid var(--rust-d);border-radius:6px;
       box-shadow:0 3px 12px rgba(0,0,0,.5)}
-    #m-malus.m-show{display:flex}
+    #m-malus{display:flex}   /* scheda malus SEMPRE visibile: mostra i 3 malus, quelli attivi illuminati */
+    #m-malus .mm-lab{font-family:"Arial Narrow","Helvetica Neue",sans-serif;font-weight:800;font-size:8px;letter-spacing:.1em;color:var(--concrete);text-transform:uppercase;margin-right:2px}
     #m-malus .mm-ic{font-size:15px;line-height:1;filter:grayscale(1);opacity:.3;transition:.15s}
     #m-malus .mm-ic.on{filter:none;opacity:1;text-shadow:0 0 7px rgba(179,32,32,.65)}
 
@@ -556,6 +557,7 @@
     body.theme-pipboy #m-drawer .md-ic.ic .pip-ic{ display:inline-block; width:20px; height:20px; }
     body.theme-pipboy #m-malus .mm-ic .pip-ic{ display:inline-block; width:16px; height:16px; color:var(--dim); }
     body.theme-pipboy #m-malus .mm-ic.on .pip-ic{ color:var(--rust); filter:drop-shadow(0 0 5px rgba(224,96,58,.6)); }
+    body.theme-pipboy #m-malus .mm-lab{ font-family:"Silkscreen","Arial Narrow",sans-serif; color:var(--muted); }
 
     /* Etichette col font a stampino del tema */
     body.theme-pipboy #m-topbar .mt-lab,
@@ -1651,7 +1653,8 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
     <button class="m-fab" onclick="openCrafting()" aria-label="Crafting" title="Crafting"><span class="ic">🛠<svg class="pip-ic"><use href="#pi-craft"/></svg></span></button>
     <button class="m-fab" id="m-fab-chatbtn" style="display:none" onclick="toggleChat()" aria-label="Chat" title="Chat"><span class="ic">💬<svg class="pip-ic"><use href="#pi-chat"/></svg></span><span class="m-fab-badge zero" id="m-fab-chat">0</span></button>
   </div>
-  <div id="m-malus" aria-label="Malus attivi">
+  <div id="m-malus" aria-label="Malus">
+    <span class="mm-lab">Malus</span>
     <span class="mm-ic" data-k="emorragia" onclick="showStateInfo('emorragia')" title="Emorragia">🩸<svg class="pip-ic"><use href="#pi-bleed"/></svg></span>
     <span class="mm-ic" data-k="ossa" onclick="showStateInfo('ossa')" title="Ossa rotte">🦴<svg class="pip-ic"><use href="#pi-bone"/></svg></span>
     <span class="mm-ic" data-k="avvelenato" onclick="showStateInfo('avvelenato')" title="Avvelenato">☠️<svg class="pip-ic"><use href="#pi-poison"/></svg></span>
