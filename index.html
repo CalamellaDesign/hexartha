@@ -1536,6 +1536,11 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
   transition:left .3s ease,top .3s ease,width .3s ease,height .3s ease; pointer-events:none;
   box-sizing:border-box; }
 #tut-root.center #tut-hole{ box-shadow:0 0 0 9999px rgba(5,9,5,.9); border-color:transparent; }
+/* Step INTERATTIVO: i click passano al gioco (target cliccabile); solo il tooltip cattura */
+#tut-root.pass{ pointer-events:none; }
+#tut-root.pass #tut-tip{ pointer-events:auto; }
+#tut-root.pass #tut-hole{ border-style:dashed; animation:tutPulse 1.2s ease-in-out infinite; }
+@keyframes tutPulse{ 0%,100%{ border-color:var(--gold); } 50%{ border-color:var(--gold2); } }
 #tut-tip{ position:fixed; width:min(320px,92vw); z-index:9992;
   background:linear-gradient(180deg,#132015,#0e160c); border:1px solid var(--gold); border-radius:8px;
   padding:14px 16px 12px; box-shadow:0 0 18px rgba(116,242,122,.28),0 10px 30px rgba(0,0,0,.7);
@@ -1897,6 +1902,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
   <div id="tut-tip">
     <div id="tut-tip-title" class="stencil"></div>
     <div id="tut-tip-text"></div>
+    <button class="btn primary" id="tut-cta" style="display:none;width:100%;margin-top:10px" onclick="if(window._tutCtaFn)_tutCtaFn()"></button>
     <div id="tut-tip-nav">
       <button class="btn" id="tut-skip" onclick="tutEnd()">✕ Esci</button>
       <span class="dim small" id="tut-count"></span>
@@ -7105,6 +7111,7 @@ function showWeaponBrokeModal(){
 }
 // Fase post-incontro: stessa schermata del turno, ci si può curare/gestire inventario, poi Termina turno
 function enterPostEncounter(){
+  if(state && state._tutReturn){ const cb=state._tutReturn; state._tutReturn=null; try{stopCombatIdle();closeModal();}catch(_){} combat=null; state.pvp=null; state.spoilMode=false; state.spoilCtx=null; return cb(); }   // TUTORIAL: PvP dimostrativo concluso → torna al menu
   stopCombatIdle();
   applyWeaponWear();   // applica usura se l'arma è stata usata (fuga, PvP, PvE non-chain)
   combat=null;         // lo scontro è concluso: sblocca le carte usabili "solo fuori dalla battaglia" (es. Cibo)
@@ -7180,6 +7187,7 @@ function forceEndOfTurn(){   // dal timer scaduto
   doEncounter();
 }
 function afterTurnResolved(){
+  if(state && state._tutReturn){ const cb=state._tutReturn; state._tutReturn=null; return cb(); }   // TUTORIAL: sconfitta PvP dimostrativa → torna al menu
   // Tappa 2.2: partita condivisa → passa il turno al giocatore successivo (niente IA finta).
   if(mpGame){ mpEndMyTurn(); return; }
   // (vecchio comportamento solitario, non più usato online)
@@ -10854,6 +10862,12 @@ function tutShow(){
   document.getElementById('tut-next').style.display='';
   const last=_tutIdx>=_tutSteps.length-1;
   document.getElementById('tut-next').textContent = last ? ((_tutOnEnd&&_tutOnEnd!==tutEnd)?'Continua ▸':'Fine ✓') : 'Avanti ▸';
+  // Step INTERATTIVO: lascia cliccabile il target reale (i click passano al gioco)
+  root.classList.toggle('pass', !!s.interactive);
+  // Bottone CTA opzionale (es. "Avvia lo scontro", "Apri missioni")
+  const cta=document.getElementById('tut-cta');
+  if(s.cta){ window._tutCtaFn=s.cta.fn; cta.textContent=s.cta.label; cta.style.display=''; }
+  else{ window._tutCtaFn=null; cta.style.display='none'; }
   const hole=document.getElementById('tut-hole'), tip=document.getElementById('tut-tip');
   const el = s.sel ? document.querySelector(s.sel) : null;
   if(el){
@@ -10884,7 +10898,8 @@ function tutPlaceTip(r){
 function tutNext(){ _tutIdx++; tutShow(); }
 function tutEnd(){
   _tutActive=false;
-  const root=document.getElementById('tut-root'); if(root) root.classList.remove('on','center');
+  const root=document.getElementById('tut-root'); if(root) root.classList.remove('on','center','pass');
+  if(state) state._tutReturn=null;
   try{ stopTurnTimer(); }catch(_){}
   try{ closeModal(); }catch(_){}
   mpGame=null;
@@ -10930,43 +10945,78 @@ function tutStage(opts){
   try{ renderHUD(); }catch(_){}
   try{ opts.reach ? showReach() : clearReach(); }catch(_){}
 }
+// Esempi di carte missione (con icona) per il capitolo "Come si vince".
+function tutMissionExamples(){
+  const ex=[MISSIONS_MEDICHE[0], MISSIONS_MILITARI[0], MISSIONS_URBANE[0]].filter(Boolean).slice(0,2);
+  const cat={medica:'#7ab85f', militare:'#b4b24a', urbana:'#c9603f'};
+  return '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">'+ex.map(m=>{
+    const c=cat[m.category]||'#d9a441';
+    return `<div style="display:flex;gap:8px;align-items:flex-start;border:1px solid ${c};border-radius:6px;padding:6px 8px;background:rgba(255,255,255,.03)">
+      <svg class="pip-ic" style="display:inline-block;width:20px;height:20px;color:${c};flex:none;margin-top:1px"><use href="#pi-mission"/></svg>
+      <div><div style="color:${c};font-weight:bold">${escapeHtml(m.name)}</div>
+      <div class="dim small">Consegna <b>${(m.deliver||[]).map(escapeHtml).join(' + ')}</b> → <b style="color:var(--gold)">★ ${(m.premio&&m.premio.fama)||1} fama</b></div></div>
+    </div>`;}).join('')+'</div>';
+}
+// Crea un BOT dimostrativo sulla tua casella (per il PvP dal vivo).
+function tutMakeBot(){
+  const bot={ id:'bot_tut', isBot:true, name:'BOT', color:COLORS[1], player:2, campKey:CAMP_OF[2],
+    tile:state.you.tile, extractKey:EXTRACTION_OF[2], hidden:false, hp:3, maxhp:3, fama:0, coins:3,
+    equip:{arma:null,armatura:null,casco:null,tasca:null,gadget:[]}, pack:[{name:'Munizioni',slot:'militare',val:3},{name:'Bende',slot:'medico',val:2}] };
+  bot.equipScore=oppEquipScore(bot); state.opponents=[bot]; return bot;
+}
+// Avvia il PvP REALE contro il bot; a scontro finito torna al menu del tutorial.
+function tutStartLivePvp(){
+  const root=document.getElementById('tut-root'); root.classList.remove('on','center','pass');
+  const bot=(state.opponents&&state.opponents[0]) || tutMakeBot();
+  state._tutReturn=tutMenu;
+  try{ startPvP([bot]); }catch(e){ state._tutReturn=null; tutMenu(); }
+}
 function TUT_SCENARIOS(){ return [
+  {id:'win', label:'🏆 Come si vince', run:()=>{ tutStage({tileType:'avamposto', phase:'base', movedFirst:true, actionsLeft:0, safeTurnPending:false});
+    tutRun([
+      {title:'🏆 Come si vince', text:'Vince chi arriva per primo a <b>5 stelle di FAMA</b>. La fama si ottiene <b>solo</b> completando le <b>missioni</b> e consegnandole in un <b>avamposto</b>.'},
+      {title:'Le carte missione', text:'Ogni missione chiede di <b>consegnare certi oggetti</b> e dà fama. Esempi:'+tutMissionExamples()},
+      {interactive:true, title:'Il tuo dettaglio missioni', text:'Queste sono le <b>tue</b> missioni segrete (Medica · Militare · Urbana). Aprile per vedere cosa ti serve.', cta:{label:'📜 Apri le mie missioni', fn:function(){ try{openMissions();}catch(_){}}}},
+      {sel:'#a-deliver', interactive:true, title:'Consegna in avamposto', text:'Sei su un <b>avamposto</b>. Con gli oggetti richiesti in mano, premi <b>Consegna missioni</b> → guadagni <b>fama</b>. <span class="dim">(Puoi provarlo)</span>'},
+      {title:'Esempio di turno vincente', text:'<b>1)</b> Muoviti verso una zona con gli oggetti che ti servono · <b>2)</b> <b>Cerca</b> per pescarli · <b>3)</b> raggiungi un <b>avamposto</b> · <b>4)</b> <b>Consegna</b> la missione → <b style="color:var(--gold)">+fama</b>. Ripeti fino a <b>5 stelle</b>: hai vinto. Attento agli altri: possono saccheggiarti nel PvP.'},
+    ], tutMenu); }},
   {id:'move', label:'🥾 Muoviti', run:()=>{ tutStage({camp:true, phase:'move', movedFirst:false, actionsLeft:2, reach:true});
     tutRun([
-      {sel:'.mapwrap', title:'Muoviti', text:'A inizio turno <b>devi muoverti</b>: tocca una casella <b>evidenziata</b> adiacente. Hai 2 azioni a turno; la prima è il movimento obbligatorio.'},
+      {sel:'.mapwrap', interactive:true, title:'Muoviti', text:'A inizio turno <b>devi muoverti</b>: <b>tocca una casella evidenziata</b> adiacente per spostarti. Poi premi <b>Avanti ▸</b>.'},
       {sel:'#a-move',  title:'Spostati ancora', text:'Con le azioni residue puoi <b>spostarti di nuovo</b> (una casella per azione) per esplorare o raggiungere un obiettivo.'},
     ], tutMenu); }},
   {id:'search', label:'🔎 Cerca', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:2});
     tutRun([
-      {sel:'#a-search', title:'Cerca', text:'In una zona non sicura puoi <b>Cercare</b>: peschi carte (oggetti, armi, medicine…) spendendo 1 azione. Nelle zone <b>militari</b> trovi equipaggiamento migliore.'},
+      {sel:'#a-search', interactive:true, title:'Cerca', text:'In una zona non sicura puoi <b>Cercare</b>: peschi carte (oggetti, armi, medicine…) spendendo 1 azione. Nelle zone <b>militari</b> trovi equipaggiamento migliore. <b>Cliccalo per provarlo</b>, poi <b>Avanti ▸</b>.'},
     ], tutMenu); }},
   {id:'hide', label:'🌑 Nasconditi', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:2});
     tutRun([
-      {sel:'#a-hide', title:'Nasconditi', text:'<b>Nasconderti</b> ti fa saltare l\'incontro di fine turno: nessun nemico ti trova. Costa 1 azione — utile quando sei ferito.'},
+      {sel:'#a-hide', interactive:true, title:'Nasconditi', text:'<b>Nasconderti</b> ti fa saltare l\'incontro di fine turno: nessun nemico ti trova. Costa 1 azione — utile quando sei ferito. <b>Provalo</b>, poi <b>Avanti ▸</b>.'},
     ], tutMenu); }},
   {id:'pve', label:'⚔ Incontro (PvE)', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:0});
     tutRun([
-      {sel:'#a-end', title:'Incontro', text:'Se <b>termini il turno</b> in una zona pericolosa (e non sei nascosto) parte un <b>incontro</b>: appare un nemico da affrontare.'},
+      {sel:'#a-end', interactive:true, title:'Incontro', text:'Se <b>termini il turno</b> in una zona pericolosa (e non sei nascosto) parte un <b>incontro</b>: appare un nemico. <b>Cliccalo</b> per affrontarlo, poi <b>Avanti ▸</b>.'},
       {title:'Come si combatte', text:'Tiri <b>2 dadi + il tuo Equipaggiamento</b> contro il nemico: il più basso perde vita, fino alla sconfitta. Puoi anche <b>fuggire</b> (1 dado) o usare i <b>gadget</b>.'},
     ], tutMenu); }},
-  {id:'pvp', label:'🗡 Scontro (PvP)', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:0});
+  {id:'pvp', label:'🗡 Scontro (PvP) dal vivo', run:()=>{ tutStage({tileType:'urbana', phase:'actions', movedFirst:true, actionsLeft:0}); tutMakeBot();
     tutRun([
-      {title:'Scontro tra giocatori', text:'Se finisci sulla <b>casella di un altro giocatore</b> (o bot) parte il <b>PvP</b>: prima si <b>vota</b> Lotta o Pace. Basta un voto Lotta per combattere (nella "Resa dei conti" si combatte sempre).'},
-      {title:'Vincitore e bottino', text:'Si combatte a dadi come nel PvE. Chi <b>vince saccheggia</b> il perdente: prende gli oggetti (equip + zaino), <b>tranne la Tasca sicura</b>.'},
+      {title:'Scontro tra giocatori', text:'Se finisci sulla <b>casella di un altro giocatore</b> (o bot) parte il <b>PvP</b>: si <b>vota</b> Lotta o Pace. Basta un voto Lotta per combattere; chi <b>vince saccheggia</b> il perdente (tranne la <b>Tasca sicura</b>).'},
+      {title:'Provalo dal vivo', text:'C\'è un <b>BOT</b> sulla tua casella. Avvia lo scontro: <b>vota</b>, <b>tira i dadi</b> e vedi il <b>saccheggio</b>. A fine scontro torni qui.', cta:{label:'⚔ Avvia lo scontro dal vivo', fn:function(){ tutStartLivePvp(); }}},
     ], tutMenu); }},
   {id:'base', label:'🏠 Turno base', run:()=>{ tutStage({camp:true, phase:'base', movedFirst:true, actionsLeft:0, safeTurnPending:false});
     tutRun([
-      {sel:'#a-store', title:'Turno di gestione', text:'Al tuo <b>accampamento</b> hai un turno di <b>gestione</b>: niente movimento, ma usi il <b>Magazzino</b> per mettere/prendere oggetti al sicuro (non si perdono se muori).'},
-      {sel:'#a-trade', title:'Commercia', text:'Nelle zone sicure puoi <b>commerciare</b> coi ricettatori: vendi il superfluo e compra equipaggiamento e medicine.'},
+      {sel:'#a-store', interactive:true, title:'Turno di gestione', text:'Al tuo <b>accampamento</b> hai un turno di <b>gestione</b>: niente movimento, ma usi il <b>Magazzino</b> per mettere/prendere oggetti al sicuro. <b>Provalo</b>, poi <b>Avanti ▸</b>.'},
+      {sel:'#a-trade', interactive:true, title:'Commercia', text:'Nelle zone sicure puoi <b>commerciare</b> coi ricettatori: vendi il superfluo e compra equipaggiamento e medicine.'},
     ], tutMenu); }},
   {id:'outpost', label:'📦 Avamposto & consegna', run:()=>{ tutStage({tileType:'avamposto', phase:'base', movedFirst:true, actionsLeft:0, safeTurnPending:false});
     tutRun([
-      {sel:'#a-deliver', title:'Consegna missioni', text:'Gli <b>avamposti</b> sono zone sicure dove <b>consegni le missioni</b>: se hai gli oggetti richiesti li consegni e guadagni <b>FAMA</b>. Alla <b>5ª stella</b> di fama <b>vinci la partita</b>.'},
+      {sel:'#a-deliver', interactive:true, title:'Consegna missioni', text:'Gli <b>avamposti</b> sono zone sicure dove <b>consegni le missioni</b>: se hai gli oggetti richiesti li consegni e guadagni <b>FAMA</b>. Alla <b>5ª stella</b> di fama <b>vinci la partita</b>.'},
     ], tutMenu); }},
 ]; }
 function tutMenu(){
-  _tutActive=true; _tutOnEnd=tutEnd;
-  const root=document.getElementById('tut-root'); root.classList.add('on','center');
+  _tutActive=true; _tutOnEnd=tutEnd; if(state) state._tutReturn=null;
+  const root=document.getElementById('tut-root'); root.classList.add('on','center'); root.classList.remove('pass');
+  document.getElementById('tut-cta').style.display='none'; window._tutCtaFn=null;
   const hole=document.getElementById('tut-hole'); hole.style.left='50%'; hole.style.top='50%'; hole.style.width='0'; hole.style.height='0';
   const tip=document.getElementById('tut-tip'); tip.style.transform='translate(-50%,-50%)'; tip.style.left='50%'; tip.style.top='50%';
   document.getElementById('tut-tip-title').textContent='🎓 Prova le azioni';
@@ -10980,9 +11030,11 @@ function tutMenu(){
 }
 function tutRunScenario(id){ const s=TUT_SCENARIOS().find(x=>x.id===id); if(s){ document.getElementById('tut-root').classList.remove('center'); s.run(); } }
 function tutPlayNow(){
-  _tutActive=false;
-  const root=document.getElementById('tut-root'); root.classList.remove('on','center');
+  _tutActive=false; if(state) state._tutReturn=null;
+  const root=document.getElementById('tut-root'); root.classList.remove('on','center','pass');
+  document.getElementById('tut-cta').style.display='none'; window._tutCtaFn=null;
   document.getElementById('tut-next').style.display='';
+  state.opponents=[];   // via il bot dimostrativo del PvP
   try{ tutStage({camp:true, phase:'move', movedFirst:false, actionsLeft:2, reach:true}); }catch(_){}
   try{ startTurnTimer(); }catch(_){}
   try{ log('🎓 Tutorial concluso: ora giochi liberamente in solitaria. Buona fortuna!','evt'); }catch(_){}
