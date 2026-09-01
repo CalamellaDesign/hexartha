@@ -442,6 +442,9 @@
       min-width:40px;min-height:40px;display:flex;align-items:center;justify-content:center}
     .cron-mx:active{color:var(--gold)}
 
+    /* DIARIO: l'Abbandona vive solo nell'hamburger a destra, non nel diario */
+    #hud-day .hud-abandon{ display:none; }
+
     /* DIARIO (plancia): nella equip-card mostra SOLO l'overview a thumbnail
        (come il desktop, #pip-inv-preview) nascondendo il dump testuale verboso
        dei .slots — così l'evento resta in alto e l'inventario è un colpo d'occhio. */
@@ -1733,7 +1736,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <div class="timerbox"><div class="flab">Tempo</div>
         <div class="tt">⏱ <span id="turntimer" style="color:var(--gold)">3:00</span></div></div>
     </div>
-    <div style="text-align:right;margin:2px 0 6px">
+    <div class="hud-abandon" style="text-align:right;margin:2px 0 6px">
       <button class="btn" style="padding:3px 10px;font-size:11px;border-color:var(--rust);color:var(--rust)" onclick="abandonGame()" title="Esci dalla partita">Abbandona</button>
     </div>
     <div class="event" id="eventbox" onclick="this.classList.toggle('open')" title="Tocca per leggere il testo di lore">
