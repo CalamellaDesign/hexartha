@@ -1526,6 +1526,29 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
   }
   body.theme-pipboy #m-zoom .mz-btn:hover{ border-color:var(--gold); box-shadow:0 0 8px rgba(116,242,122,.35); }
 }
+
+/* ===== TUTORIAL (spotlight guidato) ===== */
+#tut-root{ display:none; position:fixed; inset:0; z-index:9990; }
+#tut-root.on{ display:block; }
+/* Il "buco": un riquadro trasparente con un'ombra enorme che oscura tutto il resto */
+#tut-hole{ position:fixed; left:0; top:0; width:0; height:0; border-radius:10px;
+  box-shadow:0 0 0 9999px rgba(5,9,5,.82); border:2px solid var(--gold);
+  transition:left .3s ease,top .3s ease,width .3s ease,height .3s ease; pointer-events:none;
+  box-sizing:border-box; }
+#tut-root.center #tut-hole{ box-shadow:0 0 0 9999px rgba(5,9,5,.9); border-color:transparent; }
+#tut-tip{ position:fixed; width:min(320px,92vw); z-index:9992;
+  background:linear-gradient(180deg,#132015,#0e160c); border:1px solid var(--gold); border-radius:8px;
+  padding:14px 16px 12px; box-shadow:0 0 18px rgba(116,242,122,.28),0 10px 30px rgba(0,0,0,.7);
+  transition:left .3s ease,top .3s ease; }
+#tut-tip-title{ color:var(--gold); font-size:13px; letter-spacing:.06em; margin-bottom:7px; }
+#tut-tip-text{ color:var(--text); font-size:14px; line-height:1.5; font-family:"VT323",monospace; }
+#tut-tip-text b{ color:var(--gold2); }
+#tut-tip-nav{ display:flex; align-items:center; gap:10px; margin-top:13px; }
+#tut-tip-nav #tut-count{ margin-left:auto; }
+#tut-tip-nav .btn{ padding:6px 12px; font-size:12px; }
+/* pulsanti "AVANZA A…" (Fase 2) impilati */
+#tut-jumps{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+#tut-jumps .btn{ width:100%; justify-content:flex-start; }
 </style>
 </head>
 <body>
@@ -1541,6 +1564,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
     <button class="btn primary" onclick="createRoom()">Crea stanza</button>
     <button class="btn" onclick="openJoin()">Entra con codice</button>
     <button class="btn" id="resumebtn" style="display:none;border-color:var(--green);color:var(--green)" onclick="resumeSession()">↩ Riprendi partita</button>
+    <button class="btn" onclick="tutStart()">🎓 Tutorial</button>
     <button class="btn" onclick="openManual(0)">📖 Manuale di gioco</button>
   </div>
   <!-- Selettore interfaccia rimosso: Pip-Boy è l'unico tema (per ora). -->
@@ -1866,6 +1890,20 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
 
 <!-- ============ OVERLAY / MODAL ============ -->
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<!-- TUTORIAL: spotlight (evidenzia un elemento oscurando il resto) + tooltip guidato -->
+<div id="tut-root" aria-hidden="true">
+  <div id="tut-hole"></div>
+  <div id="tut-tip">
+    <div id="tut-tip-title" class="stencil"></div>
+    <div id="tut-tip-text"></div>
+    <div id="tut-tip-nav">
+      <button class="btn" id="tut-skip" onclick="tutEnd()">✕ Esci</button>
+      <span class="dim small" id="tut-count"></span>
+      <button class="btn primary" id="tut-next" onclick="tutNext()">Avanti ▸</button>
+    </div>
+  </div>
+</div>
 
 <!-- HX_ENGINE_START — motore di gioco (GENERATO da engine/build.mjs, non modificare a mano) -->
 <script>
@@ -10776,6 +10814,99 @@ function setTheme(t){
 }
 // Apre/chiude il popup volumi (dal pulsante Audio del rail). stopPropagation: non farlo richiudere dal click-fuori.
 function hxAudioPop(ev){ if(ev){ ev.stopPropagation(); } var p=document.getElementById('hx-audio-pop'); if(p) p.classList.toggle('open'); }
+
+// ============================================================
+// TUTORIAL — spotlight guidato. FASE 1: tour dell'HUD (desktop/mobile).
+// Avvia una partita LOCALE in solitaria come "palcoscenico" e evidenzia le sezioni dell'HUD reale.
+// ============================================================
+let _tutSteps=[], _tutIdx=0, _tutActive=false;
+function tutIsMobile(){ return !!(window.matchMedia && window.matchMedia('(max-width:860px)').matches); }
+function tutStart(){
+  try{ leaveCleanup(); }catch(_){}                 // stacca da eventuali stanze: il tutorial è locale
+  mpGame=null; gameStarted=false; localBots=[];
+  state=fresh(); state.gameMode='classica';
+  state.players=[{name:'Tu', you:true, color:COLORS[0]}];
+  _tutActive=true;
+  try{ startGame(); }catch(e){ _tutActive=false; alert('Tutorial non disponibile: '+(e&&e.message||e)); return; }
+  setTimeout(()=>{                                  // salta la modale evento, vai all'HUD e ferma il timer
+    try{ closeModal(); }catch(_){}
+    try{ beginYourTurn(); }catch(_){}
+    try{ stopTurnTimer(); }catch(_){}
+    tutRun(tutIsMobile()? TUT_HUD_MOBILE() : TUT_HUD_DESKTOP());
+  }, 260);
+}
+function tutRun(steps){
+  _tutSteps=steps.filter(s=>!s.sel || document.querySelector(s.sel));   // scarta gli step il cui target non c'è
+  _tutIdx=0;
+  document.getElementById('tut-root').classList.add('on');
+  tutShow();
+}
+function tutShow(){
+  const root=document.getElementById('tut-root');
+  const s=_tutSteps[_tutIdx];
+  if(!s){ return tutEnd(); }
+  document.getElementById('tut-tip-title').textContent = s.title||'Tutorial';
+  document.getElementById('tut-tip-text').innerHTML = s.text||'';
+  document.getElementById('tut-count').textContent = (_tutIdx+1)+'/'+_tutSteps.length;
+  document.getElementById('tut-next').textContent = (_tutIdx>=_tutSteps.length-1)?'Fine ✓':'Avanti ▸';
+  const hole=document.getElementById('tut-hole'), tip=document.getElementById('tut-tip');
+  const el = s.sel ? document.querySelector(s.sel) : null;
+  if(el){
+    root.classList.remove('center');
+    try{ el.scrollIntoView({block:'nearest',inline:'nearest'}); }catch(_){}
+    const r=el.getBoundingClientRect(), pad=8;
+    hole.style.left=Math.max(2,r.left-pad)+'px'; hole.style.top=Math.max(2,r.top-pad)+'px';
+    hole.style.width=(r.width+pad*2)+'px'; hole.style.height=(r.height+pad*2)+'px';
+    tutPlaceTip(r);
+  } else {
+    root.classList.add('center');
+    hole.style.left='50%'; hole.style.top='50%'; hole.style.width='0'; hole.style.height='0';
+    tip.style.transform='translate(-50%,-50%)'; tip.style.left='50%'; tip.style.top='50%';
+  }
+}
+function tutPlaceTip(r){
+  const tip=document.getElementById('tut-tip'); tip.style.transform='none';
+  const tw=Math.min(320, window.innerWidth*0.92), th=tip.offsetHeight||180;
+  let left, top;
+  if(window.innerHeight-r.bottom > th+20){ top=r.bottom+14; left=r.left; }
+  else if(r.top > th+20){ top=r.top-th-14; left=r.left; }
+  else if(window.innerWidth-r.right > tw+20){ left=r.right+14; top=r.top; }
+  else { left=r.left-tw-14; top=r.top; }
+  left=Math.min(Math.max(8,left), window.innerWidth-tw-8);
+  top =Math.min(Math.max(8,top),  window.innerHeight-th-8);
+  tip.style.left=left+'px'; tip.style.top=top+'px';
+}
+function tutNext(){ _tutIdx++; tutShow(); }
+function tutEnd(){
+  _tutActive=false;
+  const root=document.getElementById('tut-root'); if(root) root.classList.remove('on','center');
+  try{ stopTurnTimer(); }catch(_){}
+  try{ closeModal(); }catch(_){}
+  mpGame=null;
+  show('home');
+}
+window.addEventListener('resize', ()=>{ if(_tutActive && document.getElementById('tut-root').classList.contains('on')) tutShow(); });
+
+function TUT_HUD_DESKTOP(){ return [
+  {title:'🎓 Benvenuto', text:'Questo è il tuo <b>quartier generale</b>. Prima ti mostro le parti dell\'interfaccia, poi (a breve) le azioni. Usa <b>Avanti ▸</b> o <b>Esci</b>.'},
+  {sel:'#hx-rail',     title:'Scorciatoie',   text:'Il <b>rail</b> a sinistra: crafting, commercio, missioni, magazzino, mazzi. In basso: cronaca, chat, audio e manuale.'},
+  {sel:'#hud-day',     title:'Barra in alto', text:'<b>Giorno</b>, <b>fase</b>, di chi è il <b>turno</b> e il <b>timer</b>. La città peggiora col passare dei giorni.'},
+  {sel:'#hud-right',   title:'Il tuo stato',  text:'<b>Vita</b>, <b>monete</b>, <b>fama</b> e <b>malus</b>. Sotto: l\'<b>evento del giorno</b> e l\'anteprima dell\'<b>inventario</b> (clic per gestirlo).'},
+  {sel:'.mapwrap',     title:'La mappa',      text:'Il territorio a esagoni: ti muovi di casella in casella. Le zone verso il centro sono più pericolose ma più ricche.'},
+  {sel:'#hud-actions', title:'Le azioni',     text:'I <b>pallini</b> indicano movimento e azioni rimaste. I pulsanti (<b>Muoviti · Cerca · Nasconditi</b>…) cambiano col contesto. A destra la CTA per <b>terminare il turno</b>.'},
+  {title:'Pronto', text:'Questo era il giro dell\'interfaccia. Nel <b>prossimo aggiornamento</b> ti farò <b>provare le azioni</b> passo passo: muoviti, cerca, incontri, PvP, avamposto e consegna missioni.'},
+]; }
+function TUT_HUD_MOBILE(){ return [
+  {title:'🎓 Benvenuto', text:'Ti mostro l\'interfaccia <b>mobile</b>, poi (a breve) le azioni. Usa <b>Avanti ▸</b> o <b>Esci</b>.'},
+  {sel:'#m-topbar',    title:'Barra in alto', text:'<b>Diario</b> (giorno/fase — toccalo per i dettagli), di chi è il <b>turno</b>, il <b>tempo</b>, le <b>vite</b>, le <b>monete</b> e il menu <b>☰</b>.'},
+  {sel:'#m-malus',     title:'Malus',         text:'Gli stati negativi (emorragia, ossa rotte, veleno): si <b>illuminano</b> quando sono attivi.'},
+  {sel:'#m-fab-left',  title:'Missioni & Equip', text:'In basso a sinistra: le <b>missioni</b> (sopra) e l\'<b>inventario/equip</b> (sotto).'},
+  {sel:'#m-fab-right', title:'Commercio & Cronaca', text:'In basso a destra: <b>commercio/crafting</b> e la <b>cronaca/chat</b>.'},
+  {sel:'#m-zoom',      title:'Zoom mappa',    text:'Ingrandisci/rimpicciolisci la mappa; puoi anche fare <b>pinch</b> e trascinarla con un dito.'},
+  {sel:'.actionsbar',  title:'Le azioni',     text:'In basso: i <b>pallini</b> (movimento/azioni rimaste) e i pulsanti azione, con a destra la CTA per <b>terminare il turno</b>.'},
+  {title:'Pronto', text:'Fine del giro dell\'interfaccia. Nel <b>prossimo aggiornamento</b> ti farò <b>provare le azioni</b>: muoviti, cerca, incontri, PvP, avamposto e consegna.'},
+]; }
+
 (function(){ setTheme('pipboy'); })();   // tema unico: Pip-Boy sempre attivo
 </script>
 </body>
