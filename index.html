@@ -835,9 +835,14 @@
   /* Segnaposto quando l'immagine HUD non è (ancora) presente */
   .manual-content .m-fig.m-fig-missing{border:1px dashed var(--border2);border-radius:6px;padding:22px 10px;background:rgba(255,255,255,.02)}
   .manual-content .m-fig.m-fig-missing::before{content:'📷 immagine da inserire';color:var(--dim);font-size:11px;font-style:italic}
-  /* Figura "dal vivo": pulsante che evidenzia/apre la vera sezione dell'interfaccia (come il Tutorial) */
-  .manual-content .m-fig.m-live{border:1px solid var(--border2);border-radius:8px;padding:12px 10px;background:rgba(217,164,65,.05)}
-  .manual-content .m-live-btn{font-size:12px;padding:8px 14px}
+  /* Anteprima statica di un componente HUD, disegnata nel frame del manuale (niente screenshot) */
+  .manual-content .m-hud-mock{border:1px solid var(--border2);border-top:2px solid var(--rust-d);border-radius:8px;
+    background:linear-gradient(180deg,var(--bg2),var(--bg));padding:12px;max-width:360px;margin:10px auto 0;
+    text-align:left;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+  .manual-content .m-hud-mock .mk-lbl{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .manual-content .m-hud-mock .btn{pointer-events:none}
+  .manual-content .m-hud-mock .mk-box{border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center;font-size:10px;color:var(--muted);background:var(--bg)}
+  .manual-content .m-hud-mock .mk-card{border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)}
   .manual-content .m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin:10px 0 16px}
   .manual-content .m-thumb{text-align:center;font-size:10px;color:var(--muted)}
   .manual-content .m-thumb img{width:100%;height:160px;object-fit:contain;background:rgba(0,0,0,.28);border:1px solid var(--border2);border-radius:5px;margin-bottom:4px;display:block}
@@ -7670,77 +7675,162 @@ const MANUAL_C10 = `
   <p>La stagione finisce quando qualcuno raggiunge <b>5 fama</b> (vittoria immediata) o allo scadere dei <b>18 giorni</b> (23 in Hardcore). In quel caso si va al <b>calcolo finale</b>: più fama → più missioni → più monete (contano anche metà del valore di inventario e magazzino). Parità su tutto = <b>vittoria condivisa</b>.</p>
   <div class="m-note">🎖️ Ricorda: <b>Hexartha ricorda solo chi consegna.</b> Fatti un nome, estraiti vivo, e comprati una nuova vita lontano da qui.</div>
 `;
-const _hudFig=(file,cap)=>`<div class="m-fig"><img src="${encodeURI('HUD/'+file)}" alt="${cap}" onerror="this.style.display='none';this.parentNode.classList.add('m-fig-missing')"><div class="m-cap">${cap}</div></div>`;
-// Figure "dal vivo": invece di uno screenshot fisso, un pulsante evidenzia la VERA sezione dell'interfaccia
-// (come il Tutorial) o apre il pannello reale. Funziona quando sei in partita; dalla home avvisa di avviarne una.
-const _hudLive=(sels,cap)=>`<div class="m-fig m-live"><button class="btn m-live-btn" onclick="manualSpotlight('${sels}','${cap.replace(/'/g,'’')}')">🔎 Mostra dal vivo</button><div class="m-cap">${cap}</div></div>`;
-const _hudOpen=(fn,cap)=>`<div class="m-fig m-live"><button class="btn m-live-btn" onclick="manualOpenFeature('${fn}')">▸ Aprilo nel gioco</button><div class="m-cap">${cap}</div></div>`;
+// Anteprima STATICA di un componente HUD, disegnata nel frame del manuale (niente screenshot, niente
+// dipendenza dalla partita in corso): un mockup rappresentativo con gli stessi stili del gioco.
+const _hudMock=(inner,cap)=>`<div class="m-fig"><div class="m-hud-mock">${inner}</div><div class="m-cap">${cap}</div></div>`;
 const MANUAL_C11 = `
   <h2>L'interfaccia di gioco (HUD)</h2>
-  <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve. Premi <b>«Mostra dal vivo»</b> per vederla evidenziata direttamente nell'interfaccia (durante una partita), poi <b>«Torna al manuale»</b>.</p>
+  <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve. Ogni riquadro qui sotto è un'<b>anteprima</b> del componente reale.</p>
 
   <h3>🗓️ Plancia</h3>
-  ${_hudLive('#hud-day,#m-topbar','La plancia da campo')}
+  ${_hudMock(`
+    <div class="mk-lbl">Plancia</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">
+      <div style="font-size:20px;font-weight:800;color:var(--gold)">Giorno 3<span style="font-size:11px;color:var(--muted)">/18</span></div>
+      <div style="font-size:11px;color:var(--rust)">⚠ Il declino</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">Turno di: <b style="color:var(--fg)">Tu</b> &nbsp;·&nbsp; ⏱ <b style="color:var(--fg)">2:45</b></div>`,'La plancia da campo')}
   <p>In alto a sinistra: riassume la giornata. Mostra il <b>Giorno</b> corrente, la <b>fase</b> in corso (L'inizio · Il declino · La resa dei conti), di chi è il <b>turno</b> e il <b>tempo</b> rimasto (3 minuti). È il tuo punto di riferimento su "a che punto è" la partita.</p>
 
   <h3>📋 Evento</h3>
-  ${_hudLive('#eventbox,#m-topbar','La carta Evento del giorno')}
+  ${_hudMock(`
+    <div class="mk-lbl">Evento del giorno</div>
+    <div class="mk-card" style="margin-top:6px">
+      <div style="color:var(--gold);font-weight:700;font-size:12px">EVENTO · Scorie tossiche</div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:3px">Chi finisce il turno all'aperto viene avvelenato.</div>
+    </div>`,'La carta Evento del giorno')}
   <p>Ogni giorno viene girata una <b>carta Evento</b> valida per tutta la giornata: può modificare danni e azioni, far comparire nuovi nemici, distruggere luoghi, avvelenare, dare monete e altro. Il suo effetto resta visibile qui finché il giorno non cambia.</p>
 
   <h3>🔁 Turni</h3>
-  ${_hudLive('#hud-actions,.actionsbar','Scansione delle fasi del turno')}
+  ${_hudMock(`
+    <div class="mk-lbl">Fasi del turno</div>
+    <div style="display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11px">
+      <span style="color:var(--gold)">● Movimento</span><span style="color:var(--muted)">▸</span>
+      <span style="color:var(--fg)">● Azioni</span><span style="color:var(--muted)">▸</span>
+      <span style="color:var(--muted)">○ Incontro</span>
+    </div>`,'Scansione delle fasi del turno')}
   <p>Indica la <b>progressione del tuo turno</b>: prima il <b>movimento</b> (obbligatorio), poi le <b>azioni</b> (cerca, nasconditi, scassina…), infine il <b>passo finale</b> con l'eventuale incontro. Ti fa capire cosa puoi ancora fare prima di chiudere il turno.</p>
 
   <h3>🔢 Ordine turno</h3>
-  ${_hudLive('#turnorder-card','La sequenza dei giocatori')}
+  ${_hudMock(`
+    <div class="mk-lbl">Ordine del turno</div>
+    <div style="margin-top:6px;font-size:12px;display:flex;flex-direction:column;gap:3px">
+      <div style="color:var(--gold)">1. Tu ▶</div>
+      <div style="color:var(--muted)">2. BOT 1</div>
+      <div style="color:var(--muted)">3. BOT 2</div>
+    </div>`,'La sequenza dei giocatori')}
   <p>Riquadro sopra la mappa con la <b>sequenza dei giocatori</b>, a partire da chi inizia. Il giocatore attivo è evidenziato con <b>▶</b>; chi è disconnesso o ritirato appare in grigio.</p>
 
   <h3>🗺️ Mappa</h3>
-  ${_hudLive('.mapwrap','La città a settori esagonali')}
+  ${_hudMock(`
+    <div class="mk-lbl">Mappa a settori esagonali</div>
+    <svg viewBox="0 0 184 84" style="width:100%;max-width:280px;display:block;margin:6px auto 0">
+      <polygon points="12,42 22,25 42,25 52,42 42,59 22,59" fill="#33402f" stroke="#0c0f0a"/>
+      <polygon points="52,42 62,25 82,25 92,42 82,59 62,59" fill="#3a2f2f" stroke="#0c0f0a"/>
+      <polygon points="92,42 102,25 122,25 132,42 122,59 102,59" fill="#5a2626" stroke="#0c0f0a"/>
+      <polygon points="132,42 142,25 162,25 172,42 162,59 142,59" fill="#2f333f" stroke="#0c0f0a"/>
+      <circle cx="42" cy="42" r="5.5" fill="var(--gold)" stroke="#0c0f0a"/>
+    </svg>`,'La città a settori esagonali')}
   <p>La città divisa in <b>settori esagonali</b>. Mostra la tua <b>pedina</b> e quelle avversarie, i tipi di zona (urbane, ospedale, militari, riciclaggio, Fortezza, estrazioni) e, durante il movimento, le <b>caselle raggiungibili</b> evidenziate.</p>
 
   <h3>🎮 Azioni</h3>
-  ${_hudLive('#hud-actions,.actionsbar','La barra delle azioni')}
+  ${_hudMock(`
+    <div class="mk-lbl">Barra azioni</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+      <span class="btn" style="font-size:11px;padding:5px 9px">🥾 Spostati</span>
+      <span class="btn" style="font-size:11px;padding:5px 9px">🔎 Cerca</span>
+      <span class="btn" style="font-size:11px;padding:5px 9px">🌑 Nascondi</span>
+      <span class="btn primary" style="font-size:11px;padding:5px 9px">Termina turno</span>
+    </div>`,'La barra delle azioni')}
   <p>In basso, le azioni del tuo turno: <b>Muovi</b> (obbligatorio), <b>Cerca</b>, <b>Nasconditi</b>, <b>Scassina</b>, <b>Viaggio</b> in treno e <b>Termina turno / Effettua Incontro</b>. Hai <b>2 azioni</b> per turno (alcuni eventi e oggetti le modificano).</p>
 
   <h3>❤️ Vita soldi e malus</h3>
-  ${_hudLive('#hud-right,#m-topbar','Vita, monete, fama e stati negativi')}
+  ${_hudMock(`
+    <div class="mk-lbl">Vita · monete · fama</div>
+    <div style="margin-top:6px;font-size:15px">❤️❤️🤍 &nbsp;&nbsp; 🪙 <b style="color:var(--gold)">12</b> &nbsp;&nbsp; <span style="color:var(--gold)">★★☆☆☆</span></div>
+    <div style="margin-top:8px;font-size:12px;color:var(--muted)">Malus: 🩸 Emorragia &nbsp; 🦴 Ossa rotte &nbsp; ☠️ Veleno</div>`,'Vita, monete, fama e stati negativi')}
   <p>Il tuo pannello vitale: la <b>vita</b> ❤ (più eventuali <b>vite extra</b> temporanee), le <b>monete</b> 🪙 e la <b>fama</b> ★. Qui compaiono anche i <b>malus/stati</b> negativi con il loro effetto: <b>☣ Avvelenato</b> (perdi vita e blocca le tasche laterali), <b>🩸 Emorragia</b> (−1 vita a fine turno) e <b>🦴 Ossa rotte</b> (−2 in combattimento). Curali con gli oggetti medici giusti.</p>
 
   <h3>🎒 Inventario</h3>
-  ${_hudLive('#hud-right .equip-card,#m-fab-left','Equipaggiamento e zaino')}
+  ${_hudMock(`
+    <div class="mk-lbl">Equipaggiamento e zaino</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px">
+      <div class="mk-box">🗡 Arma</div><div class="mk-box">🛡 Armatura</div><div class="mk-box">⛑ Casco</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:5px">
+      <div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div>
+    </div>`,'Equipaggiamento e zaino')}
   <p><b>Equipaggiamento</b> (arma, armatura, casco, 2 gadget) e <b>Tasca sicura</b> (non si perde alla morte), più lo <b>zaino</b> a tre sezioni (sinistra · centro · destra). Alcuni stati bloccano le tasche laterali. Tocca una carta per il menu: <b>Usa / Equipaggia / Sposta / Scarta</b>.</p>
 
   <h3>🛠️ Crafting</h3>
-  ${_hudOpen('openCrafting','Creazione di oggetti')}
+  ${_hudMock(`
+    <div class="mk-lbl">Crafting</div>
+    <div class="mk-card" style="margin-top:6px">
+      <div style="font-size:12px;font-weight:700">Kit medico</div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:3px">Garza + Antidolorifico + Alcol → <b style="color:var(--green)">CREA</b></div>
+    </div>`,'Creazione di oggetti')}
   <p>Nelle zone sicure crei oggetti combinando i <b>materiali</b> che possiedi (contano zaino, magazzino ed <b>equipaggiati</b>). Le ricette sono divise in <b>categorie</b> (Medici · Armi & Armature · Utility & Gadget): in verde gli ingredienti che hai, "CREA" attivo quando la ricetta è completa.</p>
 
   <h3>🤝 Commercio</h3>
-  ${_hudOpen('openCommerce','Compra e vendi coi ricettatori')}
+  ${_hudMock(`
+    <div class="mk-lbl">Commercio</div>
+    <div class="mk-card" style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;font-size:12px">
+      <span>🛡 Giubbotto antiproiettile</span><span style="color:var(--gold);font-weight:700">🪙 8</span>
+    </div>`,'Compra e vendi coi ricettatori')}
   <p>Nelle zone sicure <b>compri</b> dai ricettatori e <b>vendi</b> a Michail (max 3 vendite a turno; armi e armature usate valgono la metà). Qui trasformi il bottino in monete e le monete in equipaggiamento.</p>
 
   <h3>📜 Missioni</h3>
-  ${_hudOpen('openMissions','Le tue missioni')}
+  ${_hudMock(`
+    <div class="mk-lbl">Missioni</div>
+    <div class="mk-card" style="margin-top:6px">
+      <div style="font-size:12px;font-weight:700">Rifornire l'ospedale</div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:3px">Consegna: <b style="color:var(--green)">Garza ✓</b> · Antibiotico &nbsp;→&nbsp; <b style="color:var(--gold)">★ +1</b></div>
+    </div>`,'Le tue missioni')}
   <p>Le tue <b>missioni segrete</b> (una Medica, una Militare, una Urbana) più quelle di <b>Storia</b> comuni a tutti. Per ognuna vedi gli <b>oggetti richiesti</b> (in verde quelli che possiedi) e il premio. Si consegnano negli avamposti.</p>
 
   <h3>🏆 Fama e classifica</h3>
-  ${_hudLive('#turnorder-card,#hud-right','La classifica della fama')}
+  ${_hudMock(`
+    <div class="mk-lbl">Fama e classifica</div>
+    <div style="margin-top:6px;font-size:12px;display:flex;flex-direction:column;gap:3px">
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--gold)">1. Tu</span><span style="color:var(--gold)">★★★☆☆ 3/5</span></div>
+      <div style="display:flex;justify-content:space-between;color:var(--muted)"><span>2. BOT 1</span><span>★★☆☆☆ 2/5</span></div>
+    </div>`,'La classifica della fama')}
   <p>La <b>fama</b> ★ è la strada per la vittoria (a <b>5</b> vinci subito). La classifica mostra la fama di <b>tutti i giocatori</b> aggiornata in tempo reale: tienila d'occhio per capire chi sta per farcela.</p>
 
   <h3>🃏 Mazzi e incontri</h3>
-  ${_hudOpen('openCardsBrowser','I mazzi e gli incontri')}
+  ${_hudMock(`
+    <div class="mk-lbl">Mazzi e incontri</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+      <span class="chip">Comune</span><span class="chip">Medico</span><span class="chip">Militare</span><span class="chip">Riciclaggio</span><span class="chip">Incontri</span>
+    </div>`,'I mazzi e gli incontri')}
   <p>I <b>mazzi</b> di gioco: loot (Comune · Medico · Militare · Speciale), Riciclaggio e <b>Incontri</b>. Quando cerchi peschi il bottino; fuori dalle zone sicure puoi incappare in un <b>incontro</b> (PvE). Ogni carta incontro esce una sola volta finché il mazzo non si rimischia.</p>
 
   <h3>📖 Cronaca</h3>
-  ${_hudOpen('toggleCronaca','Il registro del turno')}
+  ${_hudMock(`
+    <div class="mk-lbl">📜 Cronaca</div>
+    <div style="margin-top:6px;font-size:11px;color:var(--muted);line-height:1.7">
+      › Ti sposti a Quartiere fantasma.<br>› Cerchi: trovi una <b style="color:var(--fg)">Garza</b>.<br>› Fine turno.
+    </div>`,'Il registro del turno')}
   <p>In basso a sinistra: il <b>registro</b> di tutto ciò che accade (movimenti, pescate, combattimenti, eventi). Si apre e chiude a linguetta; un pallino segnala le voci non ancora lette.</p>
 
   <h3>💬 Chat</h3>
-  ${_hudOpen('toggleChat','La chat coi giocatori')}
+  ${_hudMock(`
+    <div class="mk-lbl">💬 Chat</div>
+    <div style="margin-top:6px;font-size:11.5px;line-height:1.7">
+      <div><b style="color:var(--gold)">BOT 1:</b> tregua?</div>
+      <div><b style="color:var(--fg)">Tu:</b> ok, pace.</div>
+    </div>`,'La chat coi giocatori')}
   <p>Accanto alla Cronaca (solo online): scrivi agli <b>altri giocatori</b> in tempo reale. Si apre una linguetta alla volta; un pallino segnala i messaggi non letti e arriva un suono discreto a ogni nuovo messaggio.</p>
 
   <h3>🔊 Audio</h3>
-  ${_hudLive('#hx-audio-ctrl','Il controllo audio')}
+  ${_hudMock(`
+    <div class="mk-lbl">Audio</div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:9px;font-size:14px">🔊
+      <span style="flex:1;height:6px;background:var(--border2);border-radius:3px;position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:65%;background:var(--gold);border-radius:3px"></span></span>
+    </div>
+    <div style="margin-top:6px;display:flex;align-items:center;gap:9px;font-size:14px">🔔
+      <span style="flex:1;height:6px;background:var(--border2);border-radius:3px;position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:45%;background:var(--gold);border-radius:3px"></span></span>
+    </div>`,'Il controllo audio')}
   <p>In alto a destra: accendi/spegni l'audio e regoli separatamente <b>musica</b> ed <b>effetti</b>. La musica cambia con la fase della partita, diventando via via più cupa e ansiogena.</p>
 `;
 const MANUAL_CHAPTERS = [
@@ -7782,57 +7872,6 @@ function openManual(i){
   const m=document.getElementById('modal'); if(m) m.classList.add('manual');
   renderManualChapter();
 }
-// ===== Manuale "dal vivo": evidenzia o apre la vera sezione dell'interfaccia (riusa lo spotlight del Tutorial) =====
-const MANUAL_HUD_CHAPTER=11;   // indice del capitolo "L'interfaccia di gioco (HUD)" in MANUAL_CHAPTERS
-let _manualSpotActive=false, _manualSpotSels=null, _manualSpotTitle='';
-function manualInGame(){ const g=document.getElementById('game'); return !!(g && g.classList.contains('active')); }
-function manualLiveUnavailable(){ alert('Questa sezione si vede durante la partita.\nAvvia una partita, poi riapri il Manuale e premi «Mostra dal vivo».'); }
-function manualSpotlight(selsStr, title){
-  if(!manualInGame()){ manualLiveUnavailable(); return; }
-  const sels=String(selsStr).split(',').map(s=>s.trim()).filter(Boolean);
-  const el=sels.map(s=>document.querySelector(s)).find(e=>e && e.getClientRects().length>0);
-  if(!el){ manualLiveUnavailable(); return; }
-  _manualSpotSels=sels; _manualSpotTitle=title||'';
-  closeModal();                       // chiude il manuale, poi mostra lo spotlight sull'elemento reale
-  _manualPlaceSpot(el);
-}
-function _manualPlaceSpot(el){
-  const root=document.getElementById('tut-root'); if(!root) return;
-  document.getElementById('tut-tip-title').textContent=_manualSpotTitle;
-  document.getElementById('tut-tip-text').innerHTML='Questa è la sezione dal vivo, evidenziata nell\'interfaccia. Premi <b>Torna al manuale</b> per continuare a leggere.';
-  document.getElementById('tut-count').textContent='';
-  const next=document.getElementById('tut-next'), skip=document.getElementById('tut-skip');
-  if(next) next.style.display='none';
-  if(skip) skip.style.display='none';
-  const cta=document.getElementById('tut-cta');
-  window._tutCtaFn=manualSpotlightEnd; cta.textContent='↩ Torna al manuale'; cta.style.display='';
-  root.classList.add('on'); root.classList.remove('center','pass');
-  try{ el.scrollIntoView({block:'nearest',inline:'nearest'}); }catch(_){}
-  const r=el.getBoundingClientRect(), pad=8;
-  const hole=document.getElementById('tut-hole');
-  hole.style.left=Math.max(2,r.left-pad)+'px'; hole.style.top=Math.max(2,r.top-pad)+'px';
-  hole.style.width=(r.width+pad*2)+'px'; hole.style.height=(r.height+pad*2)+'px';
-  tutPlaceTip(r);
-  _manualSpotActive=true;
-}
-function manualSpotlightEnd(){
-  _manualSpotActive=false; _manualSpotSels=null;
-  const root=document.getElementById('tut-root'); if(root) root.classList.remove('on','center','pass');
-  const next=document.getElementById('tut-next'), skip=document.getElementById('tut-skip');
-  if(next) next.style.display='';
-  if(skip) skip.style.display='';
-  const cta=document.getElementById('tut-cta'); window._tutCtaFn=null; if(cta) cta.style.display='none';
-  openManual(MANUAL_HUD_CHAPTER);     // riapre il manuale al capitolo HUD
-}
-function manualOpenFeature(fn){
-  if(!manualInGame()){ manualLiveUnavailable(); return; }
-  const map={openCrafting:openCrafting, openCommerce:openCommerce, openMissions:openMissions,
-             openCardsBrowser:openCardsBrowser, toggleCronaca:toggleCronaca, toggleChat:toggleChat};
-  const f=map[fn]; if(typeof f!=='function') return;
-  closeModal();
-  try{ f(); }catch(e){ console.error('[manuale]',e); }
-}
-window.addEventListener('resize', ()=>{ if(_manualSpotActive && _manualSpotSels){ const el=_manualSpotSels.map(s=>document.querySelector(s)).find(e=>e && e.getClientRects().length>0); if(el) _manualPlaceSpot(el); } });
 function manualGo(i){
   if(i<0 || i>=MANUAL_CHAPTERS.length) return;
   _manualCh=i;
