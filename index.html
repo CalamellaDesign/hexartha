@@ -1881,7 +1881,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
       <button class="btn" id="a-search" onclick="doSearch()" title="Cerca nella zona: peschi una carta loot (1 azione)"><span class="ic">🔎<svg class="pip-ic"><use href="#pi-search"/></svg></span>Cerca</button>
       <button class="btn" id="a-hide" onclick="doHide()" title="Trattieni il fiato. Lascia che passino. Nessun incontro a fine turno (1 azione)"><span class="ic">🌑<svg class="pip-ic"><use href="#pi-hide"/></svg></span>Nascondi</button>
       <button class="btn" id="a-lock" onclick="doLock()" title="Serve un Grimaldello e un accampamento avversario adiacente (1 azione)"><span class="ic">🗝<svg class="pip-ic"><use href="#pi-lock"/></svg></span>Scassina</button>
-      <button class="btn" id="a-store" onclick="openDeposito()" style="display:none" title="Gestisci il deposito (solo safe zone)"><span class="ic">🗄<svg class="pip-ic"><use href="#pi-inv"/></svg></span>Magazzino</button>
+      <button class="btn" id="a-store" onclick="openDeposito()" style="display:none" title="Gestisci il deposito (solo safe zone)"><span class="ic">🗄<svg class="pip-ic"><use href="#pi-mag"/></svg></span>Magazzino</button>
       <button class="btn" id="a-trade" onclick="openCommerce()" style="display:none" title="Compra e vendi dai ricettatori (solo safe zone)"><span class="ic">🤝<svg class="pip-ic"><use href="#pi-trade"/></svg></span>Commercia</button>
       <button class="btn" id="a-deliver" onclick="deliverMissions()" style="display:none" title="Consegna gli oggetti delle missioni (solo avamposto)"><span class="ic">📦<svg class="pip-ic"><use href="#pi-mission"/></svg></span>Consegna missioni</button>
       <button class="btn" id="a-end" onclick="endTurnCTA()" title="A fine turno, la città presenta il conto."><span class="ic" style="font-size:0"><svg class="pip-ic"><use href="#pi-end"/></svg></span>Termina turno</button>
@@ -2576,7 +2576,13 @@ const HXAudio = (function(){
   // ---- Avvio: sblocco al primo gesto (policy autoplay dei browser) + click globale ----
   function init(){
     buildUI();
-    const unlock=()=>{ if(unlocked) return; unlocked=true; if(ensure()) startMusic();
+    const unlock=()=>{ if(unlocked) return; unlocked=true;
+      // Mobile: ctx.resume() è ASINCRONO. Avviare la musica mentre il contesto è ancora 'suspended'
+      // metterebbe musicPlaying=true senza produrre suono (e la guardia bloccherebbe i riavvii).
+      // Quindi: sblocco il contesto NEL gesto utente e faccio partire la musica SOLO a resume avvenuto.
+      build();
+      if(ctx && ctx.state==='suspended'){ ctx.resume().then(startMusic).catch(startMusic); }
+      else startMusic();
       window.removeEventListener('pointerdown',unlock); window.removeEventListener('keydown',unlock); window.removeEventListener('touchstart',unlock); };
     window.addEventListener('pointerdown',unlock,{passive:true});
     window.addEventListener('keydown',unlock);
@@ -10893,7 +10899,7 @@ function tutStart(){
 let _tutOnEnd=null;
 function tutRun(steps, onEnd){
   _tutOnEnd = onEnd || tutEnd;
-  _tutSteps=steps.filter(s=>{ if(!s.sel) return true; const el=document.querySelector(s.sel); return el && el.offsetParent!==null; });   // scarta gli step il cui target manca o è nascosto
+  _tutSteps=steps.filter(s=>{ if(!s.sel) return true; const el=document.querySelector(s.sel); return el && el.getClientRects().length>0; });   // scarta gli step il cui target manca o è nascosto (getClientRects funziona anche con position:fixed, dove offsetParent è sempre null → sul mobile la barra/HUD non venivano più saltate)
   _tutIdx=0;
   document.getElementById('tut-root').classList.add('on');
   document.getElementById('tut-next').style.display='';
