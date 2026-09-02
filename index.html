@@ -750,6 +750,30 @@
   .pvp-win-badge{font-size:14px}
   .pvp-combat-row .nm{font-weight:700}
   .pvp-combat-row .dc{min-width:96px;text-align:right;display:flex;gap:6px;align-items:center;justify-content:flex-end}
+  /* ===== Baratto (scambio carte tra giocatori) ===== */
+  .barter-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0}
+  @media(max-width:720px){ .barter-grid{grid-template-columns:1fr} }
+  .barter-side{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px}
+  .barter-side.mine{border-color:var(--border2)}
+  .barter-side.accepted{border-color:var(--green);box-shadow:0 0 0 1px var(--green),0 0 12px rgba(122,184,95,.22)}
+  .barter-side h4{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .barter-slots{display:flex;gap:6px;margin-bottom:8px}
+  .barter-slot{flex:1 1 0;min-width:0;height:78px;border:1px dashed var(--border2);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:10px;color:var(--dim);padding:4px;position:relative}
+  .barter-slot.full{border-style:solid;border-color:var(--gold);color:var(--fg);cursor:pointer;background:rgba(212,175,55,.06)}
+  .barter-slot .bs-nm{font-size:10px;line-height:1.15;font-weight:700;max-height:2.4em;overflow:hidden}
+  .barter-slot .bs-val{font-size:9px;color:var(--gold);margin-top:2px}
+  .barter-slot .bs-x{position:absolute;top:2px;right:4px;color:var(--rust);font-weight:700;font-size:12px}
+  .barter-coins{display:flex;align-items:center;gap:6px;margin:6px 0}
+  .barter-coins input[type=range]{flex:1;min-width:0}
+  .barter-coins .cstep{width:26px;height:26px;border:1px solid var(--border2);background:var(--bg2);color:var(--fg);border-radius:5px;font-size:15px;cursor:pointer;line-height:1}
+  .barter-val{font-size:11px;color:var(--muted);text-align:right;margin-top:4px}
+  .barter-pick{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0;max-height:120px;overflow:auto}
+  .barter-pick .bp-card{border:1px solid var(--border2);border-radius:5px;padding:4px 7px;font-size:11px;cursor:pointer;background:var(--bg);white-space:nowrap}
+  .barter-pick .bp-card:hover{border-color:var(--gold)}
+  .barter-pick .bp-card.sel{border-color:var(--gold);background:rgba(212,175,55,.14);opacity:.55}
+  .barter-pick .bp-card.mission{border-color:var(--rust)}
+  .barter-actions{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .barter-status{font-size:11px;color:var(--muted);text-align:center;margin-top:6px}
   .craft-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
   .craft-tab{padding:6px 12px;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);
     color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer;transition:all .12s}
@@ -4137,6 +4161,7 @@ function mpCharInfo(ch){
 }
 function mpStartPvpVote(foes){
   _pvpResolved=false; _pvpPrepShown=false; _pvpPrepKey=null; _pvpPrepBegun=false; if(state) state.pvpPrep=false;
+  _barter=null; _barterRenderKey=null; _barterSettling=false; _barterFinalized=false;
   const showdown=isShowdown();
   const participants=[myId, ...foes.map(f=>f.id)];
   const names={[myId]:state.you.name}, colors={[myId]:state.you.color||'#c8a44e'}, info={[myId]:mpCharInfo(state.you)};
@@ -4150,7 +4175,7 @@ function mpHandlePvp(){
   const pvp=net.pvp;
   if(!pvp){
     stopPvpIdle();
-    if(_pvpVoteKey||_combatRenderKey||_pvpPrepShown||_pvpResolved){ _pvpVoteKey=null; _pvpResolved=false; _pvpFightShown=false; _pvpPrepShown=false; _pvpPrepKey=null; _pvpPrepBegun=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[]; if(state){ state.spoilMode=false; state.spoilCtx=null; state.pvpPrep=false; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
+    if(_pvpVoteKey||_combatRenderKey||_pvpPrepShown||_pvpResolved||_barter){ _pvpVoteKey=null; _pvpResolved=false; _pvpFightShown=false; _pvpPrepShown=false; _pvpPrepKey=null; _pvpPrepBegun=false; _combatRenderKey=null; _combatActed=null; _pvpRevealAnimated=false; _mpRoundBonus=0; _lootInit=false; _lootRemaining=[]; _barter=null; _barterRenderKey=null; _barterSettling=false; _barterFinalized=false; if(state){ state.spoilMode=false; state.spoilCtx=null; state.pvpPrep=false; } const ov=document.getElementById('overlay'); if(ov&&ov.classList.contains('active')) closeModal(); }
     return false;
   }
   if(!(pvp.participants||[]).includes(myId)) return true;   // non coinvolto: attende
@@ -4166,6 +4191,10 @@ function mpHandlePvp(){
     mpHandlePvpPrep(pvp);
   } else if(pvp.status==="fighting"){
     mpHandleCombat(pvp);
+  } else if(pvp.status==="barter"){
+    mpHandleBarter(pvp);
+  } else if(pvp.status==="barterClosed"){
+    mpHandleBarterClosed(pvp);
   }
   return true;
 }
@@ -4200,8 +4229,8 @@ function mpRenderPvpVote(pvp){
             ? `<div class="center" style="margin-top:12px"><button class="btn primary" onclick="mpPvpVote('fight')">⚔ Combatti</button></div>`
             : `<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
                  <button class="btn primary" onclick="mpPvpVote('fight')">⚔ Lotta</button>
-                 <button class="btn" onclick="mpPvpVote('peace')">☮ Pace</button></div>`)}
-      <p class="dim small center" style="margin-top:10px">${pvp.showdown?'Nessuna tregua possibile.':'Tutti Pace → niente lotta. Basta un solo voto Lotta → si combatte.'}</p>
+                 <button class="btn" onclick="mpPvpVote('peace')">☮ Pace + Baratto</button></div>`)}
+      <p class="dim small center" style="margin-top:10px">${pvp.showdown?'Nessuna tregua possibile.':'Tutti Pace → niente lotta'+((pvp.participants||[]).length===2?': si apre il <b>baratto</b>':'')+'. Basta un solo voto Lotta → si combatte.'}</p>
     </div>`);
 }
 function mpPvpVote(choice){
@@ -4212,6 +4241,7 @@ function mpPvpVote(choice){
 function mpResolvePvp(outcome){
   closeModal();
   if(outcome==="peace"){
+    if(((net.pvp&&net.pvp.participants)||[]).length===2){ mpStartBarter(); return; }   // due giocatori → baratto
     patchRoom(s=>{ s.pvp=null; });
     log(`☮ Pace: vi lasciate passare, nessuno scontro.`,"good");
     state.pvp=null; enterPostEncounter();
@@ -8589,11 +8619,11 @@ function renderPvPVote(){
         ${showdown
           ? `<button class="btn primary" onclick="pvpVote('fight')">⚔ Combatti</button>`
           : `<button class="btn primary" onclick="pvpVote('fight')">⚔ Lotta</button>
-             <button class="btn" onclick="pvpVote('peace')">☮ Pace</button>`}
+             <button class="btn" onclick="pvpVote('peace')">☮ Pace + Baratto</button>`}
       </div>
       <p class="dim small center" style="margin-top:8px">${showdown
         ? 'Nessuna tregua possibile: si combatte.'
-        : 'Entrambi Pace → niente lotta (vi lasciate passare). Almeno un voto Lotta → si combatte.'}</p>
+        : 'Entrambi Pace → niente lotta: si apre il <b>baratto</b> (scambio di carte/monete). Almeno un voto Lotta → si combatte.'}</p>
     </div>`);
 }
 function pvpVote(choice){
@@ -8609,7 +8639,7 @@ function pvpVote(choice){
   const foeChoice = foe.isBot ? 'peace' : ((stronger? Math.random()<0.7 : Math.random()<0.35) ? 'fight':'peace');
   state.pvp.foeChoice=foeChoice;
   log(`⚖ Voto PvP: Tu → ${choice==='fight'?'Lotta':'Pace'} · ${foe.name} → ${foeChoice==='fight'?'Lotta':'Pace'}.`);
-  if(choice==='peace' && foeChoice==='peace') pvpPeace();
+  if(choice==='peace' && foeChoice==='peace') openBarterLocal(foe);
   else pvpStartPrep(pvpFight);
 }
 function pvpPeace(){
@@ -8625,6 +8655,309 @@ function pvpPeace(){
 }
 function pvpEnd(){ state.pvp=null; enterPostEncounter(); }
 function pvpFight(){ renderPvPFight("La lotta comincia!"); }
+
+// ============================================================================
+// BARATTO (scambio di carte/monete tra due giocatori dopo il voto "Pace + Baratto")
+// Un'unica UI (renderBarter) serve sia il flusso LOCALE (contro un BOT / singolo device)
+// sia quello di RETE (umano-vs-umano via net.pvp.barter). Vedi RULES.md §6.5-bis.
+// ============================================================================
+let _barter=null, _barterRenderKey=null, _barterSettling=false, _barterFinalized=false;
+
+// Valore di un oggetto ai fini del baratto = prezzo di vendita (ai ricettatori). Monete 1:1.
+function barterValue(it){ return it?Math.max(0,sellPrice(it)):0; }
+function barterOfferValue(items, coins){ return (items||[]).reduce((s,it)=>s+barterValue(it),0)+(+coins||0); }
+function barterOfferValueCards(cards, coins){ return (cards||[]).reduce((s,it)=>s+barterValue(it),0)+(+coins||0); }
+function barterClean(it){ return it?JSON.parse(JSON.stringify(it)):it; }
+
+// Elenco delle carte che IO posso offrire (zaino + equipaggiati + gadget + Tasca sicura; NON il magazzino).
+function barterYouList(){
+  const y=state.you, out=[];
+  ['arma','armatura','casco'].forEach(k=>{ if(y.equip[k]) out.push({it:y.equip[k]}); });
+  (y.equip.gadget||[]).forEach(g=>{ if(g) out.push({it:g}); });
+  if(y.equip.tasca) out.push({it:y.equip.tasca});
+  ['sx','centro','dx'].forEach(s=> (y.pack[s]||[]).forEach(it=> out.push({it})) );
+  return out;
+}
+// Rimuove per identità una carta dal MIO inventario (equip/gadget/tasca/zaino).
+function barterTakeFromYou(it){
+  const y=state.you;
+  for(const k of ['arma','armatura','casco','tasca']){ if(y.equip[k]===it){ y.equip[k]=null; return true; } }
+  const g=y.equip.gadget||[]; for(let i=0;i<g.length;i++){ if(g[i]===it){ g[i]=null; return true; } }
+  for(const s of ['sx','centro','dx']){ const arr=y.pack[s]||[]; const idx=arr.indexOf(it); if(idx>=0){ arr.splice(idx,1); return true; } }
+  return false;
+}
+// --- Lato BOT (flusso locale): il foe ha pack come ARRAY ---
+function barterFoeList(foe){
+  const out=[]; const e=foe.equip||{};
+  ['arma','armatura','casco'].forEach(k=>{ if(e[k]) out.push(e[k]); });
+  (e.gadget||[]).forEach(g=>{ if(g) out.push(g); });
+  if(e.tasca) out.push(e.tasca);
+  (Array.isArray(foe.pack)?foe.pack:[]).forEach(it=>{ if(it) out.push(it); });
+  return out;
+}
+function barterTakeFromFoe(foe,it){
+  const e=foe.equip||{};
+  for(const k of ['arma','armatura','casco','tasca']){ if(e[k]===it){ e[k]=null; return true; } }
+  const g=e.gadget||[]; for(let i=0;i<g.length;i++){ if(g[i]===it){ g[i]=null; return true; } }
+  const idx=(foe.pack||[]).indexOf(it); if(idx>=0){ foe.pack.splice(idx,1); return true; }
+  return false;
+}
+// Carte del bot NON utili alle sue missioni (surplus barattabile).
+function barterFoeSurplus(foe){
+  const need=new Set(); (foe.missions||[]).forEach(m=>{ if(!m.done)(m.deliver||[]).forEach(n=>need.add(n)); });
+  return barterFoeList(foe).filter(it=> it && !need.has(it.name));
+}
+// Array carte → zaino a sezioni {sx,centro,dx} nei limiti (extra scartati: solo per i bot).
+function barterPackObjFromArray(arr){
+  const p={sx:[],centro:[],dx:[]};
+  (arr||[]).forEach(it=>{ if(!it)return; if(p.centro.length<PACK_CAP.centro)p.centro.push(it); else if(p.sx.length<PACK_CAP.sx)p.sx.push(it); else if(p.dx.length<PACK_CAP.dx)p.dx.push(it); });
+  return p;
+}
+
+// -------- Avvio LOCALE (contro un BOT o in singolo) --------
+function openBarterLocal(foe){
+  closeModal();
+  const surplus=barterFoeSurplus(foe).slice().sort((a,b)=>barterValue(a)-barterValue(b)).slice(0,3);
+  _barter={ net:false, foe, otherName:foe.name, otherColor:foe.color||'#aaa',
+    myItems:[], myCoins:0, myAccept:false,
+    theirItems:surplus, theirCards:surplus.map(barterClean), theirCoins:0, theirAccept:false,
+    myMaxCoins:(state.you.coins||0), _flash:null };
+  log(`🤝 Pace: si apre il baratto con <b>${escapeHtml(foe.name)}</b>.`,"good");
+  barterBotEval(); renderBarter();
+}
+// Il bot accetta se riceve valore >= a quello che cede.
+function barterBotEval(){
+  const b=_barter; if(!b||b.net) return;
+  b.theirAccept = barterOfferValue(b.myItems,b.myCoins) >= barterOfferValueCards(b.theirCards,b.theirCoins);
+}
+
+// -------- Rendering unico (locale + rete) --------
+function barterFlash(msg){ if(_barter){ _barter._flash=msg; renderBarter(); } }
+function renderBarter(){
+  const b=_barter; if(!b) return;
+  const list=barterYouList();
+  const offeredMissionNames=b.myItems.filter(it=>missionRequiredBy(it.name).length).map(it=>it.name);
+  // Slot del MIO lato
+  const mySlots=[0,1,2].map(i=>{
+    const it=b.myItems[i];
+    return it
+      ? `<div class="barter-slot full" onclick="barterPick(${list.findIndex(e=>e.it===it)})" title="Togli"><span class="bs-x">✕</span><span class="bs-nm">${escapeHtml(it.name)}</span><span class="bs-val">${barterValue(it)}🪙</span></div>`
+      : `<div class="barter-slot">slot ${i+1}</div>`;
+  }).join('');
+  const theirSlots=[0,1,2].map(i=>{
+    const it=b.theirCards[i];
+    return it
+      ? `<div class="barter-slot full" style="cursor:default"><span class="bs-nm">${escapeHtml(it.name)}</span><span class="bs-val">${barterValue(it)}🪙</span></div>`
+      : `<div class="barter-slot">—</div>`;
+  }).join('');
+  // Lista carte da offrire (toggle)
+  const pick=list.map((e,i)=>{
+    const sel=b.myItems.includes(e.it), miss=missionRequiredBy(e.it.name).length>0;
+    return `<span class="bp-card${sel?' sel':''}${miss?' mission':''}" onclick="barterPick(${i})">${escapeHtml(e.it.name)} <span class="dim">·${barterValue(e.it)}🪙</span></span>`;
+  }).join('') || '<span class="dim small">Nessuna carta da offrire.</span>';
+  const myVal=barterOfferValue(b.myItems,b.myCoins), theirVal=barterOfferValueCards(b.theirCards,b.theirCoins);
+  const bothAccept=b.myAccept&&b.theirAccept;
+  const status = bothAccept ? '<span style="color:var(--green)">✓ Entrambi avete accettato: scambio in corso…</span>'
+    : b.myAccept ? `In attesa che <b style="color:${b.otherColor}">${escapeHtml(b.otherName)}</b> accetti…`
+    : b.theirAccept ? `<b style="color:${b.otherColor}">${escapeHtml(b.otherName)}</b> ha accettato. Tocca a te.`
+    : 'Metti carte e monete nel piatto, poi <b>Accetta</b>.';
+  openModal(`
+    <div class="modal-h"><span class="stencil" style="color:var(--green)">🤝 Baratto</span>
+      <span class="dim small">con ${escapeHtml(b.otherName)}</span></div>
+    <div class="modal-b">
+      ${b._flash?`<p class="barter-status" style="color:var(--rust)">${escapeHtml(b._flash)}</p>`:''}
+      <div class="barter-grid">
+        <div class="barter-side mine${b.myAccept?' accepted':''}">
+          <h4>La tua offerta ${b.myAccept?'<span style="color:var(--green)">✓</span>':''}</h4>
+          <div class="barter-slots">${mySlots}</div>
+          <div class="barter-coins">
+            <button class="cstep" onclick="barterCoins(${b.myCoins-1})" ${b.myCoins<=0?'disabled':''}>−</button>
+            <input type="range" min="0" max="${b.myMaxCoins}" value="${b.myCoins}" oninput="barterCoins(this.value)" ${b.myMaxCoins<=0?'disabled':''}>
+            <button class="cstep" onclick="barterCoins(${b.myCoins+1})" ${b.myCoins>=b.myMaxCoins?'disabled':''}>+</button>
+            <b style="min-width:52px;text-align:right">${b.myCoins} 🪙</b>
+          </div>
+          ${offeredMissionNames.length?`<p class="barter-status" style="color:var(--rust)">⚠ Carta utile per una tua missione: <b>${offeredMissionNames.map(escapeHtml).join(', ')}</b></p>`:''}
+          <div class="barter-val">Valore offerto: <b>${myVal}</b> 🪙</div>
+          <div class="inv-colh" style="margin-top:8px">Le tue carte (tocca per aggiungere/togliere)</div>
+          <div class="barter-pick">${pick}</div>
+        </div>
+        <div class="barter-side${b.theirAccept?' accepted':''}">
+          <h4>Offerta di <span style="color:${b.otherColor}">${escapeHtml(b.otherName)}</span> ${b.theirAccept?'<span style="color:var(--green)">✓ ha accettato</span>':''}</h4>
+          <div class="barter-slots">${theirSlots}</div>
+          <div class="barter-coins"><b>${b.theirCoins} 🪙</b></div>
+          <div class="barter-val">Valore ricevuto: <b>${theirVal}</b> 🪙</div>
+        </div>
+      </div>
+      <p class="barter-status">${status}</p>
+      <div class="barter-actions">
+        <button class="btn" onclick="barterExit()">✕ Esci dallo scambio</button>
+        ${b.myAccept
+          ? `<button class="btn" onclick="barterUnaccept()">↩ Annulla accetta</button>`
+          : `<button class="btn primary" onclick="barterAccept()">✓ Accetta</button>`}
+      </div>
+    </div>`);
+  b._flash=null;
+}
+
+// -------- Interazioni (comuni) --------
+function barterAfterMyChange(){
+  const b=_barter; if(!b) return; b.myAccept=false;
+  if(b.net){ barterPublishMine(); renderBarter(); }
+  else { barterBotEval(); renderBarter(); }
+}
+function barterPick(i){
+  const b=_barter; if(!b) return;
+  const list=barterYouList(), e=list[i]; if(!e) return;
+  const k=b.myItems.indexOf(e.it);
+  if(k>=0) b.myItems.splice(k,1);
+  else{ if(b.myItems.length>=3) return barterFlash("Massimo 3 carte per lato."); b.myItems.push(e.it); }
+  barterAfterMyChange();
+}
+function barterCoins(v){
+  const b=_barter; if(!b) return;
+  b.myCoins=Math.max(0,Math.min(b.myMaxCoins, Math.round(+v||0)));
+  barterAfterMyChange();
+}
+function barterAccept(){
+  const b=_barter; if(!b) return; b.myAccept=true;
+  if(b.net){ barterNetAccept(true); renderBarter(); return; }
+  if(b.theirAccept) return barterExecuteLocal();
+  renderBarter();
+}
+function barterUnaccept(){
+  const b=_barter; if(!b) return; b.myAccept=false;
+  if(b.net){ barterNetAccept(false); renderBarter(); return; }
+  renderBarter();
+}
+function barterExit(){
+  const b=_barter; if(!b) return;
+  if(b.net) return barterNetExit();
+  const foe=b.foe; _barter=null; closeModal();
+  log(`🤝 Esci dallo scambio con <b>${escapeHtml(foe.name)}</b>: nessuno scambio.`);
+  if(mpGame && net && net.pvp){ patchRoom(s=>{ s.pvp=null; }); }
+  state.pvp=null; enterPostEncounter();
+}
+
+// -------- Esecuzione LOCALE (contro bot) --------
+function barterExecuteLocal(){
+  const b=_barter, foe=b.foe;
+  const myGive=b.myItems.slice(), theirGive=b.theirItems.slice();
+  const myCoins=b.myCoins, theirCoins=b.theirCoins;
+  myGive.forEach(it=>barterTakeFromYou(it));
+  theirGive.forEach(it=>barterTakeFromFoe(foe,it));
+  state.you.coins=(state.you.coins||0)-myCoins+theirCoins;
+  foe.coins=(foe.coins||0)-theirCoins+myCoins;
+  if(!Array.isArray(foe.pack)) foe.pack=[];
+  myGive.forEach(it=>foe.pack.push(barterClean(it)));
+  foe.equipScore=oppEquipScore(foe);
+  const received=theirGive.map(barterClean);
+  recalcStats();
+  log(`🤝 Baratto con <b>${escapeHtml(foe.name)}</b>: dai ${myGive.length} carta/e${myCoins?` +${myCoins}🪙`:''}, ricevi ${received.length} carta/e${theirCoins?` +${theirCoins}🪙`:''}.`,"good");
+  try{HXAudio.fx('coin');}catch(e){}
+  closeModal();
+  barterFinishReceive(received, barterLocalDone);
+}
+function barterLocalDone(){
+  const foe=_barter&&_barter.foe;
+  state.spoilMode=false; state.spoilCtx=null;
+  if(mpGame && foe && foe.id){
+    const bc=mpGame.characters.find(c=>c.id===foe.id);
+    if(bc){ bc.pack=barterPackObjFromArray(foe.pack); bc.equip=foe.equip; bc.coins=foe.coins||0; bc.equipScore=oppEquipScore(bc); }
+    mpWriteBack();
+    patchRoom(s=>{ s.pvp=null; s.game=mpSerialize(mpGame); });
+  }
+  _barter=null; state.pvp=null; enterPostEncounter();
+}
+// Riceve le carte: quelle che entrano vanno nello zaino; l'eccedenza passa dallo scarto (flusso bottino), poi done().
+function barterFinishReceive(received, done){
+  const overflow=[];
+  (received||[]).forEach(it=>{ if(packTotalFree()>0){ if(packAdd(it)==null) overflow.push(it); } else overflow.push(it); });
+  recalcStats(); renderHUD();
+  if(overflow.length){
+    state.pendingLoot=overflow.slice(); state.pendingDone=done;
+    log(`🎒 Inventario pieno: sistema o scarta le carte ricevute, poi il turno si conclude.`,"bad");
+    openLootRoom();
+  } else { done(); }
+}
+
+// ============================ BARATTO IN RETE ============================
+// Avviato dal mover dopo un doppio "Pace" quando i partecipanti sono ESATTAMENTE due.
+function mpStartBarter(){
+  _barter=null; _barterRenderKey=null; _barterSettling=false; _barterFinalized=false;
+  patchRoom(s=>{ if(s.pvp){ s.pvp.status="barter"; s.pvp.barter={ offer:{}, accept:{}, final:{}, phase:"negotiate" }; } });
+  log(`🤝 Pace: si apre il baratto. Metti carte/monete nel piatto.`,"good");
+}
+function mpHandleBarter(pvp){
+  const b=pvp.barter||{};
+  if(b.phase==="settle"){ mpHandleBarterSettle(pvp); return; }
+  const parts=pvp.participants||[], otherId=parts.find(id=>id!==myId);
+  if(!_barter || !_barter.net || _barter.otherId!==otherId){
+    _barter={ net:true, otherId, otherName:(pvp.names||{})[otherId]||'?', otherColor:(pvp.colors||{})[otherId]||'#aaa',
+      myItems:[], myCoins:0, myAccept:false, theirCards:[], theirCoins:0, theirAccept:false,
+      myMaxCoins:(state.you.coins||0), _flash:null };
+  }
+  const myOffer=(b.offer||{})[myId]||{cards:[],coins:0};
+  const theirOffer=(b.offer||{})[otherId]||{cards:[],coins:0};
+  _barter.myCoins=myOffer.coins||0;                 // le monete sono autorevoli dal piatto condiviso
+  _barter.myAccept=!!(b.accept||{})[myId];
+  _barter.theirCards=theirOffer.cards||[];
+  _barter.theirCoins=theirOffer.coins||0;
+  _barter.theirAccept=!!(b.accept||{})[otherId];
+  // Entrambi accettano → il mover passa alla fase di regolamento (settle).
+  if(myId===pvp.moverId && (b.accept||{})[myId] && (b.accept||{})[otherId]){
+    patchRoom(s=>{ if(s.pvp&&s.pvp.barter&&s.pvp.barter.phase==="negotiate") s.pvp.barter.phase="settle"; });
+    return;
+  }
+  const k="barter|"+JSON.stringify(b.offer||{})+"|"+JSON.stringify(b.accept||{});
+  if(_barterRenderKey!==k){ _barterRenderKey=k; renderBarter(); }
+}
+function barterPublishMine(){
+  const cards=_barter.myItems.map(barterClean), coins=_barter.myCoins;
+  patchRoom(s=>{ if(s.pvp&&s.pvp.barter){ s.pvp.barter.offer=s.pvp.barter.offer||{}; s.pvp.barter.offer[myId]={cards,coins}; s.pvp.barter.accept={}; } });
+}
+function barterNetAccept(v){
+  patchRoom(s=>{ if(s.pvp&&s.pvp.barter){ s.pvp.barter.accept=s.pvp.barter.accept||{}; if(v) s.pvp.barter.accept[myId]=true; else delete s.pvp.barter.accept[myId]; } });
+}
+function barterNetExit(){ patchRoom(s=>{ if(s.pvp) s.pvp.status="barterClosed"; }); }
+function mpHandleBarterClosed(pvp){
+  closeModal(); _barter=null; _barterRenderKey=null;
+  if(myId===pvp.moverId){ patchRoom(s=>{ s.pvp=null; }); log(`🤝 Baratto chiuso senza scambio.`); state.pvp=null; enterPostEncounter(); }
+}
+// Fase di regolamento: ciascuno applica al PROPRIO personaggio (togli offerto, aggiungi ricevuto, monete),
+// gestisce l'eventuale eccedenza e scrive la propria "finale". Il mover applica entrambe le finali e chiude.
+function mpHandleBarterSettle(pvp){
+  const b=pvp.barter||{}, parts=pvp.participants||[], otherId=parts.find(id=>id!==myId);
+  if(!(b.final||{})[myId] && !_barterSettling){
+    _barterSettling=true;
+    const myGive=_barter?_barter.myItems.slice():[];
+    const myCoins=_barter?_barter.myCoins:0;
+    const theirOffer=(b.offer||{})[otherId]||{cards:[],coins:0};
+    myGive.forEach(it=>barterTakeFromYou(it));
+    state.you.coins=(state.you.coins||0)-myCoins+(theirOffer.coins||0);
+    const received=(theirOffer.cards||[]).map(barterClean);
+    recalcStats();
+    log(`🤝 Baratto: dai ${myGive.length} carta/e${myCoins?` +${myCoins}🪙`:''}, ricevi ${received.length} carta/e${theirOffer.coins?` +${theirOffer.coins}🪙`:''}.`,"good");
+    closeModal();
+    barterFinishReceive(received, ()=>{ _barterSettling=false; mpWriteMyBarterFinal(); });
+  }
+  if(myId===pvp.moverId && parts.every(id=>(b.final||{})[id])) mpBarterFinalize(pvp);
+}
+function mpWriteMyBarterFinal(){
+  const y=state.you;
+  const fin={ pack:JSON.parse(JSON.stringify(y.pack)), equip:JSON.parse(JSON.stringify(y.equip)), coins:y.coins||0, equipScore:y.equipScore };
+  patchRoom(s=>{ if(s.pvp&&s.pvp.barter){ s.pvp.barter.final=s.pvp.barter.final||{}; s.pvp.barter.final[myId]=fin; } });
+}
+function mpBarterFinalize(pvp){
+  if(_barterFinalized) return; _barterFinalized=true;
+  const fin=(pvp.barter&&pvp.barter.final)||{};
+  (pvp.participants||[]).forEach(id=>{
+    if(id===myId) return;   // la mia è già in state.you (= mpGame.characters[mySeat])
+    const c=mpGame.characters.find(x=>x.id===id), f=fin[id];
+    if(c&&f){ c.pack=f.pack; c.equip=f.equip; c.coins=f.coins; if(f.equipScore!=null) c.equipScore=f.equipScore; }
+  });
+  _barter=null; _barterRenderKey=null; _barterSettling=false; state.pvp=null;
+  mpEndMyTurn();   // scrive mpGame con entrambe le finali, azzera pvp, passa il turno
+}
 // Dadi rivelati in PvP: dado effetto + i tuoi dadi d'attacco (2 tenuti evidenziati) vs i dadi dell'avversario.
 function pvpDiceHTML(rp, ge, foeDice, foeName){
   const cellC=(v,cap,opt)=>`<div class="die-cell">${die3dHTML(v,opt)}${cap?`<div class="die-cap">${cap}</div>`:''}</div>`;
