@@ -835,6 +835,11 @@
   /* Segnaposto quando l'immagine HUD non è (ancora) presente */
   .manual-content .m-fig.m-fig-missing{border:1px dashed var(--border2);border-radius:6px;padding:22px 10px;background:rgba(255,255,255,.02)}
   .manual-content .m-fig.m-fig-missing::before{content:'📷 immagine da inserire';color:var(--dim);font-size:11px;font-style:italic}
+  /* HOME: il controllo audio è SEMPRE visibile in alto a destra (qualsiasi tema/dispositivo),
+     sovrascrivendo sia l'occultamento mobile sia la ricollocazione del tema Pip-Boy. */
+  body:has(#home.screen.active) #hx-audio-ctrl{ display:block!important; position:fixed!important; top:10px!important; right:10px!important; bottom:auto!important; left:auto!important; z-index:99999!important; }
+  body:has(#home.screen.active) #hx-audio-btn{ display:flex!important; align-items:center; justify-content:center; }
+  body:has(#home.screen.active) #hx-audio-pop{ top:46px!important; right:0!important; bottom:auto!important; left:auto!important; }
   /* Anteprima statica di un componente HUD, disegnata nel frame del manuale (niente screenshot) */
   .manual-content .m-hud-mock{border:1px solid var(--border2);border-top:2px solid var(--rust-d);border-radius:8px;
     background:linear-gradient(180deg,var(--bg2),var(--bg));padding:12px;max-width:360px;margin:10px auto 0;
@@ -843,17 +848,6 @@
   .manual-content .m-hud-mock .btn{pointer-events:none}
   .manual-content .m-hud-mock .mk-box{border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center;font-size:10px;color:var(--muted);background:var(--bg)}
   .manual-content .m-hud-mock .mk-card{border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)}
-  /* Clone 1:1 del componente reale (sostituisce il mockup quando il Manuale è aperto in partita):
-     azzera il posizionamento assoluto/fisso della UI di gioco così il pezzo entra nel frame. */
-  .manual-content .m-hud-clone{overflow:auto;max-height:360px;pointer-events:none}
-  .manual-content .m-hud-clone > *{position:static!important;inset:auto!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;
-    transform:none!important;margin:0 auto!important;width:auto!important;max-width:100%!important;height:auto!important;max-height:none!important;z-index:auto!important;box-shadow:none!important}
-  .manual-content .m-hud-clone .actionsbar,
-  .manual-content .m-hud-clone .mapwrap,
-  .manual-content .m-hud-clone .turnorder-float,
-  .manual-content .m-hud-clone .cron{position:static!important;inset:auto!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:auto!important;max-width:100%!important}
-  .manual-content .m-hud-clone svg{width:100%!important;height:auto!important;max-height:220px}
-  .manual-content .m-hud-clone *{animation:none!important}
   .manual-content .m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin:10px 0 16px}
   .manual-content .m-thumb{text-align:center;font-size:10px;color:var(--muted)}
   .manual-content .m-thumb img{width:100%;height:160px;object-fit:contain;background:rgba(0,0,0,.28);border:1px solid var(--border2);border-radius:5px;margin-bottom:4px;display:block}
@@ -1813,7 +1807,7 @@ body.theme-pipboy .prev-zaino .empty{ aspect-ratio:1; border:1px dashed var(--di
     <button class="rail-btn" onclick="openCardsBrowser()"><svg class="pip-ic"><use href="#pi-deck"/></svg><span class="rail-tip">Mazzi &amp; Incontri</span></button>
     <button class="rail-btn rail-sep" onclick="toggleCronaca()"><svg class="pip-ic"><use href="#pi-log"/></svg><span class="rail-tip">Cronaca</span></button>
     <button class="rail-btn" onclick="toggleChat()"><svg class="pip-ic"><use href="#pi-chat"/></svg><span class="rail-tip">Chat</span></button>
-    <button class="rail-btn" onclick="hxAudioPop(event)"><svg class="pip-ic"><use href="#pi-audio"/></svg><span class="rail-tip">Audio / Volumi</span></button>
+    <button class="rail-btn" data-audio-trigger onclick="hxAudioPop(event)"><svg class="pip-ic"><use href="#pi-audio"/></svg><span class="rail-tip">Audio / Volumi</span></button>
     <button class="rail-btn" onclick="openManual()"><svg class="pip-ic"><use href="#pi-manual"/></svg><span class="rail-tip">Manuale</span></button>
   </div>
 
@@ -2609,11 +2603,16 @@ const HXAudio = (function(){
       </div>`;
     document.body.appendChild(wrap);
     const btn=wrap.querySelector('#hx-audio-btn'), pop=wrap.querySelector('#hx-audio-pop');
-    btn.addEventListener('click', ()=>{ ensure(); pop.classList.toggle('open'); });
+    btn.addEventListener('click', e=>{ e.stopPropagation(); ensure(); pop.classList.toggle('open'); });
     wrap.querySelector('#hx-vol-music').addEventListener('input', e=>setMusicVol(parseFloat(e.target.value)));
     wrap.querySelector('#hx-vol-fx').addEventListener('input', e=>{ setFxVol(parseFloat(e.target.value)); fx('click'); });
     wrap.querySelector('#hx-mute').addEventListener('change', e=>setMuted(e.target.checked));
-    document.addEventListener('click', e=>{ if(!wrap.contains(e.target)) pop.classList.remove('open'); });
+    // Chiudi cliccando FUORI, ma non sui trigger (rail/home): così il click che apre non lo richiude subito.
+    document.addEventListener('click', e=>{
+      if(!pop.classList.contains('open')) return;
+      if(e.target.closest && (e.target.closest('#hx-audio-ctrl') || e.target.closest('[data-audio-trigger]'))) return;
+      pop.classList.remove('open');
+    });
   }
 
   // ---- Avvio: sblocco al primo gesto (policy autoplay dei browser) + click globale ----
@@ -2639,7 +2638,7 @@ const HXAudio = (function(){
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
 
-  return { fx, sample, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
+  return { fx, sample, ensure, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
 })();
 
 // ---------- Dati mappa (plancia reale — 43 tessere, coord "raddoppiate" col,v) ----------
@@ -3335,7 +3334,9 @@ function chatReceive(payload){
 
 // =================== HOME → LOBBY ===================
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');}
+  document.getElementById(id).classList.add('active');
+  const _ap=document.getElementById('hx-audio-pop'); if(_ap) _ap.classList.remove('open');   // evita il pop volume "aperto ma fuori posto" al cambio schermata
+}
 
 /* =================== MULTIPLAYER — Tappa 1: lobby di rete ===================
    La logica di gioco resta nel browser; Supabase conserva UN "foglio" JSON per
@@ -7686,10 +7687,34 @@ const MANUAL_C10 = `
   <p>La stagione finisce quando qualcuno raggiunge <b>5 fama</b> (vittoria immediata) o allo scadere dei <b>18 giorni</b> (23 in Hardcore). In quel caso si va al <b>calcolo finale</b>: più fama → più missioni → più monete (contano anche metà del valore di inventario e magazzino). Parità su tutto = <b>vittoria condivisa</b>.</p>
   <div class="m-note">🎖️ Ricorda: <b>Hexartha ricorda solo chi consegna.</b> Fatti un nome, estraiti vivo, e comprati una nuova vita lontano da qui.</div>
 `;
-// Anteprima di un componente HUD nel frame del manuale. Di default mostra un mockup statico
-// (funziona anche dalla home); se `sel` è indicato e il Manuale è aperto DURANTE una partita,
-// il mockup viene sostituito dal componente REALE clonato dall'interfaccia (1:1). Vedi manualFillHudClones().
-const _hudMock=(inner,cap,sel)=>`<div class="m-fig"${sel?` data-hud="${sel}"`:''}><div class="m-hud-mock">${inner}</div><div class="m-cap">${cap}</div></div>`;
+// Anteprima di un componente HUD nel manuale: mostra lo SCREENSHOT in HUD/<file>.png (caricato a mano);
+// se il file manca ancora, l'onerror rivela il mockup statico come ripiego. Il 3° argomento delle chiamate
+// (un tempo un selettore) è ora ignorato: la foto è scelta dalla didascalia via _HUD_IMG.
+const _HUD_IMG={
+  'La plancia da campo':'hud-plancia.png',
+  'La carta Evento del giorno':'hud-evento.png',
+  'Scansione delle fasi del turno':'hud-turni.png',
+  'La sequenza dei giocatori':'hud-ordineturno.png',
+  'La città a settori esagonali':'hud-mappa.png',
+  'La barra delle azioni':'hud-azioni.png',
+  'Vita, monete, fama e stati negativi':'hud-Vita soldi e malus.png',
+  'Equipaggiamento e zaino':'hud-inventario.png',
+  'Il magazzino':'hud-magazzino.png',
+  'La barra laterale delle scorciatoie':'hud - barra laterale.png',
+  'Creazione di oggetti':'hud-crafting.png',
+  'Compra e vendi coi ricettatori':'hud-commercio.png',
+  'Le tue missioni':'hud-missioni.png',
+  'La classifica della fama':'hud-fama e classifica.png',
+  'I mazzi e gli incontri':'hud-mazzi e incontri.png',
+  'Il registro del turno':'hud-cronaca.png',
+  'La chat coi giocatori':'hud-chat.png',
+  'Il controllo audio':'hud-audio.png',
+};
+const _hudMock=(inner,cap,sel)=>{
+  const file=_HUD_IMG[cap];
+  const img=file?`<img src="${encodeURI('HUD/'+file)}" alt="${cap}" onerror="this.style.display='none';var m=this.parentNode.querySelector('.m-hud-mock');if(m)m.style.display=''">`:'';
+  return `<div class="m-fig">${img}<div class="m-hud-mock"${file?' style="display:none"':''}>${inner}</div><div class="m-cap">${cap}</div></div>`;
+};
 const MANUAL_C11 = `
   <h2>L'interfaccia di gioco (HUD)</h2>
   <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve. Ogni riquadro qui sotto è un'<b>anteprima</b> del componente reale.</p>
@@ -7756,6 +7781,12 @@ const MANUAL_C11 = `
     </div>`,'La barra delle azioni','#hud-actions')}
   <p>In basso, le azioni del tuo turno: <b>Muovi</b> (obbligatorio), <b>Cerca</b>, <b>Nasconditi</b>, <b>Scassina</b>, <b>Viaggio</b> in treno e <b>Termina turno / Effettua Incontro</b>. Hai <b>2 azioni</b> per turno (alcuni eventi e oggetti le modificano).</p>
 
+  <h3>🧭 Barra laterale</h3>
+  ${_hudMock(`
+    <div class="mk-lbl">Scorciatoie</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;font-size:16px">🛠 🤝 📜 🗄️ 🃏 · 📜 💬 🔊 📖</div>`,'La barra laterale delle scorciatoie','')}
+  <p>La colonna di <b>scorciatoie a icone</b>: crafting, commercio, missioni, magazzino e mazzi; più in basso cronaca, chat, audio e manuale. Ti porta a ogni pannello con un tocco, senza cercarlo nell'HUD.</p>
+
   <h3>❤️ Vita soldi e malus</h3>
   ${_hudMock(`
     <div class="mk-lbl">Vita · monete · fama</div>
@@ -7773,6 +7804,14 @@ const MANUAL_C11 = `
       <div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div><div class="mk-box" style="padding:10px 0"></div>
     </div>`,'Equipaggiamento e zaino','#hud-right .equip-card')}
   <p><b>Equipaggiamento</b> (arma, armatura, casco, 2 gadget) e <b>Tasca sicura</b> (non si perde alla morte), più lo <b>zaino</b> a tre sezioni (sinistra · centro · destra). Alcuni stati bloccano le tasche laterali. Tocca una carta per il menu: <b>Usa / Equipaggia / Sposta / Scarta</b>.</p>
+
+  <h3>🗄️ Magazzino</h3>
+  ${_hudMock(`
+    <div class="mk-lbl">Magazzino</div>
+    <div class="mk-card" style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;font-size:12px">
+      <span>🗄️ Carte al sicuro</span><span style="color:var(--gold);font-weight:700">7/15</span>
+    </div>`,'Il magazzino','')}
+  <p>Il tuo deposito: puoi conservare fino a <b>15 carte</b> che <b>non si perdono in caso di morte</b>. Lo <b>consulti ovunque</b>, ma puoi <b>depositare e prelevare solo nella tua Base</b> (accampamento). Le carte nel magazzino <b>non</b> sono consegnabili per le missioni: prima vanno prelevate.</p>
 
   <h3>🛠️ Crafting</h3>
   ${_hudMock(`
@@ -7901,83 +7940,6 @@ function renderManualChapter(){
   const mid=document.getElementById('manual-navmid'); if(mid) mid.textContent=c.title;
   const prev=document.getElementById('manual-prev'); if(prev) prev.disabled=_manualCh<=0;
   const next=document.getElementById('manual-next'); if(next) next.disabled=_manualCh>=MANUAL_CHAPTERS.length-1;
-  manualFillHudClones();   // in partita: sostituisci i mockup HUD col componente reale (1:1)
-}
-// Manuale aperto DURANTE una partita → per ogni figura con data-hud, clona il componente reale
-// dall'interfaccia e lo mette nel frame (1:1, tema incluso). Dalla home restano i mockup statici.
-function manualInGame(){
-  const g=document.getElementById('game');
-  return !!(g && g.classList.contains('active')) || !!(typeof gameStarted!=='undefined' && gameStarted);
-}
-// Dalla home l'HUD non esiste: costruisco una partita DIMOSTRATIVA nel #game (nascosto) da cui clonare,
-// poi ripristino esattamente lo stato precedente (innerHTML + globali). Tutto sincrono: niente flicker.
-function manualBuildDemoHud(){
-  const gameEl=document.getElementById('game'); if(!gameEl) return null;
-  const ctx={ html:gameEl.innerHTML, state:(typeof state!=='undefined'?state:null), started:(typeof gameStarted!=='undefined'?gameStarted:false) };
-  try{
-    const demo=fresh();
-    demo.gameMode='classica'; demo.day=3;
-    demo.players=[{name:'Tu',you:true,color:COLORS[0]},{name:'BOT 1',you:false,color:COLORS[1],isBot:true},{name:'BOT 2',you:false,color:COLORS[2],isBot:true}];
-    state=demo;
-    state.you.color=COLORS[0]; state.you.coins=12; state.you.fama=2; state.you.hp=2;
-    state.you.equip.arma={name:'Pistola',slot:'arma',val:6,equip:3};
-    state.you.pack.centro.push({name:'Garza',slot:'consumabile',val:2});
-    state.you.pack.centro.push({name:'Kit medico',slot:'consumabile',val:5});
-    state.you.missions=[MISSIONS_MEDICHE,MISSIONS_MILITARI,MISSIONS_URBANE].map(a=>(a&&a[0])?{...a[0],done:false}:null).filter(Boolean);
-    state.storyMissions=[];
-    state.event={t:'Scorie tossiche',eff:'Chi finisce il turno all\'aperto viene avvelenato.',d:''};
-    buildOpponents(); buildMap(); recalcStats(); updateStepper(); renderHUD(); drawPawn();
-    if(typeof updateActionUI==='function'){ try{ updateActionUI(); }catch(_){} }   // riempie i pallini azioni della barra
-    const set=(id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent=txt; };
-    set('day','3'); set('total-days','/18'); set('dayperiod','Il declino'); set('turnof','Tu'); set('turntimer','2:45');
-    set('eventtitle','EVENTO · Scorie tossiche'); set('eventeff','Chi finisce il turno all\'aperto viene avvelenato.');
-    // Ordine del turno (nell'HUD reale è popolato solo in multiplayer): lo riempio come nel gioco,
-    // con i pallini colorati e i nomi, così il clone lo mostra 1:1.
-    const toc=document.getElementById('turnorder-card'); if(toc) toc.style.display='';
-    const tob=document.getElementById('turnorder-hud');
-    if(tob) tob.innerHTML=state.players.map((p,i)=>
-      `<div class="pl-row" style="${i===0?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}">`
-      +`<span class="dim to-num" style="min-width:14px;font-size:11px">${i+1}.</span>`
-      +`<span class="pdot2" style="background:${p.color};color:${p.color}"></span>`
-      +`<span class="to-name" style="${i===0?'color:var(--gold);font-weight:700':''}">${p.name}${i===0?' (tu)':''}</span>`
-      +`${i===0?'<span class="to-cur" style="margin-left:auto;color:var(--gold)">▶</span>':''}</div>`).join('');
-    const logEl=document.getElementById('log'); if(logEl) logEl.innerHTML='<div class="l">› Ti sposti a Quartiere fantasma.</div><div class="l good">› Cerchi: trovi una <b>Garza</b>.</div><div class="l">› Fine turno.</div>';
-    const chatEl=document.getElementById('chatlog'); if(chatEl) chatEl.innerHTML='<div class="chat-msg"><b style="color:'+COLORS[1]+'">BOT 1:</b> tregua?</div><div class="chat-msg"><b>Tu:</b> ok, pace.</div>';
-    return ctx;
-  }catch(e){ manualRestoreDemoHud(ctx); return null; }
-}
-function manualRestoreDemoHud(ctx){
-  if(!ctx) return;
-  const gameEl=document.getElementById('game'); if(gameEl) gameEl.innerHTML=ctx.html;
-  state=ctx.state; if(typeof gameStarted!=='undefined') gameStarted=ctx.started;
-}
-function manualFillHudClones(){
-  const content=document.getElementById('manual-content'); if(!content) return;
-  const figs=content.querySelectorAll('.m-fig[data-hud]'); if(!figs.length) return;
-  let demoCtx=null;
-  if(!manualInGame()){ demoCtx=manualBuildDemoHud(); if(!demoCtx) return; }   // dalla home: HUD dimostrativo da cui clonare
-  try{
-    figs.forEach(fig=>{
-      try{
-        const sel=fig.getAttribute('data-hud');
-        const src=document.querySelector(sel);
-        // Basta che l'elemento ESISTA e abbia CONTENUTO: i pannelli sono popolati anche quando il CSS
-        // li nasconde su questo schermo (es. su mobile #hud-day/#hud-right sono display:none, ma pieni).
-        const hasContent = src && (src.children.length>0 || (src.textContent||'').trim().length>0 || src.tagName==='svg');
-        if(!hasContent) return;   // vuoto (es. chat offline, ordine turno) → tieni il mockup
-        const clone=src.cloneNode(true);
-        clone.removeAttribute('onclick'); clone.style.cursor='default';
-        clone.querySelectorAll('[onclick]').forEach(el=>el.removeAttribute('onclick')); // niente interazioni
-        // NB: teniamo gli id → così restano applicate le regole del tema (Pip-Boy usa selettori come
-        // #hud-actions / #hud-day / #hud-right): il clone è davvero 1:1 con ciò che vedi. Gli id duplicati
-        // sono innocui: getElementById trova sempre l'elemento reale in #game (precede #modal nel DOM).
-        const box=fig.querySelector('.m-hud-mock');
-        if(box){ box.classList.add('m-hud-clone'); box.innerHTML=''; box.appendChild(clone); }
-      }catch(e){ /* su errore tieni il mockup di questa sezione */ }
-    });
-  } finally {
-    manualRestoreDemoHud(demoCtx);
-  }
 }
 
 // =================== CARTA LOOT + ANIMAZIONE DI PESCA ===================
@@ -11401,8 +11363,8 @@ function setTheme(t){
   try{ pipReorg(true); }catch(_){}
   try{ if(typeof mapApply==='function') mapApply(); }catch(_){}   // aggiorna la vista mappa (pan/zoom)
 }
-// Apre/chiude il popup volumi (dal pulsante Audio del rail). stopPropagation: non farlo richiudere dal click-fuori.
-function hxAudioPop(ev){ if(ev){ ev.stopPropagation(); } var p=document.getElementById('hx-audio-pop'); if(p) p.classList.toggle('open'); }
+// Apre/chiude il popup volumi (dal pulsante Audio del rail o della home). stopPropagation: non farlo richiudere dal click-fuori.
+function hxAudioPop(ev){ if(ev){ ev.stopPropagation(); } try{ HXAudio.ensure(); }catch(_){} var p=document.getElementById('hx-audio-pop'); if(p) p.classList.toggle('open'); }
 
 // ============================================================
 // TUTORIAL — spotlight guidato. FASE 1: tour dell'HUD (desktop/mobile).
