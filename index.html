@@ -835,6 +835,9 @@
   /* Segnaposto quando l'immagine HUD non è (ancora) presente */
   .manual-content .m-fig.m-fig-missing{border:1px dashed var(--border2);border-radius:6px;padding:22px 10px;background:rgba(255,255,255,.02)}
   .manual-content .m-fig.m-fig-missing::before{content:'📷 immagine da inserire';color:var(--dim);font-size:11px;font-style:italic}
+  /* Figura "dal vivo": pulsante che evidenzia/apre la vera sezione dell'interfaccia (come il Tutorial) */
+  .manual-content .m-fig.m-live{border:1px solid var(--border2);border-radius:8px;padding:12px 10px;background:rgba(217,164,65,.05)}
+  .manual-content .m-live-btn{font-size:12px;padding:8px 14px}
   .manual-content .m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin:10px 0 16px}
   .manual-content .m-thumb{text-align:center;font-size:10px;color:var(--muted)}
   .manual-content .m-thumb img{width:100%;height:160px;object-fit:contain;background:rgba(0,0,0,.28);border:1px solid var(--border2);border-radius:5px;margin-bottom:4px;display:block}
@@ -7571,13 +7574,22 @@ const MANUAL_C6 = `
   <h3>🏃 Fuga (solo PvE)</h3>
   <p>Puoi tentare la fuga tirando <b>1 dado</b>: <b>1</b> = fallita (−1 PV, resti); <b>2–3</b> = fuggi ma −1 PV; <b>4–6</b> = fuggi senza danni. La <b>Granata fumogena</b> fa fuggire <b>automaticamente</b>, anche in PvP.</p>
   <h3>⚔ PvP: scontro tra giocatori</h3>
-  <p>Se finisci il turno sulla <b>stessa casella</b> di un avversario, a fine turno scatta il PvP. Le uniche scelte sono:</p>
+  <p>Se finisci il turno sulla <b>stessa casella</b> di un avversario, a fine turno scatta il PvP. Le scelte sono:</p>
   <ul>
-    <li><b>☮ Pace</b>: se <b>entrambi</b> la scelgono non si combatte: vi lasciate passare (nessuno scambio di carte).</li>
+    <li><b>☮ Pace + Baratto</b>: se <b>entrambi</b> la scelgono non si combatte. Se siete <b>esattamente in due</b>, si apre subito la finestra di <b>baratto</b> (vedi sotto); se siete di più, vi lasciate semplicemente passare.</li>
     <li><b>⚔ Lotta</b>: se <b>almeno uno</b> sceglie Lotta, si combatte con le stesse regole del PvE.</li>
-    <li><b>💀 Nella «Resa dei conti» (dal g14) non c'è tregua: si combatte sempre.</b></li>
+    <li><b>💀 Nella «Resa dei conti» (dal g14) non c'è tregua: si combatte sempre (niente baratto).</b></li>
   </ul>
   <p>Chi vince <b>saccheggia tutto l'inventario</b> del perdente, <b>tranne la Tasca sicura</b>.</p>
+  <h3>🤝 Baratto (scambio di carte)</h3>
+  <p>Quando <b>due</b> giocatori sulla stessa casella scelgono entrambi <b>Pace + Baratto</b>, si apre <b>il piatto</b>: una finestra a due lati per scambiarsi carte e monete senza combattere.</p>
+  <ul>
+    <li>Ogni giocatore può mettere fino a <b>3 carte</b> (dal proprio inventario portato: zaino, equipaggiati, gadget e Tasca sicura — <b>non</b> dal magazzino) più le <b>monete</b> che vuole (slider e pulsanti +/−).</li>
+    <li>Le offerte sono <b>in tempo reale</b>: vedi subito cosa mette e toglie l'altro. Se offri una carta che ti serve per una missione, compare l'avviso <b>«Carta utile per una tua missione»</b>.</li>
+    <li><b>Accetta</b> blocca la tua offerta (puoi sempre <b>annullare</b>). Attenzione: <b>qualunque modifica</b> di uno dei due <b>azzera entrambi gli Accetta</b>. Lo scambio avviene solo quando <b>tutti e due</b> avete accettato lo stesso piatto.</li>
+    <li>Lo scambio è <b>bilaterale</b> (entrambi ricevete), anche in quantità diverse (es. 3 carte ⇄ 2 carte + 3 monete). Se ricevi troppe carte, prima <b>scegli cosa scartare</b>, poi il turno finisce.</li>
+    <li>Con <b>«Esci dallo scambio»</b> chiudi in ogni momento senza scambiare. In ogni caso, concluso o annullato il baratto, <b>il turno finisce</b>.</li>
+  </ul>
 `;
 const MANUAL_C7 = `
   <h2>Inventario, equipaggiamento e stati</h2>
@@ -7659,72 +7671,76 @@ const MANUAL_C10 = `
   <div class="m-note">🎖️ Ricorda: <b>Hexartha ricorda solo chi consegna.</b> Fatti un nome, estraiti vivo, e comprati una nuova vita lontano da qui.</div>
 `;
 const _hudFig=(file,cap)=>`<div class="m-fig"><img src="${encodeURI('HUD/'+file)}" alt="${cap}" onerror="this.style.display='none';this.parentNode.classList.add('m-fig-missing')"><div class="m-cap">${cap}</div></div>`;
+// Figure "dal vivo": invece di uno screenshot fisso, un pulsante evidenzia la VERA sezione dell'interfaccia
+// (come il Tutorial) o apre il pannello reale. Funziona quando sei in partita; dalla home avvisa di avviarne una.
+const _hudLive=(sels,cap)=>`<div class="m-fig m-live"><button class="btn m-live-btn" onclick="manualSpotlight('${sels}','${cap.replace(/'/g,'’')}')">🔎 Mostra dal vivo</button><div class="m-cap">${cap}</div></div>`;
+const _hudOpen=(fn,cap)=>`<div class="m-fig m-live"><button class="btn m-live-btn" onclick="manualOpenFeature('${fn}')">▸ Aprilo nel gioco</button><div class="m-cap">${cap}</div></div>`;
 const MANUAL_C11 = `
   <h2>L'interfaccia di gioco (HUD)</h2>
-  <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve.</p>
+  <p class="lead">Una guida a ogni sezione della schermata di gioco: dove si trova e a cosa serve. Premi <b>«Mostra dal vivo»</b> per vederla evidenziata direttamente nell'interfaccia (durante una partita), poi <b>«Torna al manuale»</b>.</p>
 
   <h3>🗓️ Plancia</h3>
-  ${_hudFig('hud-plancia.png','La plancia da campo')}
+  ${_hudLive('#hud-day,#m-topbar','La plancia da campo')}
   <p>In alto a sinistra: riassume la giornata. Mostra il <b>Giorno</b> corrente, la <b>fase</b> in corso (L'inizio · Il declino · La resa dei conti), di chi è il <b>turno</b> e il <b>tempo</b> rimasto (3 minuti). È il tuo punto di riferimento su "a che punto è" la partita.</p>
 
   <h3>📋 Evento</h3>
-  ${_hudFig('hud-evento.png','La carta Evento del giorno')}
+  ${_hudLive('#eventbox,#m-topbar','La carta Evento del giorno')}
   <p>Ogni giorno viene girata una <b>carta Evento</b> valida per tutta la giornata: può modificare danni e azioni, far comparire nuovi nemici, distruggere luoghi, avvelenare, dare monete e altro. Il suo effetto resta visibile qui finché il giorno non cambia.</p>
 
   <h3>🔁 Turni</h3>
-  ${_hudFig('hud-turni.png','Scansione delle fasi del turno')}
+  ${_hudLive('#hud-actions,.actionsbar','Scansione delle fasi del turno')}
   <p>Indica la <b>progressione del tuo turno</b>: prima il <b>movimento</b> (obbligatorio), poi le <b>azioni</b> (cerca, nasconditi, scassina…), infine il <b>passo finale</b> con l'eventuale incontro. Ti fa capire cosa puoi ancora fare prima di chiudere il turno.</p>
 
   <h3>🔢 Ordine turno</h3>
-  ${_hudFig('hud-ordineturno.png','La sequenza dei giocatori')}
+  ${_hudLive('#turnorder-card','La sequenza dei giocatori')}
   <p>Riquadro sopra la mappa con la <b>sequenza dei giocatori</b>, a partire da chi inizia. Il giocatore attivo è evidenziato con <b>▶</b>; chi è disconnesso o ritirato appare in grigio.</p>
 
   <h3>🗺️ Mappa</h3>
-  ${_hudFig('hud-mappa.png','La città a settori esagonali')}
+  ${_hudLive('.mapwrap','La città a settori esagonali')}
   <p>La città divisa in <b>settori esagonali</b>. Mostra la tua <b>pedina</b> e quelle avversarie, i tipi di zona (urbane, ospedale, militari, riciclaggio, Fortezza, estrazioni) e, durante il movimento, le <b>caselle raggiungibili</b> evidenziate.</p>
 
   <h3>🎮 Azioni</h3>
-  ${_hudFig('hud-azioni.png','La barra delle azioni')}
+  ${_hudLive('#hud-actions,.actionsbar','La barra delle azioni')}
   <p>In basso, le azioni del tuo turno: <b>Muovi</b> (obbligatorio), <b>Cerca</b>, <b>Nasconditi</b>, <b>Scassina</b>, <b>Viaggio</b> in treno e <b>Termina turno / Effettua Incontro</b>. Hai <b>2 azioni</b> per turno (alcuni eventi e oggetti le modificano).</p>
 
   <h3>❤️ Vita soldi e malus</h3>
-  ${_hudFig('hud-Vita soldi e malus.png','Vita, monete, fama e stati negativi')}
+  ${_hudLive('#hud-right,#m-topbar','Vita, monete, fama e stati negativi')}
   <p>Il tuo pannello vitale: la <b>vita</b> ❤ (più eventuali <b>vite extra</b> temporanee), le <b>monete</b> 🪙 e la <b>fama</b> ★. Qui compaiono anche i <b>malus/stati</b> negativi con il loro effetto: <b>☣ Avvelenato</b> (perdi vita e blocca le tasche laterali), <b>🩸 Emorragia</b> (−1 vita a fine turno) e <b>🦴 Ossa rotte</b> (−2 in combattimento). Curali con gli oggetti medici giusti.</p>
 
   <h3>🎒 Inventario</h3>
-  ${_hudFig('hud-inventario.png','Equipaggiamento e zaino')}
+  ${_hudLive('#hud-right .equip-card,#m-fab-left','Equipaggiamento e zaino')}
   <p><b>Equipaggiamento</b> (arma, armatura, casco, 2 gadget) e <b>Tasca sicura</b> (non si perde alla morte), più lo <b>zaino</b> a tre sezioni (sinistra · centro · destra). Alcuni stati bloccano le tasche laterali. Tocca una carta per il menu: <b>Usa / Equipaggia / Sposta / Scarta</b>.</p>
 
   <h3>🛠️ Crafting</h3>
-  ${_hudFig('hud-crafting.png','Creazione di oggetti')}
+  ${_hudOpen('openCrafting','Creazione di oggetti')}
   <p>Nelle zone sicure crei oggetti combinando i <b>materiali</b> che possiedi (contano zaino, magazzino ed <b>equipaggiati</b>). Le ricette sono divise in <b>categorie</b> (Medici · Armi & Armature · Utility & Gadget): in verde gli ingredienti che hai, "CREA" attivo quando la ricetta è completa.</p>
 
   <h3>🤝 Commercio</h3>
-  ${_hudFig('hud-commercio.png','Compra e vendi coi ricettatori')}
+  ${_hudOpen('openCommerce','Compra e vendi coi ricettatori')}
   <p>Nelle zone sicure <b>compri</b> dai ricettatori e <b>vendi</b> a Michail (max 3 vendite a turno; armi e armature usate valgono la metà). Qui trasformi il bottino in monete e le monete in equipaggiamento.</p>
 
   <h3>📜 Missioni</h3>
-  ${_hudFig('hud-missioni.png','Le tue missioni')}
+  ${_hudOpen('openMissions','Le tue missioni')}
   <p>Le tue <b>missioni segrete</b> (una Medica, una Militare, una Urbana) più quelle di <b>Storia</b> comuni a tutti. Per ognuna vedi gli <b>oggetti richiesti</b> (in verde quelli che possiedi) e il premio. Si consegnano negli avamposti.</p>
 
   <h3>🏆 Fama e classifica</h3>
-  ${_hudFig('hud-fama e classifica.png','La classifica della fama')}
+  ${_hudLive('#turnorder-card,#hud-right','La classifica della fama')}
   <p>La <b>fama</b> ★ è la strada per la vittoria (a <b>5</b> vinci subito). La classifica mostra la fama di <b>tutti i giocatori</b> aggiornata in tempo reale: tienila d'occhio per capire chi sta per farcela.</p>
 
   <h3>🃏 Mazzi e incontri</h3>
-  ${_hudFig('hud-mazzi e incontri.png','I mazzi e gli incontri')}
+  ${_hudOpen('openCardsBrowser','I mazzi e gli incontri')}
   <p>I <b>mazzi</b> di gioco: loot (Comune · Medico · Militare · Speciale), Riciclaggio e <b>Incontri</b>. Quando cerchi peschi il bottino; fuori dalle zone sicure puoi incappare in un <b>incontro</b> (PvE). Ogni carta incontro esce una sola volta finché il mazzo non si rimischia.</p>
 
   <h3>📖 Cronaca</h3>
-  ${_hudFig('hud-cronaca.png','Il registro del turno')}
+  ${_hudOpen('toggleCronaca','Il registro del turno')}
   <p>In basso a sinistra: il <b>registro</b> di tutto ciò che accade (movimenti, pescate, combattimenti, eventi). Si apre e chiude a linguetta; un pallino segnala le voci non ancora lette.</p>
 
   <h3>💬 Chat</h3>
-  ${_hudFig('hud-chat.png','La chat coi giocatori')}
+  ${_hudOpen('toggleChat','La chat coi giocatori')}
   <p>Accanto alla Cronaca (solo online): scrivi agli <b>altri giocatori</b> in tempo reale. Si apre una linguetta alla volta; un pallino segnala i messaggi non letti e arriva un suono discreto a ogni nuovo messaggio.</p>
 
   <h3>🔊 Audio</h3>
-  ${_hudFig('hud-audio.png','Il controllo audio')}
+  ${_hudLive('#hx-audio-ctrl','Il controllo audio')}
   <p>In alto a destra: accendi/spegni l'audio e regoli separatamente <b>musica</b> ed <b>effetti</b>. La musica cambia con la fase della partita, diventando via via più cupa e ansiogena.</p>
 `;
 const MANUAL_CHAPTERS = [
@@ -7766,6 +7782,57 @@ function openManual(i){
   const m=document.getElementById('modal'); if(m) m.classList.add('manual');
   renderManualChapter();
 }
+// ===== Manuale "dal vivo": evidenzia o apre la vera sezione dell'interfaccia (riusa lo spotlight del Tutorial) =====
+const MANUAL_HUD_CHAPTER=11;   // indice del capitolo "L'interfaccia di gioco (HUD)" in MANUAL_CHAPTERS
+let _manualSpotActive=false, _manualSpotSels=null, _manualSpotTitle='';
+function manualInGame(){ const g=document.getElementById('game'); return !!(g && g.classList.contains('active')); }
+function manualLiveUnavailable(){ alert('Questa sezione si vede durante la partita.\nAvvia una partita, poi riapri il Manuale e premi «Mostra dal vivo».'); }
+function manualSpotlight(selsStr, title){
+  if(!manualInGame()){ manualLiveUnavailable(); return; }
+  const sels=String(selsStr).split(',').map(s=>s.trim()).filter(Boolean);
+  const el=sels.map(s=>document.querySelector(s)).find(e=>e && e.getClientRects().length>0);
+  if(!el){ manualLiveUnavailable(); return; }
+  _manualSpotSels=sels; _manualSpotTitle=title||'';
+  closeModal();                       // chiude il manuale, poi mostra lo spotlight sull'elemento reale
+  _manualPlaceSpot(el);
+}
+function _manualPlaceSpot(el){
+  const root=document.getElementById('tut-root'); if(!root) return;
+  document.getElementById('tut-tip-title').textContent=_manualSpotTitle;
+  document.getElementById('tut-tip-text').innerHTML='Questa è la sezione dal vivo, evidenziata nell\'interfaccia. Premi <b>Torna al manuale</b> per continuare a leggere.';
+  document.getElementById('tut-count').textContent='';
+  const next=document.getElementById('tut-next'), skip=document.getElementById('tut-skip');
+  if(next) next.style.display='none';
+  if(skip) skip.style.display='none';
+  const cta=document.getElementById('tut-cta');
+  window._tutCtaFn=manualSpotlightEnd; cta.textContent='↩ Torna al manuale'; cta.style.display='';
+  root.classList.add('on'); root.classList.remove('center','pass');
+  try{ el.scrollIntoView({block:'nearest',inline:'nearest'}); }catch(_){}
+  const r=el.getBoundingClientRect(), pad=8;
+  const hole=document.getElementById('tut-hole');
+  hole.style.left=Math.max(2,r.left-pad)+'px'; hole.style.top=Math.max(2,r.top-pad)+'px';
+  hole.style.width=(r.width+pad*2)+'px'; hole.style.height=(r.height+pad*2)+'px';
+  tutPlaceTip(r);
+  _manualSpotActive=true;
+}
+function manualSpotlightEnd(){
+  _manualSpotActive=false; _manualSpotSels=null;
+  const root=document.getElementById('tut-root'); if(root) root.classList.remove('on','center','pass');
+  const next=document.getElementById('tut-next'), skip=document.getElementById('tut-skip');
+  if(next) next.style.display='';
+  if(skip) skip.style.display='';
+  const cta=document.getElementById('tut-cta'); window._tutCtaFn=null; if(cta) cta.style.display='none';
+  openManual(MANUAL_HUD_CHAPTER);     // riapre il manuale al capitolo HUD
+}
+function manualOpenFeature(fn){
+  if(!manualInGame()){ manualLiveUnavailable(); return; }
+  const map={openCrafting:openCrafting, openCommerce:openCommerce, openMissions:openMissions,
+             openCardsBrowser:openCardsBrowser, toggleCronaca:toggleCronaca, toggleChat:toggleChat};
+  const f=map[fn]; if(typeof f!=='function') return;
+  closeModal();
+  try{ f(); }catch(e){ console.error('[manuale]',e); }
+}
+window.addEventListener('resize', ()=>{ if(_manualSpotActive && _manualSpotSels){ const el=_manualSpotSels.map(s=>document.querySelector(s)).find(e=>e && e.getClientRects().length>0); if(el) _manualPlaceSpot(el); } });
 function manualGo(i){
   if(i<0 || i>=MANUAL_CHAPTERS.length) return;
   _manualCh=i;
