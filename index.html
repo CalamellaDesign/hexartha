@@ -7710,9 +7710,12 @@ const _HUD_IMG={
   'La chat coi giocatori':'hud-chat.png',
   'Il controllo audio':'hud-audio.png',
 };
+// Versione delle immagini HUD: da BUMPARE quando si aggiornano gli screenshot, così il browser
+// (e GitHub Pages) ne scaricano una copia fresca invece di servire quella in cache.
+const _HUD_IMG_V='20260902b';
 const _hudMock=(inner,cap,sel)=>{
   const file=_HUD_IMG[cap];
-  const img=file?`<img src="${encodeURI('HUD/'+file)}" alt="${cap}" onerror="this.style.display='none';var m=this.parentNode.querySelector('.m-hud-mock');if(m)m.style.display=''">`:'';
+  const img=file?`<img src="${encodeURI('HUD/'+file)}?v=${_HUD_IMG_V}" alt="${cap}" onerror="this.style.display='none';var m=this.parentNode.querySelector('.m-hud-mock');if(m)m.style.display=''">`:'';
   return `<div class="m-fig">${img}<div class="m-hud-mock"${file?' style="display:none"':''}>${inner}</div><div class="m-cap">${cap}</div></div>`;
 };
 const MANUAL_C11 = `
