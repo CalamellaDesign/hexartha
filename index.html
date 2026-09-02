@@ -7905,21 +7905,66 @@ function renderManualChapter(){
 }
 // Manuale aperto DURANTE una partita → per ogni figura con data-hud, clona il componente reale
 // dall'interfaccia e lo mette nel frame (1:1, tema incluso). Dalla home restano i mockup statici.
-function manualInGame(){ const g=document.getElementById('game'); return !!(g && g.classList.contains('active')); }
+function manualInGame(){
+  const g=document.getElementById('game');
+  return !!(g && g.classList.contains('active')) || !!(typeof gameStarted!=='undefined' && gameStarted);
+}
+// Dalla home l'HUD non esiste: costruisco una partita DIMOSTRATIVA nel #game (nascosto) da cui clonare,
+// poi ripristino esattamente lo stato precedente (innerHTML + globali). Tutto sincrono: niente flicker.
+function manualBuildDemoHud(){
+  const gameEl=document.getElementById('game'); if(!gameEl) return null;
+  const ctx={ html:gameEl.innerHTML, state:(typeof state!=='undefined'?state:null), started:(typeof gameStarted!=='undefined'?gameStarted:false) };
+  try{
+    const demo=fresh();
+    demo.gameMode='classica'; demo.day=3;
+    demo.players=[{name:'Tu',you:true,color:COLORS[0]},{name:'BOT 1',you:false,color:COLORS[1],isBot:true},{name:'BOT 2',you:false,color:COLORS[2],isBot:true}];
+    state=demo;
+    state.you.color=COLORS[0]; state.you.coins=12; state.you.fama=2; state.you.hp=2;
+    state.you.equip.arma={name:'Pistola',slot:'arma',val:6,equip:3};
+    state.you.pack.centro.push({name:'Garza',slot:'consumabile',val:2});
+    state.you.pack.centro.push({name:'Kit medico',slot:'consumabile',val:5});
+    state.you.missions=[MISSIONS_MEDICHE,MISSIONS_MILITARI,MISSIONS_URBANE].map(a=>(a&&a[0])?{...a[0],done:false}:null).filter(Boolean);
+    state.storyMissions=[];
+    state.event={t:'Scorie tossiche',eff:'Chi finisce il turno all\'aperto viene avvelenato.',d:''};
+    buildOpponents(); buildMap(); recalcStats(); updateStepper(); renderHUD(); drawPawn();
+    const set=(id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent=txt; };
+    set('day','3'); set('total-days','/18'); set('dayperiod','Il declino'); set('turnof','Tu'); set('turntimer','2:45');
+    set('eventtitle','EVENTO · Scorie tossiche'); set('eventeff','Chi finisce il turno all\'aperto viene avvelenato.');
+    const logEl=document.getElementById('log'); if(logEl) logEl.innerHTML='<div class="l">› Ti sposti a Quartiere fantasma.</div><div class="l good">› Cerchi: trovi una <b>Garza</b>.</div><div class="l">› Fine turno.</div>';
+    const chatEl=document.getElementById('chatlog'); if(chatEl) chatEl.innerHTML='<div class="chat-msg"><b style="color:'+COLORS[1]+'">BOT 1:</b> tregua?</div><div class="chat-msg"><b>Tu:</b> ok, pace.</div>';
+    return ctx;
+  }catch(e){ manualRestoreDemoHud(ctx); return null; }
+}
+function manualRestoreDemoHud(ctx){
+  if(!ctx) return;
+  const gameEl=document.getElementById('game'); if(gameEl) gameEl.innerHTML=ctx.html;
+  state=ctx.state; if(typeof gameStarted!=='undefined') gameStarted=ctx.started;
+}
 function manualFillHudClones(){
   const content=document.getElementById('manual-content'); if(!content) return;
-  if(!manualInGame()) return;
-  content.querySelectorAll('.m-fig[data-hud]').forEach(fig=>{
-    const sel=fig.getAttribute('data-hud');
-    let src=null; try{ src=document.querySelector(sel); }catch(_){}
-    if(!src || !src.getClientRects().length) return;           // assente o non visibile → tieni il mockup
-    const clone=src.cloneNode(true);
-    clone.removeAttribute('id'); clone.removeAttribute('onclick'); clone.style.cursor='default';
-    clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));           // niente id duplicati
-    clone.querySelectorAll('[onclick]').forEach(el=>el.removeAttribute('onclick')); // niente interazioni
-    const box=fig.querySelector('.m-hud-mock');
-    if(box){ box.classList.add('m-hud-clone'); box.innerHTML=''; box.appendChild(clone); }
-  });
+  const figs=content.querySelectorAll('.m-fig[data-hud]'); if(!figs.length) return;
+  let demoCtx=null;
+  if(!manualInGame()){ demoCtx=manualBuildDemoHud(); if(!demoCtx) return; }   // dalla home: HUD dimostrativo da cui clonare
+  try{
+    figs.forEach(fig=>{
+      try{
+        const sel=fig.getAttribute('data-hud');
+        const src=document.querySelector(sel);
+        // Basta che l'elemento ESISTA e abbia CONTENUTO: i pannelli sono popolati anche quando il CSS
+        // li nasconde su questo schermo (es. su mobile #hud-day/#hud-right sono display:none, ma pieni).
+        const hasContent = src && (src.children.length>0 || (src.textContent||'').trim().length>0 || src.tagName==='svg');
+        if(!hasContent) return;   // vuoto (es. chat offline, ordine turno) → tieni il mockup
+        const clone=src.cloneNode(true);
+        clone.removeAttribute('id'); clone.removeAttribute('onclick'); clone.removeAttribute('style'); clone.style.cursor='default';
+        clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));           // niente id duplicati
+        clone.querySelectorAll('[onclick]').forEach(el=>el.removeAttribute('onclick')); // niente interazioni
+        const box=fig.querySelector('.m-hud-mock');
+        if(box){ box.classList.add('m-hud-clone'); box.innerHTML=''; box.appendChild(clone); }
+      }catch(e){ /* su errore tieni il mockup di questa sezione */ }
+    });
+  } finally {
+    manualRestoreDemoHud(demoCtx);
+  }
 }
 
 // =================== CARTA LOOT + ANIMAZIONE DI PESCA ===================
