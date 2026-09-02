@@ -7927,9 +7927,20 @@ function manualBuildDemoHud(){
     state.storyMissions=[];
     state.event={t:'Scorie tossiche',eff:'Chi finisce il turno all\'aperto viene avvelenato.',d:''};
     buildOpponents(); buildMap(); recalcStats(); updateStepper(); renderHUD(); drawPawn();
+    if(typeof updateActionUI==='function'){ try{ updateActionUI(); }catch(_){} }   // riempie i pallini azioni della barra
     const set=(id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent=txt; };
     set('day','3'); set('total-days','/18'); set('dayperiod','Il declino'); set('turnof','Tu'); set('turntimer','2:45');
     set('eventtitle','EVENTO · Scorie tossiche'); set('eventeff','Chi finisce il turno all\'aperto viene avvelenato.');
+    // Ordine del turno (nell'HUD reale è popolato solo in multiplayer): lo riempio come nel gioco,
+    // con i pallini colorati e i nomi, così il clone lo mostra 1:1.
+    const toc=document.getElementById('turnorder-card'); if(toc) toc.style.display='';
+    const tob=document.getElementById('turnorder-hud');
+    if(tob) tob.innerHTML=state.players.map((p,i)=>
+      `<div class="pl-row" style="${i===0?'background:rgba(217,164,65,.14);border-radius:6px;padding:3px 6px;':'padding:1px 6px;'}">`
+      +`<span class="dim to-num" style="min-width:14px;font-size:11px">${i+1}.</span>`
+      +`<span class="pdot2" style="background:${p.color};color:${p.color}"></span>`
+      +`<span class="to-name" style="${i===0?'color:var(--gold);font-weight:700':''}">${p.name}${i===0?' (tu)':''}</span>`
+      +`${i===0?'<span class="to-cur" style="margin-left:auto;color:var(--gold)">▶</span>':''}</div>`).join('');
     const logEl=document.getElementById('log'); if(logEl) logEl.innerHTML='<div class="l">› Ti sposti a Quartiere fantasma.</div><div class="l good">› Cerchi: trovi una <b>Garza</b>.</div><div class="l">› Fine turno.</div>';
     const chatEl=document.getElementById('chatlog'); if(chatEl) chatEl.innerHTML='<div class="chat-msg"><b style="color:'+COLORS[1]+'">BOT 1:</b> tregua?</div><div class="chat-msg"><b>Tu:</b> ok, pace.</div>';
     return ctx;
@@ -7955,9 +7966,11 @@ function manualFillHudClones(){
         const hasContent = src && (src.children.length>0 || (src.textContent||'').trim().length>0 || src.tagName==='svg');
         if(!hasContent) return;   // vuoto (es. chat offline, ordine turno) → tieni il mockup
         const clone=src.cloneNode(true);
-        clone.removeAttribute('id'); clone.removeAttribute('onclick'); clone.removeAttribute('style'); clone.style.cursor='default';
-        clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));           // niente id duplicati
+        clone.removeAttribute('onclick'); clone.style.cursor='default';
         clone.querySelectorAll('[onclick]').forEach(el=>el.removeAttribute('onclick')); // niente interazioni
+        // NB: teniamo gli id → così restano applicate le regole del tema (Pip-Boy usa selettori come
+        // #hud-actions / #hud-day / #hud-right): il clone è davvero 1:1 con ciò che vedi. Gli id duplicati
+        // sono innocui: getElementById trova sempre l'elemento reale in #game (precede #modal nel DOM).
         const box=fig.querySelector('.m-hud-mock');
         if(box){ box.classList.add('m-hud-clone'); box.innerHTML=''; box.appendChild(clone); }
       }catch(e){ /* su errore tieni il mockup di questa sezione */ }
