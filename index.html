@@ -2595,6 +2595,7 @@ const HXAudio = (function(){
     weaponMagazine: 'AUDIO/audio hexartha 2/sfx/equipment/weapon-magazine.wav', // equipaggi un'arma
     supplyDrop:     'AUDIO/audio hexartha 2/sfx/events/supply-drop.wav',        // evento "Drop aiuti"
     diceRoll:       'AUDIO/audio hexartha 2/sfx/dice/dice-roll-3.wav',          // tiro dei dadi (sostituisce il synth)
+    pawnMove:       'AUDIO/audio hexartha 2/sfx/movement/pawn-move-3.wav',      // spostamento della pedina
   };
   const _sampleEl={}, _sampleBroken={};
   function cardSynth(){ const s=noise(0.22,'bandpass',1600,0.9,0.35); if(s) s.bp.frequency.exponentialRampToValueAtTime(3200, s.t+0.2); }
@@ -6563,6 +6564,7 @@ function onHexClick(t){
   showLocation(t);
 }
 function doMove(t, first){
+  try{HXAudio.sample('pawnMove');}catch(_){}   // suono di spostamento della pedina (zona selezionata)
   state.you.tile=t; drawPawn(); clearReach();
   if(first){ state.movedFirst=true; log(`➡ Ti sposti in <b>${t.name}</b> <span class="dim">(${TYPE_LABEL[t.type]})</span> — movimento obbligatorio completato.`); }
   else     { state.actionsLeft--; log(`➡ Azione Spostamento → <b>${t.name}</b>.`); }
@@ -10649,7 +10651,7 @@ function doDragDrop(srcLoc, dstKey){
     const dp = dstKey.split('.');
     if(dp[0]==='equip'){
       if(dp[1]==='gadget') y.equip.gadget[+dp[2]] = lootItem;
-      else                 y.equip[dp[1]] = lootItem;
+      else               { y.equip[dp[1]] = lootItem; equipFx(dp[1]); }
     } else {
       y.pack[dp[1]].push(lootItem);
     }
@@ -10705,7 +10707,7 @@ function doDragDrop(srcLoc, dstKey){
   // Posiziona srcItem a destinazione
   if(dp[0]==='equip'){
     if(dp[1]==='gadget') y.equip.gadget[+dp[2]] = srcItem;
-    else y.equip[dp[1]] = srcItem;
+    else { y.equip[dp[1]] = srcItem; equipFx(dp[1]); }
   } else { y.pack[dp[1]].push(srcItem); }
   // Posiziona dstItem alla sorgente
   if(dstItem){
