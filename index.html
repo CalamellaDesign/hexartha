@@ -2426,6 +2426,49 @@ const HXAudio = (function(){
   let dronOsc=null, dronGain=null, dronLp=null, lfo=null, lfoGain=null, pulseTimer=null;
   const cur = ()=>PHASES[phase];
 
+  // ==================== MUSICA A FILE (.ogg) — sostituisce l'ambient sintetizzato qui sopra ====================
+  // Ogni "scena" = 1 traccia MUSICALE + (nelle fasi di gioco) 1 layer di AMBIENCE che suona sotto.
+  // File in "AUDIO/audio hexartha 2/". Cambio scena con dissolvenza incrociata.
+  //   home  → menu (home/join/lobby)
+  //   phase0 = verde  → "L'inizio" (g1-6)      phase1 = arancio → "Il declino" (g7-13)      phase2 = rosso → "La resa dei conti" (g14+)
+  // NB: le funzioni sintetizzate sopra (playChord/startDrone/playPulse…) NON sono più usate.
+  const MDIR='AUDIO/audio hexartha 2/';
+  const AMB_RATIO=0.6;   // l'ambience suona un po' sotto la musica
+  const SCENES={
+    home:   { music:'music/home-epic.ogg' },
+    phase0: { music:'music/phase-green.ogg',  amb:'ambience/phase-green.ogg' },
+    phase1: { music:'music/phase-orange.ogg', amb:'ambience/phase-orange.ogg' },
+    phase2: { music:'music/phase-red.ogg',    amb:'ambience/phase-red.ogg' },
+  };
+  let curScene='home', musicEl=null, ambEl=null, fadeTimers={};
+  function _mkAudio(){ const a=new Audio(); a.loop=true; a.preload='auto'; a.addEventListener('error',()=>{}); return a; }
+  function _vol(kind){ const base=Math.min(1,Math.max(0,P.music)); return kind==='amb'?base*AMB_RATIO:base; }
+  function _fade(el,to,ms,then){
+    if(!el){ if(then) then(); return; }
+    const k=(el===ambEl)?'a':'m'; clearInterval(fadeTimers[k]);
+    const from=el.volume||0, steps=Math.max(1,Math.round(ms/40)); let i=0;
+    fadeTimers[k]=setInterval(()=>{ i++; const v=from+(to-from)*(i/steps);
+      try{ el.volume=Math.min(1,Math.max(0,v)); }catch(e){}
+      if(i>=steps){ clearInterval(fadeTimers[k]); if(then) then(); } },40);
+  }
+  function _loadScene(key){
+    const s=SCENES[key]||SCENES.home;
+    if(!musicEl){ musicEl=_mkAudio(); ambEl=_mkAudio(); }
+    musicEl.src=encodeURI(MDIR+s.music); musicEl.volume=0; musicEl.play().catch(()=>{}); _fade(musicEl,_vol('music'),800);
+    if(s.amb){ ambEl.src=encodeURI(MDIR+s.amb); ambEl.volume=0; ambEl.play().catch(()=>{}); _fade(ambEl,_vol('amb'),800); }
+    else _fade(ambEl,0,500,()=>{ try{ ambEl.pause(); }catch(e){} });
+  }
+  // Cambia scena. Se l'audio non è ancora sbloccato o è in muto, memorizza solo (parte a startMusic()).
+  function playScene(key){
+    if(!SCENES[key]) return;
+    const same=(key===curScene); curScene=key;
+    if(P.muted || !unlocked) return;
+    ensure();
+    if(same && musicEl && !musicEl.paused) return;   // già in riproduzione
+    if(musicEl && !musicEl.paused){ _fade(musicEl,0,450,()=>_loadScene(key)); _fade(ambEl,0,450); }
+    else _loadScene(key);
+  }
+
   function playChord(freqs, dur){
     const c=cur(), t=ctx.currentTime, a=4.5, r=6.5;   // attacco/rilascio lunghi = tappeto morbido
     freqs.forEach((f,idx)=>{
@@ -2478,7 +2521,7 @@ const HXAudio = (function(){
       else { dronGain.gain.setTargetAtTime(0.0001,t,4); lfoGain.gain.setTargetAtTime(0,t,4); }
     }
   }
-  function setPhase(i){ i=Math.max(0,Math.min(2, i|0)); if(i===phase) return; phase=i; applyPhase(); }
+  function setPhase(i){ i=Math.max(0,Math.min(2, i|0)); phase=i; playScene('phase'+i); }
   function setPhaseByDay(d){ setPhase(d<=6?0:d<=13?1:2); }   // stesse soglie di periodOfDay()
 
   // BATTITO ritmico: il segnale più udibile del cambio di fase (assente in fase 0).
@@ -2501,13 +2544,22 @@ const HXAudio = (function(){
   }
 
   function startMusic(){
-    if(musicPlaying || !ensure() || P.muted) return;
-    musicPlaying=true; chordIx=0; startDrone(); applyPhase();
-    scheduleChord(); setTimeout(scheduleMelody, 6000); schedulePulse();
+    if(!ensure() || P.muted) return;
+    musicPlaying=true;
+    if(musicEl){   // stessa scena già caricata → riprendi senza ricaricare (es. dopo un unmute)
+      const want=encodeURI(MDIR+(SCENES[curScene]||SCENES.home).music);
+      if(musicEl.src && musicEl.src.indexOf(want)>=0){
+        musicEl.play().catch(()=>{}); _fade(musicEl,_vol('music'),400);
+        if(ambEl && ambEl.src && SCENES[curScene] && SCENES[curScene].amb){ ambEl.play().catch(()=>{}); _fade(ambEl,_vol('amb'),400); }
+        return;
+      }
+    }
+    _loadScene(curScene);
   }
   function stopMusic(){
-    musicPlaying=false; clearTimeout(chordTimer); clearTimeout(melodyTimer); clearTimeout(pulseTimer);
-    if(ctx && dronGain){ dronGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 1.5); lfoGain.gain.setTargetAtTime(0, ctx.currentTime, 1.5); }
+    musicPlaying=false;
+    _fade(musicEl,0,400,()=>{ try{ musicEl.pause(); }catch(e){} });
+    _fade(ambEl,0,400,()=>{ try{ ambEl.pause(); }catch(e){} });
   }
 
   // ==================== EFFETTI (sintetizzati, nessun file) ====================
@@ -2579,7 +2631,7 @@ const HXAudio = (function(){
   // ==================== Controlli / preferenze ====================
   function setMuted(v){ P.muted=v; if(master) master.gain.value=v?0:1; if(v) stopMusic(); else startMusic(); updateUI(); }
   function toggleMute(){ setMuted(!P.muted); }
-  function setMusicVol(v){ P.music=v; if(musicGain) musicGain.gain.value=v; if(v>0 && !P.muted) startMusic(); }
+  function setMusicVol(v){ P.music=v; if(musicEl) musicEl.volume=_vol('music'); if(ambEl && !ambEl.paused) ambEl.volume=_vol('amb'); if(v>0 && !P.muted) startMusic(); }
   function setFxVol(v){ P.fx=v; if(fxGain) fxGain.gain.value=v; }
 
   // ==================== UI: pulsante + pannello volumi ====================
@@ -2650,7 +2702,7 @@ const HXAudio = (function(){
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
 
-  return { fx, sample, ensure, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay };
+  return { fx, sample, ensure, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay, playScene };
 })();
 
 // ---------- Dati mappa (plancia reale — 43 tessere, coord "raddoppiate" col,v) ----------
@@ -3348,6 +3400,7 @@ function chatReceive(payload){
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   const _ap=document.getElementById('hx-audio-pop'); if(_ap) _ap.classList.remove('open');   // evita il pop volume "aperto ma fuori posto" al cambio schermata
+  try{ if(id==='home'||id==='join'||id==='lobby') HXAudio.playScene('home'); }catch(e){}   // musica: home-epic nei menu (in gioco la fase la imposta setPhaseByDay)
 }
 
 /* =================== MULTIPLAYER — Tappa 1: lobby di rete ===================
