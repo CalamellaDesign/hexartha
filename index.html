@@ -840,6 +840,18 @@
   body:has(#home.screen.active) #hx-audio-ctrl{ display:block!important; position:fixed!important; top:10px!important; right:10px!important; bottom:auto!important; left:auto!important; z-index:99999!important; }
   body:has(#home.screen.active) #hx-audio-btn{ display:flex!important; align-items:center; justify-content:center; }
   body:has(#home.screen.active) #hx-audio-pop{ top:46px!important; right:0!important; bottom:auto!important; left:auto!important; }
+  /* Mobile: mentre una modale a schermo intero è aperta (es. Manuale di gioco) nascondi il
+     controllo audio floating, altrimenti si sovrappone alla ✕ di chiusura in alto a destra.
+     La seconda regola serve a vincere in specificità la forzatura "audio sempre visibile" della HOME. */
+  @media(max-width:860px){
+    body.m-modal-open #hx-audio-ctrl,
+    body.m-modal-open:has(#home.screen.active) #hx-audio-ctrl{ display:none!important; }
+  }
+  /* Manuale di gioco aperto: nascondi SEMPRE (ogni larghezza) il controllo audio floating 🔊,
+     altrimenti su mobile l'icona copre la ✕ di chiusura in alto a destra. Il gate su
+     #overlay.active fa ricomparire l'audio appena il manuale viene chiuso. La specificità
+     (3 id) supera la forzatura "audio sempre visibile" della HOME (riga sopra, 2 id). */
+  body:has(#overlay.active #modal.manual) #hx-audio-ctrl{ display:none!important; }
   /* Anteprima statica di un componente HUD, disegnata nel frame del manuale (niente screenshot) */
   .manual-content .m-hud-mock{border:1px solid var(--border2);border-top:2px solid var(--rust-d);border-radius:8px;
     background:linear-gradient(180deg,var(--bg2),var(--bg));padding:12px;max-width:360px;margin:10px auto 0;
@@ -7399,7 +7411,7 @@ function openModal(html,wide,closeFn){
   setTimeout(initEffModal,0);
 }
 function dismissModal(){ const fn=window._modalCloseFn; window._modalCloseFn=null; (typeof fn==='function'?fn:closeModal)(); }
-function closeModal(){document.getElementById('overlay').classList.remove('active');document.body.classList.remove('m-modal-open');window._modalCloseFn=null;}
+function closeModal(){document.getElementById('overlay').classList.remove('active');document.body.classList.remove('m-modal-open');window._modalCloseFn=null; const ac=document.getElementById('hx-audio-ctrl'); if(ac) ac.style.removeProperty('display');}
 
 // ============ MANUALE DI GIOCO ============
 // Manuale a capitoli: indice a sinistra + contenuto scrollabile, navigabile con ◂/▸.
@@ -7924,6 +7936,8 @@ function openManual(i){
   if(typeof i==='number') _manualCh=i;
   openModal(buildManualShell(), true, closeModal);
   const m=document.getElementById('modal'); if(m) m.classList.add('manual');
+  // Nel manuale togliamo il controllo audio floating 🔊: su mobile coprirebbe la ✕ di chiusura.
+  const ac=document.getElementById('hx-audio-ctrl'); if(ac) ac.style.setProperty('display','none','important');
   renderManualChapter();
 }
 function manualGo(i){
