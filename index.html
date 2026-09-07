@@ -2590,6 +2590,11 @@ const HXAudio = (function(){
     bossFortezza: 'AUDIO/Boss fortezza.mp3',
     newEvent:     'AUDIO/Nuovo evento o missione.mp3',
     discoSegreto: 'AUDIO/Disco segreto.mp3',
+    armorZip:       'AUDIO/audio hexartha 2/sfx/equipment/armor-zip.wav',       // equipaggi un'armatura
+    helmetBuckle:   'AUDIO/audio hexartha 2/sfx/equipment/helmet-buckle.wav',   // equipaggi un casco
+    weaponMagazine: 'AUDIO/audio hexartha 2/sfx/equipment/weapon-magazine.wav', // equipaggi un'arma
+    supplyDrop:     'AUDIO/audio hexartha 2/sfx/events/supply-drop.wav',        // evento "Drop aiuti"
+    diceRoll:       'AUDIO/audio hexartha 2/sfx/dice/dice-roll-3.wav',          // tiro dei dadi (sostituisce il synth)
   };
   const _sampleEl={}, _sampleBroken={};
   function cardSynth(){ const s=noise(0.22,'bandpass',1600,0.9,0.35); if(s) s.bp.frequency.exponentialRampToValueAtTime(3200, s.t+0.2); }
@@ -2617,7 +2622,7 @@ const HXAudio = (function(){
     switch(name){
       case 'click':   tone(520,0.05,'triangle',0.10); break;
       case 'card':    playCardSample(); break;
-      case 'dice':    [0,60,120].forEach(ms=>setTimeout(()=>noise(0.05,'bandpass',2600,3,0.3),ms)); break;
+      case 'dice':    if(sample('diceRoll')===null){ [0,60,120].forEach(ms=>setTimeout(()=>noise(0.05,'bandpass',2600,3,0.3),ms)); } break;   // file utente; fallback synth se manca
       case 'combat':  tone(180,0.22,'triangle',0.35,70); noise(0.18,'bandpass',1400,1.2,0.40); break;
       case 'coin':    tone(920,0.12,'sine',0.22); setTimeout(()=>tone(1280,0.14,'sine',0.20),80); break;
       case 'win':     tone(523,0.18,'triangle',0.22); setTimeout(()=>tone(784,0.30,'triangle',0.22),150); break;
@@ -2704,6 +2709,13 @@ const HXAudio = (function(){
 
   return { fx, sample, ensure, startMusic, stopMusic, toggleMute, setMuted, setMusicVol, setFxVol, setPhase, setPhaseByDay, playScene };
 })();
+
+// Suono di equipaggiamento (solo per il GIOCATORE): arma→caricatore, armatura→zip, casco→fibbia del casco.
+function equipFx(slot){ try{
+  if(slot==='arma')          HXAudio.sample('weaponMagazine');
+  else if(slot==='armatura') HXAudio.sample('armorZip');
+  else if(slot==='casco')    HXAudio.sample('helmetBuckle');
+}catch(_){} }
 
 // ---------- Dati mappa (plancia reale — 43 tessere, coord "raddoppiate" col,v) ----------
 // Fonte: ZONES.md §4. Esagoni flat-top in 9 colonne (col 0 = ovest, col 8 = est).
@@ -6184,7 +6196,10 @@ function resolveZonaEvacuata(){
 // PASSO 1 (a video): rivelazione della carta Evento del giorno
 // Riconosce l'evento "Zona evacuata" (distruzione luoghi).
 function isZonaEvacuata(e){ return !!(e && (e.destroyLocations>0 || (e.destroyedKeys&&e.destroyedKeys.length))); }
-function eventSound(e){ try{ HXAudio.sample(isZonaEvacuata(e) ? 'alarm' : 'newEvent'); }catch(_){} }
+function eventSound(e){ try{
+  if(e && e.drop==='aiuti') HXAudio.sample('supplyDrop');            // "Drop aiuti" → carico di rifornimenti
+  else HXAudio.sample(isZonaEvacuata(e) ? 'alarm' : 'newEvent');
+}catch(_){} }
 function showEventCard(){
   const e=state.event, starter=state.dayStarter;
   eventSound(e);   // Zona evacuata → allarme; ogni altro nuovo evento → chime "Nuovo evento/missione"
@@ -7032,7 +7047,7 @@ function lockpickMineEquip(sec,i){
     state.you.pack[sec].splice(i,1); state.you.equip.gadget[gi]=it;
   } else if(['arma','armatura','casco'].includes(it.slot)){
     const cur=state.you.equip[it.slot];
-    state.you.pack[sec].splice(i,1); state.you.equip[it.slot]=it;
+    state.you.pack[sec].splice(i,1); state.you.equip[it.slot]=it; equipFx(it.slot);
     if(cur) packAdd(cur);
   } else return;
   recalcStats(); log(`🎒 Equipaggi <b>${it.name}</b>.`);
@@ -8160,7 +8175,7 @@ function lootEquip(i){
     state.you.equip.gadget[gi]=it;
   } else if(['arma','armatura','casco'].includes(it.slot)){
     if(state.you.equip[it.slot]) return invMsg(`Slot ${it.slot} occupato: rimuovi prima l'oggetto corrente.`);
-    state.you.equip[it.slot]=it;
+    state.you.equip[it.slot]=it; equipFx(it.slot);
   } else return;
   state.pendingLoot.splice(i,1); state.invSel=null; recalcStats();
   log(`🎒 Equipaggi <b>${it.name}</b> dal bottino.`,'good');
@@ -9681,7 +9696,7 @@ function depDragToSlot(srcLoc, dstKey){
     else y.pack[dp[1]]=y.pack[dp[1]].filter(x=>x!==dstItem);
     y.deposito.push(dstItem);
   }
-  if(dp[0]==='equip'){ if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else y.equip[dp[1]]=item; }
+  if(dp[0]==='equip'){ if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else { y.equip[dp[1]]=item; equipFx(dp[1]); } }
   else y.pack[dp[1]].push(item);
   recalcStats(); state.invSel=null;
   log(dstItem?`🔀 Prendi <b>${item.name}</b> dal magazzino (rimetti <b>${dstItem.name}</b>).`:`🎒 Prendi <b>${item.name}</b> dal magazzino.`);
@@ -9727,7 +9742,7 @@ function spoilDragToSlot(srcLoc, dstKey){
     const occ = dp[1]==='gadget' ? (y.equip.gadget[+dp[2]]||null) : (y.equip[dp[1]]||null);
     if(occ && packTotalFree()<=0){ log('🎒 Zaino pieno: l\'oggetto sostituito deve entrare nello zaino — libera spazio.','bad'); renderInventory(); return; }
     _lootRemaining.splice(si,1);
-    if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else y.equip[dp[1]]=item;
+    if(dp[1]==='gadget') y.equip.gadget[+dp[2]]=item; else { y.equip[dp[1]]=item; equipFx(dp[1]); }
     if(occ) packAdd(occ);
   }
   recalcStats(); state.invSel=null;
@@ -10963,7 +10978,7 @@ function invEquip(loc){
   }else{
     const cur=state.you.equip[slot];
     locRemove(loc);                    // libera lo slot zaino di partenza
-    state.you.equip[slot]=item;
+    state.you.equip[slot]=item; equipFx(slot);
     if(cur) packAdd(cur);              // l'oggetto sostituito torna nello zaino
   }
   recalcStats(); state.invSel=null; log(`🎒 Equipaggi <b>${item.name}</b>.`,"good"); renderInventory(); mpTouch();
